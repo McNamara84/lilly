@@ -1,0 +1,394 @@
+{
+  "meta": {
+    "name": "LILLY Screen Specifications",
+    "version": "1.0.0",
+    "description": "Machine-readable screen/page definitions for LILLY. Each screen describes its route, layout, components used, data requirements, and user interactions. Maps to SvelteKit file-based routes.",
+    "routing": "SvelteKit file-based routing (src/routes/)"
+  },
+
+  "screens": {
+
+    "dashboard": {
+      "route": "/",
+      "file": "src/routes/+page.svelte",
+      "title": "Dashboard",
+      "auth_required": true,
+      "description": "Main landing page after login. Shows collection overview, recent activity, and trade suggestions at a glance.",
+      "layout": {
+        "mobile": "Single column, vertically stacked sections",
+        "desktop": "Two-column layout: stats + recent activity (left), trade matches + quick actions (right)"
+      },
+      "sections": [
+        {
+          "id": "welcome_header",
+          "component": null,
+          "content": "Greeting with user display name and date. 'Willkommen zurück, {name}!'",
+          "style": "h2 heading, text.secondary for date"
+        },
+        {
+          "id": "stats_row",
+          "component": "StatsCard",
+          "repeat": 4,
+          "layout": "Horizontal scroll on mobile, 4-column grid on desktop",
+          "instances": [
+            { "label": "Gesamte Hefte", "icon": "Library", "data_source": "GET /api/v1/me/collection/stats" },
+            { "label": "Sammlungswert",  "icon": "TrendingUp", "data_source": "Percentage across all series" },
+            { "label": "Tauschbar",      "icon": "ArrowLeftRight", "data_source": "Count of status=duplicate" },
+            { "label": "Gesucht",        "icon": "Search", "data_source": "Count of status=wanted" }
+          ]
+        },
+        {
+          "id": "series_progress",
+          "component": "SeriesProgressBar",
+          "repeat": "per_series",
+          "description": "One progress bar per series the user collects. Ordered by completion percentage descending.",
+          "data_source": "GET /api/v1/me/collection/stats (grouped by series)"
+        },
+        {
+          "id": "trade_suggestions",
+          "component": "TradeMatchCard",
+          "repeat": "max 3",
+          "description": "Top 3 trade matches based on matching algorithm. 'Tausch-Vorschläge' header with 'Alle anzeigen' link.",
+          "data_source": "GET /api/v1/me/matches?limit=3"
+        },
+        {
+          "id": "recent_activity",
+          "component": null,
+          "description": "Timeline of recent actions: issues added, trades completed, messages received. Max 10 items.",
+          "data_source": "GET /api/v1/me/activity?limit=10"
+        }
+      ]
+    },
+
+    "collection": {
+      "route": "/collection",
+      "file": "src/routes/collection/+page.svelte",
+      "title": "Meine Sammlung",
+      "auth_required": true,
+      "description": "Full collection view with filtering, sorting, and the primary cover grid. This is where collectors spend most of their time.",
+      "sections": [
+        {
+          "id": "filter_bar",
+          "component": "CollectionFilterBar",
+          "position": "Sticky below TopBar",
+          "description": "Series selector, status chips, condition range, sort, inline search"
+        },
+        {
+          "id": "collection_grid",
+          "component": "CoverGrid",
+          "data_source": "GET /api/v1/me/collection?series={slug}&status={status}&condition_min={z}&condition_max={z}&sort={field}&q={search}&page={n}",
+          "pagination": "Infinite scroll with Intersection Observer",
+          "interactions": {
+            "tap_card": "Opens IssueDetailSheet for the tapped issue",
+            "long_press": "Enters multi-select mode for batch operations (mobile)",
+            "batch_actions": ["Mark as duplicate", "Mark as wanted", "Change condition", "Remove from collection"]
+          }
+        }
+      ],
+      "fab": {
+        "icon": "Plus",
+        "label": "Hefte hinzufügen",
+        "action": "Navigates to /collection/add",
+        "position": "Bottom-right, above BottomNav on mobile",
+        "style": "Brand primary filled button with glow shadow"
+      }
+    },
+
+    "collection_add": {
+      "route": "/collection/add",
+      "file": "src/routes/collection/add/+page.svelte",
+      "title": "Hefte hinzufügen",
+      "auth_required": true,
+      "description": "Browse a series and quickly add issues to collection. Optimized for fast batch adding.",
+      "sections": [
+        {
+          "id": "series_selector",
+          "component": null,
+          "description": "Large card buttons for each available series with cover art, name, and issue count. Cards use glassmorphism."
+        },
+        {
+          "id": "number_grid",
+          "description": "After selecting a series: grid of all issue numbers. Color-coded: green=owned, purple=duplicate, amber=wanted, gray=not in collection. Tap to toggle ownership. Long press for detail view.",
+          "visual": {
+            "cell_size": "48x48px on mobile, 56x56px on desktop",
+            "cell_style": "Rounded square with issue number centered. Uses collection_status colors.",
+            "cell_animation": "Spring scale + color fill animation on tap"
+          },
+          "interactions": {
+            "tap": "Cycles: missing → owned (Z2 default) → missing. Shows brief toast confirmation.",
+            "long_press": "Opens IssueDetailSheet for full detail entry (condition, notes, photos)",
+            "swipe_right": "Quick-mark as duplicate (shows purple flash)",
+            "batch_range": "Tap first number, hold shift (desktop) or tap 'Bereich' button (mobile), tap last number → all numbers in range added"
+          }
+        }
+      ]
+    },
+
+    "series_detail": {
+      "route": "/series/[slug]",
+      "file": "src/routes/series/[slug]/+page.svelte",
+      "title": "Seriendetail",
+      "auth_required": false,
+      "description": "Public series overview page. Shows all issues of a series with the user's collection status overlaid (if logged in).",
+      "sections": [
+        {
+          "id": "series_header",
+          "description": "Hero section with series name, publisher, genre, status badge (laufend/abgeschlossen), total issues count. Background: blurred random cover from the series.",
+          "style": "Full-width, glassmorphism overlay on blurred background image, 200px height"
+        },
+        {
+          "id": "series_stats",
+          "component": "SeriesProgressBar",
+          "description": "User's personal progress for this series. Only shown when logged in.",
+          "auth_required": true
+        },
+        {
+          "id": "issues_grid",
+          "component": "CoverGrid",
+          "data_source": "GET /api/v1/series/{slug}/issues?page={n}",
+          "description": "All issues in the series. If user is logged in, overlays show owned/wanted/duplicate status."
+        }
+      ]
+    },
+
+    "issue_detail": {
+      "route": "/issues/[id]",
+      "file": "src/routes/issues/[id]/+page.svelte",
+      "title": "Heftdetail",
+      "auth_required": false,
+      "description": "Full-page issue detail view. Alternative to IssueDetailSheet for direct linking and SEO.",
+      "sections": [
+        {
+          "id": "issue_header",
+          "description": "Large cover image (left on desktop, top on mobile), issue metadata (number, title, author, date, cycle), series breadcrumb link"
+        },
+        {
+          "id": "collection_panel",
+          "components": ["ConditionChips", "PhotoUploader"],
+          "auth_required": true,
+          "description": "Status toggle, condition selector, notes, photos. Glass card container."
+        },
+        {
+          "id": "trade_availability",
+          "description": "Shows how many collectors have this as duplicate (supply) and how many are seeking it (demand). Link to trade matching.",
+          "style": "Two StatsCards side by side: 'Verfügbar zum Tausch: N' and 'Gesucht von: N'"
+        },
+        {
+          "id": "comments_section",
+          "description": "Community comments and ratings. Star rating display + comment list + add comment form."
+        },
+        {
+          "id": "wiki_link",
+          "description": "External link to the source wiki article. 'Mehr im Maddraxikon →' button."
+        }
+      ]
+    },
+
+    "trades": {
+      "route": "/trades",
+      "file": "src/routes/trades/+page.svelte",
+      "title": "Tausch",
+      "auth_required": true,
+      "description": "Trade hub with two tabs: 'Matches' (suggested trades) and 'Aktive Tausche' (ongoing trades).",
+      "tabs": [
+        {
+          "id": "matches",
+          "label": "Vorschläge",
+          "icon": "Sparkles",
+          "component": "TradeMatchCard",
+          "data_source": "GET /api/v1/me/matches",
+          "empty_state": {
+            "icon": "ArrowLeftRight",
+            "title": "Noch keine Matches",
+            "description": "Markiere Hefte als 'Doppelt' oder 'Gesucht', damit wir passende Tauschpartner finden können."
+          }
+        },
+        {
+          "id": "active",
+          "label": "Aktive Tausche",
+          "icon": "Clock",
+          "description": "List of ongoing trades with status (proposed/accepted), partner info, and item summary. Tap to open trade detail.",
+          "data_source": "GET /api/v1/me/trades?status=proposed,accepted"
+        }
+      ]
+    },
+
+    "trade_detail": {
+      "route": "/trades/[id]",
+      "file": "src/routes/trades/[id]/+page.svelte",
+      "title": "Tausch-Details",
+      "auth_required": true,
+      "description": "Detail view of a single trade. Shows offered/requested items, status timeline, and integrated message thread.",
+      "sections": [
+        {
+          "id": "trade_header",
+          "description": "Status badge (vorgeschlagen/akzeptiert/abgeschlossen), partner info, created date"
+        },
+        {
+          "id": "trade_items",
+          "description": "Two-column view: 'Du bietest' and 'Du erhältst'. Each column shows CoverCards with condition badges.",
+          "layout": "Side-by-side on desktop, stacked on mobile with clear visual separator"
+        },
+        {
+          "id": "trade_actions",
+          "description": "Action buttons based on current status and user role (initiator vs responder)",
+          "actions": {
+            "proposed_responder": ["Annehmen (primary)", "Ablehnen (destructive)"],
+            "accepted_both": ["Als abgeschlossen markieren (primary)", "Abbrechen (destructive)"],
+            "completed": "Rating prompt for trade partner"
+          }
+        },
+        {
+          "id": "trade_messages",
+          "component": "MessageThread",
+          "description": "Inline message thread linked to this trade. For discussing shipping details etc."
+        }
+      ]
+    },
+
+    "messages": {
+      "route": "/messages",
+      "file": "src/routes/messages/+page.svelte",
+      "title": "Nachrichten",
+      "auth_required": true,
+      "description": "Message inbox. Shows conversation threads grouped by partner. Split view on desktop (thread list + active thread).",
+      "layout": {
+        "mobile": "Thread list only. Tap thread → navigates to /messages/[id]",
+        "desktop": "Master-detail split: thread list (320px left panel) + active MessageThread (right)"
+      },
+      "thread_list_item": {
+        "content": ["Partner avatar", "Partner name", "Last message preview (truncated)", "Timestamp", "Unread indicator dot"],
+        "style": "Glassmorphism card, highlight on hover, brand primary left border when unread"
+      }
+    },
+
+    "explore": {
+      "route": "/explore",
+      "file": "src/routes/explore/+page.svelte",
+      "title": "Entdecken",
+      "auth_required": false,
+      "description": "Public discovery page. Browse available series, view community stats, and find other collectors.",
+      "sections": [
+        {
+          "id": "series_showcase",
+          "description": "Horizontal scroll of series cards with cover art collage, name, genre badge, and issue count. Tap to navigate to series detail.",
+          "style": "Large cards (280px wide) with glassmorphism, cover art as blurred background"
+        },
+        {
+          "id": "community_stats",
+          "component": "StatsCard",
+          "instances": [
+            { "label": "Sammler",       "icon": "Users" },
+            { "label": "Hefte erfasst", "icon": "Library" },
+            { "label": "Tausche",       "icon": "ArrowLeftRight" }
+          ],
+          "description": "Aggregated platform statistics. Three cards in a row."
+        },
+        {
+          "id": "top_collectors",
+          "description": "Leaderboard-style list of most active public collectors. Avatar, name, total issues, completion percentage.",
+          "data_source": "GET /api/v1/users?sort=collection_size&limit=10"
+        },
+        {
+          "id": "most_wanted",
+          "description": "Grid of most-wanted issues across the platform. Shows cover + number of seekers.",
+          "data_source": "GET /api/v1/issues/most-wanted?limit=12"
+        }
+      ]
+    },
+
+    "profile": {
+      "route": "/profile",
+      "file": "src/routes/profile/+page.svelte",
+      "title": "Mein Profil",
+      "auth_required": true,
+      "description": "User profile page with settings. Doubles as the public profile view when navigated via /users/[name].",
+      "sections": [
+        {
+          "id": "profile_header",
+          "description": "Avatar (editable), display name, member since, location. Edit button for own profile. Glassmorphism hero card.",
+          "visual": "Large avatar (96px) with edit overlay on hover. Brand primary gradient accent stripe at top."
+        },
+        {
+          "id": "profile_stats",
+          "component": "SeriesProgressBar",
+          "repeat": "per_series",
+          "description": "Collection progress for each series. Visible if profile is public."
+        },
+        {
+          "id": "public_lists",
+          "tabs": [
+            { "label": "Tauschbar", "description": "Public list of duplicate items available for trade" },
+            { "label": "Wunschliste", "description": "Public list of wanted items" }
+          ],
+          "description": "Tabbed view of public trade/want lists. Each tab shows a CoverGrid. Shareable via direct link."
+        },
+        {
+          "id": "settings",
+          "description": "Profile settings section (only on own profile). Glass card container.",
+          "fields": [
+            { "name": "display_name", "type": "text", "label": "Anzeigename" },
+            { "name": "location", "type": "text", "label": "Standort (optional)" },
+            { "name": "profile_public", "type": "toggle", "label": "Profil öffentlich" },
+            { "name": "theme", "type": "ThemeToggle", "label": "Darstellung" },
+            { "name": "email", "type": "text", "label": "E-Mail", "readonly_hint": "Änderung per Verifizierung" }
+          ],
+          "danger_zone": {
+            "actions": ["Passwort ändern", "Daten exportieren (DSGVO)", "Account löschen"],
+            "style": "Red-bordered glass card at bottom"
+          }
+        }
+      ]
+    },
+
+    "public_profile": {
+      "route": "/users/[name]",
+      "file": "src/routes/users/[name]/+page.svelte",
+      "title": "Sammler-Profil",
+      "auth_required": false,
+      "description": "Public view of a collector's profile. Shows stats and public lists if profile_public is true. 404-style empty state if profile is private.",
+      "reuses": "profile (sections: profile_header, profile_stats, public_lists)"
+    },
+
+    "auth_login": {
+      "route": "/login",
+      "file": "src/routes/login/+page.svelte",
+      "title": "Anmelden",
+      "auth_required": false,
+      "description": "Login page with email/password form and OAuth buttons. Centered card layout.",
+      "visual": {
+        "layout": "Centered glassmorphism card (max 420px) on gradient background with subtle LILLY branding",
+        "background": "Subtle animated gradient mesh (brand primary + accent, very slow movement)"
+      },
+      "elements": [
+        "LILLY logo + tagline",
+        "Email input field",
+        "Password input field",
+        "Login button (primary)",
+        "Divider: 'oder weiter mit'",
+        "OAuth buttons: Google, GitHub (outlined style with provider icons)",
+        "Links: 'Passwort vergessen?', 'Noch kein Konto? Registrieren'"
+      ]
+    },
+
+    "auth_register": {
+      "route": "/register",
+      "file": "src/routes/register/+page.svelte",
+      "title": "Registrieren",
+      "auth_required": false,
+      "description": "Registration page. Same centered card layout as login.",
+      "elements": [
+        "LILLY logo + tagline",
+        "Display name input",
+        "Email input field",
+        "Password input field (with strength indicator)",
+        "Password confirmation field",
+        "DSGVO consent checkbox with link to privacy policy",
+        "Register button (primary)",
+        "Divider: 'oder weiter mit'",
+        "OAuth buttons: Google, GitHub",
+        "Link: 'Bereits ein Konto? Anmelden'"
+      ]
+    }
+  }
+}

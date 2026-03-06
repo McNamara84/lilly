@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "meta": {
+    "name": "LILLY Component Specifications",
+    "version": "1.0.0",
+    "description": "Machine-readable specifications for all UI components in LILLY. Each component includes its props, variants, states, and composition rules. Intended for use with Skeleton UI + Svelte 5.",
+    "framework": "Svelte 5 (Runes)",
+    "ui_library": "Skeleton UI",
+    "styling": "Tailwind CSS"
+  },
+
+  "components": {
+
+    "AppShell": {
+      "description": "Root layout component. Provides sidebar on desktop (>=1024px) and bottom navigation on mobile (<1024px). Uses Skeleton UI AppShell.",
+      "file": "src/lib/components/layout/AppShell.svelte",
+      "structure": {
+        "desktop": ["Sidebar (left, fixed)", "TopBar (sticky)", "MainContent (scrollable)"],
+        "mobile": ["TopBar (sticky)", "MainContent (scrollable)", "BottomNav (fixed)"]
+      },
+      "slots": ["default (main content)"],
+      "behavior": {
+        "sidebar_collapse": "Toggle between full (280px) and icon-only (72px) mode via button. State persisted in localStorage.",
+        "responsive": "Below lg breakpoint (1024px), sidebar is hidden and BottomNav appears."
+      }
+    },
+
+    "Sidebar": {
+      "description": "Desktop navigation sidebar with glassmorphism effect. Shows nav items with icons and labels. Collapsible to icon-only mode.",
+      "file": "src/lib/components/layout/Sidebar.svelte",
+      "style": "glassmorphism.sidebar",
+      "nav_items": [
+        { "icon": "LayoutGrid",    "label": "Dashboard",     "route": "/",              "description": "Collection overview and stats" },
+        { "icon": "Library",       "label": "Sammlung",      "route": "/collection",    "description": "Full collection view with filters" },
+        { "icon": "ArrowLeftRight","label": "Tausch",         "route": "/trades",        "description": "Trade matching and active trades" },
+        { "icon": "MessageCircle", "label": "Nachrichten",    "route": "/messages",      "description": "Internal messaging system" },
+        { "icon": "Search",        "label": "Entdecken",      "route": "/explore",       "description": "Browse series, public collections" },
+        { "icon": "User",          "label": "Profil",         "route": "/profile",       "description": "User profile and settings" }
+      ],
+      "props": {
+        "collapsed": { "type": "boolean", "default": false, "description": "Whether sidebar is in icon-only mode." }
+      },
+      "features": ["Active route highlighting with brand primary glow", "Unread message badge on Nachrichten item", "Collapse toggle button at bottom"]
+    },
+
+    "BottomNav": {
+      "description": "Mobile bottom navigation bar. Shows 5 primary destinations with icons. Visible only below lg breakpoint.",
+      "file": "src/lib/components/layout/BottomNav.svelte",
+      "style": "glassmorphism.navbar",
+      "height": "64px",
+      "items": [
+        { "icon": "LayoutGrid",     "label": "Home",        "route": "/" },
+        { "icon": "Library",        "label": "Sammlung",    "route": "/collection" },
+        { "icon": "ArrowLeftRight", "label": "Tausch",      "route": "/trades" },
+        { "icon": "MessageCircle",  "label": "Nachrichten", "route": "/messages" },
+        { "icon": "User",           "label": "Profil",      "route": "/profile" }
+      ],
+      "behavior": {
+        "active_indicator": "Pill-shaped highlight behind active icon with brand primary color and subtle glow.",
+        "badge": "Numeric badge on Nachrichten for unread count.",
+        "safe_area": "Respects safe-area-inset-bottom for notched devices."
+      }
+    },
+
+    "TopBar": {
+      "description": "Sticky top bar with glassmorphism. Shows LILLY logo/wordmark, search trigger, theme toggle, and notification bell.",
+      "file": "src/lib/components/layout/TopBar.svelte",
+      "style": "glassmorphism.navbar",
+      "height": "56px",
+      "elements": {
+        "left": "Logo (LILLY wordmark, brand primary color)",
+        "center": "Search trigger button (opens CommandPalette)",
+        "right": ["ThemeToggle (sun/moon icon)", "NotificationBell (with badge)", "UserAvatar (links to profile)"]
+      }
+    },
+
+    "CommandPalette": {
+      "description": "Global search overlay (Cmd+K / Ctrl+K). Searches across series, issues, and users. Glassmorphism modal with elevated card style.",
+      "file": "src/lib/components/search/CommandPalette.svelte",
+      "style": "glassmorphism.card_elevated",
+      "trigger": "Keyboard shortcut Cmd+K / Ctrl+K, or search icon in TopBar",
+      "sections": [
+        { "label": "Serien",   "icon": "BookOpen",  "description": "Search series by name" },
+        { "label": "Hefte",    "icon": "FileText",  "description": "Search issues by title, number, or author" },
+        { "label": "Sammler",  "icon": "Users",     "description": "Search public collector profiles" }
+      ],
+      "behavior": {
+        "debounce": "300ms input debounce before API call",
+        "keyboard_navigation": "Arrow keys to navigate, Enter to select, Escape to close",
+        "recent_searches": "Show last 5 searches when input is empty"
+      }
+    },
+
+    "CoverCard": {
+      "description": "Primary visual element: displays a single Heftroman cover with status overlay. Used in grids, search results, and trade views.",
+      "file": "src/lib/components/collection/CoverCard.svelte",
+      "props": {
+        "issue": { "type": "Issue", "required": true, "description": "Issue data including cover_url, title, issue_number" },
+        "collection_entry": { "type": "CollectionEntry | null", "required": false, "description": "If present, shows ownership status and condition" },
+        "size": { "type": "'sm' | 'md' | 'lg'", "default": "md", "description": "sm=100px, md=140px, lg=200px width" },
+        "interactive": { "type": "boolean", "default": true, "description": "Whether card is clickable/hoverable" }
+      },
+      "visual": {
+        "aspect_ratio": "2:3 (standard Heftroman proportion)",
+        "border_radius": "lg (0.75rem)",
+        "hover_effect": "Scale 1.05 with glow shadow, 200ms spring easing",
+        "loading": "Skeleton placeholder with shimmer animation matching card dimensions"
+      },
+      "overlays": {
+        "condition_badge": {
+          "position": "top-right",
+          "content": "Z0–Z5 label",
+          "style": "Small pill badge, colored per condition.Z* token, backdrop-blur"
+        },
+        "status_indicator": {
+          "position": "bottom, full-width",
+          "variants": {
+            "owned": "Subtle cyan bottom border glow",
+            "duplicate": "Purple badge with 'Doppelt' label",
+            "wanted": "Amber pulsing dot indicator",
+            "missing": "No indicator, cover shown at 40% opacity with dashed border"
+          }
+        },
+        "issue_number": {
+          "position": "top-left",
+          "content": "#NNN",
+          "style": "Glass pill with mono font, always visible"
+        }
+      }
+    },
+
+    "CoverGrid": {
+      "description": "Responsive grid of CoverCards. Primary view for browsing a series or collection. Uses CSS Grid with auto-fill.",
+      "file": "src/lib/components/collection/CoverGrid.svelte",
+      "props": {
+        "items": { "type": "Array<{issue: Issue, entry?: CollectionEntry}>", "required": true },
+        "min_column_width": { "type": "string", "default": "140px", "description": "Minimum column width for CSS Grid auto-fill" },
+        "loading": { "type": "boolean", "default": false },
+        "empty_message": { "type": "string", "default": "Keine Hefte gefunden." }
+      },
+      "css": "display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--min-col), 1fr)); gap: 1rem;",
+      "features": [
+        "Virtualized scrolling for 500+ items (svelte-virtual-list or similar)",
+        "Skeleton loading state shows 12 placeholder cards with shimmer",
+        "Intersection Observer for lazy loading cover images"
+      ]
+    },
+
+    "SeriesProgressBar": {
+      "description": "Visual progress indicator for collection completeness of a series. Shows owned/total with animated bar.",
+      "file": "src/lib/components/collection/SeriesProgressBar.svelte",
+      "props": {
+        "series_name": { "type": "string", "required": true },
+        "owned_count": { "type": "number", "required": true },
+        "total_count": { "type": "number", "required": true },
+        "duplicate_count": { "type": "number", "default": 0 }
+      },
+      "visual": {
+        "bar_height": "8px",
+        "bar_radius": "full",
+        "bar_background": "surface.overlay",
+        "bar_fill": "Gradient from brand.primary.500 to brand.accent.500",
+        "bar_animation": "Width transition 500ms with spring easing on mount",
+        "label": "'{owned} von {total} — {percentage}%' in body_small style",
+        "duplicate_indicator": "Small purple segment at end of bar if duplicates > 0"
+      }
+    },
+
+    "IssueDetailSheet": {
+      "description": "Bottom sheet (mobile) or side panel (desktop) showing full details of a single issue. Glassmorphism elevated card.",
+      "file": "src/lib/components/collection/IssueDetailSheet.svelte",
+      "trigger": "Tap/click on CoverCard",
+      "style": "glassmorphism.card_elevated",
+      "layout": {
+        "mobile": "Bottom sheet, slides up from bottom, max 85vh, draggable handle",
+        "desktop": "Side panel, slides in from right, 420px width"
+      },
+      "sections": [
+        {
+          "name": "header",
+          "content": ["Large cover image (swipeable if user has photos)", "Issue number + title", "Author + publication date", "Cycle/arc name"]
+        },
+        {
+          "name": "collection_actions",
+          "content": ["Status toggle (owned/duplicate/wanted)", "Condition selector (Z0–Z5 chips)", "Notes textarea", "Photo upload button"],
+          "description": "Only shown for authenticated users"
+        },
+        {
+          "name": "community",
+          "content": ["Average community rating (stars)", "Comments list", "Add comment form"],
+          "description": "Visible to all, writable for authenticated users"
+        },
+        {
+          "name": "trade_info",
+          "content": ["Number of collectors who have this issue as duplicate", "Number of collectors seeking this issue", "Quick trade match button"],
+          "description": "Shows trade availability at a glance"
+        }
+      ]
+    },
+
+    "ConditionChips": {
+      "description": "Horizontal chip group for selecting Heftroman condition grade Z0–Z5. Single-select.",
+      "file": "src/lib/components/collection/ConditionChips.svelte",
+      "props": {
+        "value": { "type": "'Z0'|'Z1'|'Z2'|'Z3'|'Z4'|'Z5'|null", "required": true },
+        "on_change": { "type": "(grade: string) => void", "required": true },
+        "disabled": { "type": "boolean", "default": false }
+      },
+      "chips": [
+        { "value": "Z0", "label": "Z0", "sublabel": "Neuwertig",      "color": "condition.Z0" },
+        { "value": "Z1", "label": "Z1", "sublabel": "Sehr gut",       "color": "condition.Z1" },
+        { "value": "Z2", "label": "Z2", "sublabel": "Gut",            "color": "condition.Z2" },
+        { "value": "Z3", "label": "Z3", "sublabel": "Akzeptabel",     "color": "condition.Z3" },
+        { "value": "Z4", "label": "Z4", "sublabel": "Mängel",         "color": "condition.Z4" },
+        { "value": "Z5", "label": "Z5", "sublabel": "Schlecht",       "color": "condition.Z5" }
+      ],
+      "visual": {
+        "unselected": "Glass background, muted text",
+        "selected": "Filled with respective condition color, white text, subtle glow",
+        "transition": "Scale spring animation on select"
+      }
+    },
+
+    "TradeMatchCard": {
+      "description": "Card showing a potential trade match between current user and another collector. Shows what each side offers/seeks.",
+      "file": "src/lib/components/trade/TradeMatchCard.svelte",
+      "style": "glassmorphism.card",
+      "props": {
+        "match": { "type": "TradeMatch", "required": true, "description": "Contains partner info, offered items, requested items, match score" }
+      },
+      "layout": {
+        "top": "Partner avatar + display name + location (if public)",
+        "middle": "Two columns: 'Du bietest' (your duplicates they want) | 'Du erhältst' (their duplicates you want). Each shows mini CoverCards.",
+        "bottom": "Match score indicator + 'Tausch vorschlagen' CTA button"
+      },
+      "visual": {
+        "match_score": "Circular progress ring showing match quality percentage",
+        "divider": "Vertical glassmorphism divider between offer columns with ArrowLeftRight icon"
+      }
+    },
+
+    "MessageThread": {
+      "description": "Chat-like message thread between two users, optionally linked to a trade. Bubble layout.",
+      "file": "src/lib/components/messages/MessageThread.svelte",
+      "props": {
+        "thread_id": { "type": "string", "required": true },
+        "partner": { "type": "UserProfile", "required": true }
+      },
+      "layout": {
+        "header": "Partner avatar + name + trade reference link (if linked)",
+        "messages": "Scrollable list, own messages right-aligned (brand primary), partner messages left-aligned (glass card)",
+        "input": "Fixed bottom: text input + send button. Glassmorphism background."
+      }
+    },
+
+    "CollectionFilterBar": {
+      "description": "Horizontal filter/sort bar above CoverGrid. Sticky below TopBar on scroll.",
+      "file": "src/lib/components/collection/CollectionFilterBar.svelte",
+      "style": "glassmorphism.navbar",
+      "filters": [
+        { "name": "series", "type": "select", "label": "Serie", "description": "Dropdown to filter by series" },
+        { "name": "status", "type": "chip_group", "options": ["Alle", "Vorhanden", "Doppelt", "Gesucht", "Fehlend"], "description": "Quick filter chips" },
+        { "name": "condition", "type": "range", "min": "Z0", "max": "Z5", "description": "Condition range slider" },
+        { "name": "sort", "type": "select", "options": ["Heftnummer", "Titel", "Zustand", "Hinzugefügt"], "description": "Sort order" },
+        { "name": "search", "type": "text", "placeholder": "Titel oder Autor...", "description": "Inline text filter" }
+      ]
+    },
+
+    "StatsCard": {
+      "description": "Dashboard statistic card showing a single KPI with label, value, and optional trend. Used on Dashboard and Profile pages.",
+      "file": "src/lib/components/stats/StatsCard.svelte",
+      "style": "glassmorphism.card",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "e.g. 'Gesamte Hefte'" },
+        "value": { "type": "string | number", "required": true, "description": "e.g. '1.247'" },
+        "icon": { "type": "LucideIcon", "required": false },
+        "trend": { "type": "{ direction: 'up'|'down', value: string } | null", "required": false, "description": "e.g. '+12 diese Woche'" }
+      },
+      "visual": {
+        "value_style": "typography.styles.stat_number",
+        "icon": "Top-right corner, brand primary color at 20% opacity, 48px",
+        "trend_positive": "Green text with ChevronUp icon",
+        "trend_negative": "Red text with ChevronDown icon"
+      }
+    },
+
+    "PhotoUploader": {
+      "description": "Photo upload component for documenting Heftroman condition. Supports camera capture (mobile) and file selection.",
+      "file": "src/lib/components/media/PhotoUploader.svelte",
+      "props": {
+        "entry_id": { "type": "number", "required": true },
+        "existing_photos": { "type": "Array<CollectionPhoto>", "default": [] },
+        "max_photos": { "type": "number", "default": 4 }
+      },
+      "features": [
+        "Drag-and-drop zone with dashed border",
+        "Camera capture button (uses navigator.mediaDevices on mobile)",
+        "Photo preview grid with reorder drag handles",
+        "Delete button with confirmation",
+        "Upload progress indicator per photo",
+        "Client-side image compression before upload (max 2048px, 85% JPEG quality)"
+      ]
+    },
+
+    "ThemeToggle": {
+      "description": "Animated toggle button for switching between light, dark, and system theme. Shows sun/moon/monitor icon.",
+      "file": "src/lib/components/ui/ThemeToggle.svelte",
+      "states": ["light", "dark", "system"],
+      "behavior": "Cycles through: system → light → dark → system. Respects prefers-color-scheme when set to system. Persists choice in localStorage.",
+      "animation": "Icon rotates and scales during transition (200ms spring easing)"
+    },
+
+    "EmptyState": {
+      "description": "Friendly empty state illustration with CTA. Used when lists/grids have no data.",
+      "file": "src/lib/components/ui/EmptyState.svelte",
+      "props": {
+        "icon": { "type": "LucideIcon", "required": true },
+        "title": { "type": "string", "required": true },
+        "description": { "type": "string", "required": false },
+        "action_label": { "type": "string", "required": false },
+        "action_href": { "type": "string", "required": false }
+      },
+      "visual": {
+        "icon_size": "64px, brand primary at 30% opacity",
+        "layout": "Centered vertically and horizontally, max-width 400px"
+      }
+    }
+  }
+}
