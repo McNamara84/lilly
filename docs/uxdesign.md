@@ -142,7 +142,7 @@ Die fünf primären Navigationsziele sind in Sidebar und BottomNav identisch:
 
 | Icon | Label | Route | Funktion |
 |---|---|---|---|
-| LayoutGrid | Dashboard | `/` | Übersicht, Statistiken, Schnellzugriff |
+| LayoutGrid | Übersicht | `/` | Übersicht, Statistiken, Schnellzugriff |
 | Library | Sammlung | `/collection` | Eigene Sammlung verwalten |
 | ArrowLeftRight | Tausch | `/trades` | Tausch-Matching und aktive Tausche |
 | MessageCircle | Nachrichten | `/messages` | Internes Nachrichtensystem |

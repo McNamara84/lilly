@@ -18,7 +18,7 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 
 ## Architecture
 
-- Monorepo: `frontend/`, `backend/`, `importer/`, `docs/`
+- Planned monorepo structure: `frontend/`, `backend/`, `importer/`, `docs/` (only `docs/` exists during the planning phase)
 - See `docs/architecture.md` for system design, request flow, and container setup.
 - See `docs/requirements.md` for functional and non-functional requirements.
 - See `docs/uxdesign.md`, `docs/design-tokens.json`, `docs/components.json`, `docs/screens.json` for UI/UX specs.

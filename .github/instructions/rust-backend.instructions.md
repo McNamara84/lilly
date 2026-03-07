@@ -14,7 +14,7 @@ applyTo: ["backend/**", "importer/**"]
 ## Database (SQLx + MariaDB)
 
 - Use `sqlx::query!` / `sqlx::query_as!` macros for compile-time SQL verification.
-- Never use raw string queries — always parameterized via SQLx prepared statements.
+- Avoid building SQL strings dynamically; always use SQLx parameter binding / prepared statements (`query!`, `query_as!`).
 - Place migrations in `backend/migrations/` managed by SQLx CLI.
 - Use transactions for multi-step operations that must be atomic.
 

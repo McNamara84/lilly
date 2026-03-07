@@ -6,7 +6,7 @@
     "routing": "SvelteKit file-based routing (src/routes/)",
     "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/routes/ means frontend/src/routes/ in the monorepo).",
     "i18n_note": "All user-facing strings in this file (labels, titles, descriptions shown to users) are German (de-DE) placeholder examples. In implementation, replace them with Paraglide.js i18n keys — do not hardcode these strings.",
-    "section_schema": "Each section uses 'component' (string|null) for the primary component. If a section composes multiple components, 'includes' (string[]) lists all contained components."
+    "section_schema": "Each section uses 'component' (string|null) for the primary component. If a section composes multiple components, 'includes' (string[]) lists all contained components. 'repeat' is always an object: { kind: 'fixed', count: N } for a known number of instances, or { kind: 'dynamic', per: '<entity>' } for data-driven repetition."
   },
 
   "screens": {
@@ -31,7 +31,7 @@
         {
           "id": "stats_row",
           "component": "StatsCard",
-          "repeat": 4,
+          "repeat": { "kind": "fixed", "count": 4 },
           "layout": "Horizontal scroll on mobile, 4-column grid on desktop",
           "instances": [
             { "label": "Gesamte Hefte", "icon": "Library", "data_source": "GET /api/v1/me/collection/stats" },
@@ -43,14 +43,14 @@
         {
           "id": "series_progress",
           "component": "SeriesProgressBar",
-          "repeat": "per_series",
+          "repeat": { "kind": "dynamic", "per": "series" },
           "description": "One progress bar per series the user collects. Ordered by completion percentage descending.",
           "data_source": "GET /api/v1/me/collection/stats (grouped by series)"
         },
         {
           "id": "trade_suggestions",
           "component": "TradeMatchCard",
-          "repeat": "max 3",
+          "repeat": { "kind": "fixed", "count": 3 },
           "description": "Top 3 trade matches based on matching algorithm. 'Tausch-Vorschläge' header with 'Alle anzeigen' link.",
           "data_source": "GET /api/v1/me/matches?limit=3"
         },
@@ -316,7 +316,7 @@
         {
           "id": "profile_stats",
           "component": "SeriesProgressBar",
-          "repeat": "per_series",
+          "repeat": { "kind": "dynamic", "per": "series" },
           "description": "Collection progress for each series. Visible if profile is public."
         },
         {

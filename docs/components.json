@@ -31,7 +31,7 @@
       "file": "src/lib/components/layout/Sidebar.svelte",
       "style": "glassmorphism.sidebar",
       "nav_items": [
-        { "icon": "LayoutGrid",    "label": "Dashboard",     "route": "/",              "description": "Collection overview and stats" },
+        { "icon": "LayoutGrid",    "label": "Übersicht",     "route": "/",              "description": "Collection overview and stats" },
         { "icon": "Library",       "label": "Sammlung",      "route": "/collection",    "description": "Full collection view with filters" },
         { "icon": "ArrowLeftRight","label": "Tausch",         "route": "/trades",        "description": "Trade matching and active trades" },
         { "icon": "MessageCircle", "label": "Nachrichten",    "route": "/messages",      "description": "Internal messaging system" },
@@ -50,7 +50,7 @@
       "style": "glassmorphism.navbar",
       "height": "64px",
       "items": [
-        { "icon": "LayoutGrid",     "label": "Dashboard",   "route": "/" },
+        { "icon": "LayoutGrid",     "label": "Übersicht",   "route": "/" },
         { "icon": "Library",        "label": "Sammlung",    "route": "/collection" },
         { "icon": "ArrowLeftRight", "label": "Tausch",      "route": "/trades" },
         { "icon": "MessageCircle",  "label": "Nachrichten", "route": "/messages" },
