@@ -138,7 +138,7 @@ Die App verwendet ein adaptives Shell-Layout, das sich am Breakpoint `lg` (1024p
 
 ### 4.2 Navigationsstruktur
 
-Die fünf Hauptbereiche (identisch in Sidebar und BottomNav):
+Die fünf primären Navigationsziele sind in Sidebar und BottomNav identisch:
 
 | Icon | Label | Route | Funktion |
 |---|---|---|---|
@@ -148,7 +148,7 @@ Die fünf Hauptbereiche (identisch in Sidebar und BottomNav):
 | MessageCircle | Nachrichten | `/messages` | Internes Nachrichtensystem |
 | User | Profil | `/profile` | Eigenes Profil und Einstellungen |
 
-Zusätzlich gibt es den Bereich **Entdecken** (`/explore`), der über die globale Suche (Command Palette) und als Unterbereich der Sidebar erreichbar ist.
+Die Sidebar enthält zusätzlich den sekundären Eintrag **Entdecken** (`/explore`, Icon: Search), der unterhalb der fünf Haupteinträge platziert ist. In der BottomNav ist Entdecken nicht enthalten – der Bereich ist mobil über die globale Suche (Command Palette) erreichbar.
 
 ### 4.3 Globale Suche (Command Palette)
 

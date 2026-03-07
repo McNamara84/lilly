@@ -50,7 +50,7 @@
       "style": "glassmorphism.navbar",
       "height": "64px",
       "items": [
-        { "icon": "LayoutGrid",     "label": "Home",        "route": "/" },
+        { "icon": "LayoutGrid",     "label": "Dashboard",   "route": "/" },
         { "icon": "Library",        "label": "Sammlung",    "route": "/collection" },
         { "icon": "ArrowLeftRight", "label": "Tausch",      "route": "/trades" },
         { "icon": "MessageCircle",  "label": "Nachrichten", "route": "/messages" },
@@ -134,7 +134,7 @@
       "description": "Responsive grid of CoverCards. Primary view for browsing a series or collection. Uses CSS Grid with auto-fill.",
       "file": "src/lib/components/collection/CoverGrid.svelte",
       "props": {
-        "items": { "type": "Array<{issue: Issue, entry?: CollectionEntry}>", "required": true },
+        "items": { "type": "Array<{issue: Issue, collection_entry?: CollectionEntry}>", "required": true },
         "min_column_width": { "type": "string", "default": "140px", "description": "Minimum column width for CSS Grid auto-fill" },
         "loading": { "type": "boolean", "default": false },
         "empty_message": { "type": "string", "default": "Keine Hefte gefunden." }
@@ -204,7 +204,7 @@
       "file": "src/lib/components/collection/ConditionChips.svelte",
       "props": {
         "value": { "type": "'Z0'|'Z1'|'Z2'|'Z3'|'Z4'|'Z5'|null", "required": true },
-        "on_change": { "type": "(grade: string) => void", "required": true },
+        "on_change": { "type": "(grade: 'Z0'|'Z1'|'Z2'|'Z3'|'Z4'|'Z5') => void", "required": true },
         "disabled": { "type": "boolean", "default": false }
       },
       "chips": [
