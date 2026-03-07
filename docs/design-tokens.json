@@ -1,5 +1,5 @@
 {
-  "$description": "Design tokens for LILLY. This file uses a flat key-value structure for simplicity and is not conformant with the DTCG $value format.",
+  "$description": "Design tokens for LILLY. Values are organized in a nested hierarchy (e.g. color.brand.primary.500) with plain values instead of DTCG $value token objects.",
   "meta": {
     "name": "LILLY Design Tokens",
     "version": "1.0.0",

@@ -255,7 +255,21 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **GET** | `/api/v1/users` | Nein | Öffentliche Sammler-Liste (sortier-/filterbar) |
 | **GET** | `/api/v1/issues/most-wanted` | Nein | Meistgesuchte Hefte plattformweit |
 
-### 5.2 Authentifizierung
+### 5.2 Abgeleiteter Status "Fehlend" (missing)
+
+Der Status `missing` wird **nicht** in der Datenbank gespeichert. Er ist ein abgeleiteter (virtueller) Status, der sich aus der Differenz zwischen der Gesamtmenge der Hefte einer Serie (`issues`-Tabelle) und den Sammlungseinträgen des Nutzers (`collection_entries`-Tabelle) ergibt.
+
+**Berechnung:** Ein Heft gilt als `missing`, wenn für die Kombination `(user_id, issue_id)` kein Eintrag in `collection_entries` existiert.
+
+**API-Verhalten bei `GET /api/v1/me/collection?status=missing`:**
+
+Wird der Filter `status=missing` angefragt, führt das Backend einen LEFT JOIN von `issues` (gefiltert nach Serie) auf `collection_entries` (gefiltert nach User) durch und liefert nur die Hefte zurück, die **keinen** zugehörigen Sammlungseintrag haben. Die Response enthält dann Issue-Objekte ohne `collection_entry`-Daten.
+
+**API-Verhalten bei `GET /api/v1/series/{slug}/issues` (authentifiziert):**
+
+Wenn ein authentifizierter Nutzer die Heftliste einer Serie abruft, reichert das Backend die Response optional mit dem Sammlungsstatus pro Heft an (owned/duplicate/wanted/null). Hefte mit `null`-Status gelten im Frontend als `missing`.
+
+### 5.3 Authentifizierung
 
 Die Authentifizierung basiert auf einem JWT-Paar:
 

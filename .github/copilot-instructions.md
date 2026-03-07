@@ -13,6 +13,7 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 ## Language
 
 - All code, comments, variable names, function names, commit messages, and documentation in code must be written in **English**.
+- The `docs/` folder contains **German-language** product specifications and planning documents. This is intentional — the primary audience and domain are German-speaking. These are not "documentation in code" and are exempt from the English rule.
 - The user communicates in German — respond in German but never write code or comments in German.
 
 ## Architecture

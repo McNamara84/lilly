@@ -4,7 +4,8 @@
     "version": "1.0.0",
     "description": "Machine-readable screen/page definitions for LILLY. Each screen describes its route, layout, components used, data requirements, and user interactions. Maps to SvelteKit file-based routes.",
     "routing": "SvelteKit file-based routing (src/routes/)",
-    "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/routes/ means frontend/src/routes/ in the monorepo)."
+    "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/routes/ means frontend/src/routes/ in the monorepo).",
+    "i18n_note": "All user-facing strings in this file (labels, titles, descriptions shown to users) are de-locale examples. In implementation, use Paraglide.js i18n keys instead of hardcoding these strings."
   },
 
   "screens": {
