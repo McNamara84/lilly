@@ -32,7 +32,7 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 |---|---|
 | **Projektname** | LILLY – Listing Inventory for Lovely Little Yellowbacks |
 | **Projekttyp** | Open-Source-Webanwendung (PWA) |
-| **Lizenz** | Open Source (MIT oder GPL – finale Wahl offen) |
+| **Lizenz** | Open Source (GPLv3) |
 | **Zielgruppe** | Sammler/innen deutschsprachiger Heftromane |
 | **Initiale Serien** | Maddrax – Die dunkle Zukunft der Erde; Geisterjäger John Sinclair |
 | **Datenquellen** | Maddraxikon (de.maddraxikon.com); Gruselroman-Wiki (gruselroman-wiki.de) |
@@ -53,7 +53,7 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 
 ### 2.2 Organisatorische Rahmenbedingungen
 
-- **Open Source:** Der gesamte Quellcode wird unter einer Open-Source-Lizenz (MIT oder GPL) veröffentlicht. Community-Beiträge sind erwünscht.
+- **Open Source:** Der gesamte Quellcode wird unter der GNU General Public License v3.0 (GPLv3) veröffentlicht. Community-Beiträge sind erwünscht.
 - **Kein kommerzielles Geschäftsmodell:** LILLY ist ein Community-Projekt. Es wird kein Unternehmen gegründet. Es gibt keinen Verkauf, keine Provisionen, keine Werbung.
 - **Datenschutz:** Konformität mit der DSGVO ist erforderlich, insbesondere hinsichtlich Nutzerdaten, Profil-Öffentlichkeit und Nachrichten.
 - **Urheberrecht:** Cover-Bilder aus den Fan-Wikis dürfen nur unter Beachtung der jeweiligen Lizenzbedingungen der Wikis eingebunden werden. Nutzer-Uploads unterliegen der Verantwortung der Nutzer.
@@ -155,7 +155,7 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 ### 4.3 Sicherheit
 
 - HTTPS-Pflicht für alle Verbindungen.
-- Passwort-Hashing mit bcrypt oder Argon2.
+- Passwort-Hashing mit argon2id.
 - Schutz gegen gängige Angriffsvektoren: SQL Injection, XSS, CSRF.
 - Rate Limiting für Authentifizierungs-Endpunkte und API-Zugriffe.
 - Upload-Validierung: nur erlaubte Dateitypen (JPEG, PNG, WebP), maximale Dateigröße pro Upload.

@@ -156,7 +156,7 @@ Detailed planning documents are located in the [`docs/`](docs/) folder:
 
 ## License
 
-Open Source – final license choice (MIT or GPL) is pending.
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
 
 ---
 

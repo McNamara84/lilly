@@ -48,7 +48,7 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 | **Backend / API** | Rust + Axum | Async HTTP-Framework auf Basis von Tokio, Tower-Middleware, modularer Router |
 | **Datenbank** | MariaDB 11.x | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität |
 | **DB-Zugriff** | SQLx | Compile-time verified SQL-Queries, async, kein ORM-Overhead, Migrations-System |
-| **Authentifizierung** | Eigenbau: JWT + argon2 | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub |
+| **Authentifizierung** | Eigenbau: JWT + argon2id | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub |
 | **API-Spezifikation** | OpenAPI 3.1 / Swagger | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool |
 | **Dateispeicher** | Lokales Dateisystem | Strukturiertes Verzeichnis, Caddy Static Serving, automatische Bildkompression |
 | **Reverse Proxy** | Caddy v2 | Automatisches HTTPS via Let's Encrypt, minimale Konfiguration, HTTP/2 + HTTP/3 |
