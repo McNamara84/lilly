@@ -186,13 +186,14 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
 | `user_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf users.id (ON DELETE CASCADE) |
 | `issue_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf issues.id |
+| `copy_number` | TINYINT UNSIGNED | NOT NULL, DEF 1 | Exemplarnummer (1 = Erstexemplar, 2+ = weitere Auflagen/Kopien, vgl. SV-009) |
 | `condition_grade` | ENUM | NOT NULL | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4' \| 'Z5' |
 | `status` | ENUM | NOT NULL | 'owned' \| 'duplicate' \| 'wanted' |
 | `notes` | TEXT | NULL | Persönliche Notizen |
 | `created_at` | TIMESTAMP | NOT NULL | Zeitpunkt der Erfassung |
 | `updated_at` | TIMESTAMP | NOT NULL | Letzte Änderung |
 
-*Unique Index: `(user_id, issue_id, status)` – ein Nutzer kann dasselbe Heft als „owned" und „duplicate" haben, aber nicht doppelt im selben Status.*
+*Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe Heft mehrfach erfassen (verschiedene Auflagen/Kopien gemäß SV-009), aber jede Kopie ist eindeutig identifiziert.*
 
 ### 4.5 Tabelle: `collection_photos`
 
@@ -356,7 +357,7 @@ Sensible Konfigurationswerte werden über eine `.env`-Datei injiziert:
 
 - **Datenbank:** Täglicher `mysqldump` per Cronjob, komprimiert, Rotation der letzten 14 Tage.
 - **Media-Dateien:** Inkrementelles Backup via `rsync` auf externen Speicher.
-- **Konfiguration:** `docker-compose.yml` und `.env` werden im Git-Repository versioniert (ohne Secrets).
+- **Konfiguration:** `docker-compose.yml` und `.env.example` werden im Git-Repository versioniert. Die eigentliche `.env`-Datei enthält Secrets und wird über `.gitignore` ausgeschlossen; sie wird ausschließlich lokal oder über einen Secret-Manager bereitgestellt.
 
 ---
 

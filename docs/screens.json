@@ -34,7 +34,7 @@
           "layout": "Horizontal scroll on mobile, 4-column grid on desktop",
           "instances": [
             { "label": "Gesamte Hefte", "icon": "Library", "data_source": "GET /api/v1/me/collection/stats" },
-            { "label": "Sammlungswert",  "icon": "TrendingUp", "data_source": "Percentage across all series" },
+            { "label": "Sammlungsfortschritt",  "icon": "TrendingUp", "data_source": "Percentage across all series" },
             { "label": "Tauschbar",      "icon": "ArrowLeftRight", "data_source": "Count of status=duplicate" },
             { "label": "Gesucht",        "icon": "Search", "data_source": "Count of status=wanted" }
           ]
