@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "description": "Design tokens for LILLY (Listing Inventory for Lovely Little Yellowbacks). Glassmorphism aesthetic with cyan accent on adaptive light/dark theme. Respects prefers-color-scheme with manual toggle.",
     "framework": "Skeleton UI + Tailwind CSS",
-    "font": "Inter (Google Fonts)"
+    "font": "Inter (self-hosted, bundled with frontend)"
   },
 
   "color": {

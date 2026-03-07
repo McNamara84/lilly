@@ -73,7 +73,7 @@ Vier Farben kennzeichnen den Besitzstatus: Cyan für vorhanden, Lila für doppel
 
 **Primärschrift: Inter**
 
-Inter ist eine speziell für Bildschirme optimierte Open-Source-Schrift mit exzellentem Support für tabulare Zahlen (`font-feature-settings: "tnum"`), was für die zahlenlastigen Sammlungsstatistiken ideal ist. Die Schrift wird über Google Fonts geladen, mit einem System-Font-Stack als Fallback.
+Inter ist eine speziell für Bildschirme optimierte Open-Source-Schrift mit exzellentem Support für tabulare Zahlen (`font-feature-settings: "tnum"`), was für die zahlenlastigen Sammlungsstatistiken ideal ist. Die Schrift wird als Self-Hosted-Font mit dem Frontend gebündelt (kein externer CDN-Aufruf zur Laufzeit), mit einem System-Font-Stack als Fallback.
 
 Die typografische Hierarchie (h1–h4, body, caption, label, stat_number) ist in `design-tokens.json` unter `typography.styles` definiert.
 

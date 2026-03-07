@@ -5,7 +5,8 @@
     "description": "Machine-readable screen/page definitions for LILLY. Each screen describes its route, layout, components used, data requirements, and user interactions. Maps to SvelteKit file-based routes.",
     "routing": "SvelteKit file-based routing (src/routes/)",
     "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/routes/ means frontend/src/routes/ in the monorepo).",
-    "i18n_note": "All user-facing strings in this file (labels, titles, descriptions shown to users) are de-locale examples. In implementation, use Paraglide.js i18n keys instead of hardcoding these strings."
+    "i18n_note": "All user-facing strings in this file (labels, titles, descriptions shown to users) are German (de-DE) placeholder examples. In implementation, replace them with Paraglide.js i18n keys — do not hardcode these strings.",
+    "section_schema": "Each section uses 'component' (string|null) for the primary component. If a section composes multiple components, 'includes' (string[]) lists all contained components."
   },
 
   "screens": {
@@ -166,7 +167,8 @@
         },
         {
           "id": "collection_panel",
-          "components": ["ConditionChips", "PhotoUploader"],
+          "component": "ConditionChips",
+          "includes": ["ConditionChips", "PhotoUploader"],
           "auth_required": true,
           "description": "Status toggle, condition selector, notes, photos. Glass card container."
         },

@@ -7,7 +7,7 @@
     "ui_library": "Skeleton UI",
     "styling": "Tailwind CSS",
     "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/lib/ means frontend/src/lib/ in the monorepo).",
-    "i18n_note": "All user-facing strings in this file (labels, sublabels, empty_message texts) are de-locale examples. In implementation, use Paraglide.js i18n keys instead of hardcoding these strings."
+    "i18n_note": "All user-facing strings in this file (labels, sublabels, empty_message texts) are German (de-DE) placeholder examples. In implementation, replace them with Paraglide.js i18n keys — do not hardcode these strings."
   },
 
   "components": {
