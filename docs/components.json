@@ -1,12 +1,12 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "meta": {
     "name": "LILLY Component Specifications",
     "version": "1.0.0",
     "description": "Machine-readable specifications for all UI components in LILLY. Each component includes its props, variants, states, and composition rules. Intended for use with Skeleton UI + Svelte 5.",
     "framework": "Svelte 5 (Runes)",
     "ui_library": "Skeleton UI",
-    "styling": "Tailwind CSS"
+    "styling": "Tailwind CSS",
+    "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/lib/ means frontend/src/lib/ in the monorepo)."
   },
 
   "components": {

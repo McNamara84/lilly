@@ -1,5 +1,5 @@
 {
-  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "Design tokens for LILLY. This file uses a flat key-value structure for simplicity and is not conformant with the DTCG $value format.",
   "meta": {
     "name": "LILLY Design Tokens",
     "version": "1.0.0",

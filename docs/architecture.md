@@ -248,8 +248,12 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **PATCH** | `/api/v1/trades/{id}` | Ja | Tausch-Status ändern |
 | **GET** | `/api/v1/me/messages` | Ja | Nachrichten-Übersicht |
 | **POST** | `/api/v1/messages` | Ja | Nachricht senden |
+| **GET** | `/api/v1/me/collection/stats` | Ja | Sammlungsstatistiken (Gesamt, pro Serie, Doppelte, Gesuchte) |
+| **GET** | `/api/v1/me/activity` | Ja | Letzte Aktivitäten des Nutzers (Timeline) |
 | **GET** | `/api/v1/users/{name}/profile` | Nein | Öffentliches Profil + Statistiken |
 | **GET** | `/api/v1/users/{name}/collection` | Nein | Öffentliche Sammlung (wenn freigegeben) |
+| **GET** | `/api/v1/users` | Nein | Öffentliche Sammler-Liste (sortier-/filterbar) |
+| **GET** | `/api/v1/issues/most-wanted` | Nein | Meistgesuchte Hefte plattformweit |
 
 ### 5.2 Authentifizierung
 
@@ -344,7 +348,7 @@ Sensible Konfigurationswerte werden über eine `.env`-Datei injiziert:
 
 ## 9. Projektstruktur
 
-Das Monorepo ist wie folgt organisiert:
+Das Monorepo ist für folgende Zielstruktur geplant (noch nicht im Repository angelegt):
 
 ```
 lilly/
@@ -394,7 +398,7 @@ lilly/
 - **Rate Limiting:** Tower-Middleware im Axum-Backend: 10 Requests/Minute für Auth-Endpunkte, 100 Requests/Minute für allgemeine API-Nutzung.
 - **Input-Validierung:** Alle Eingaben werden serverseitig validiert (serde + validator-Crate). SQL Injection wird durch SQLx-Prepared-Statements verhindert.
 - **XSS:** SvelteKit escaped Output automatisch. User-generierte Inhalte (Notizen, Kommentare) werden zusätzlich serverseitig sanitized.
-- **CSRF:** Entfällt durch JWT-basierte Auth (kein Cookie-basiertes Session-Management für API-Calls).
+- **CSRF:** API-Calls sind durch JWT im Authorization-Header geschützt (kein Cookie). Der Refresh-Token wird jedoch als httpOnly-Cookie übertragen, daher ist der Endpunkt `/api/v1/auth/refresh` prinzipiell CSRF-anfällig. Schutzmaßnahmen: `SameSite=Strict` auf dem Refresh-Cookie, serverseitige Validierung des `Origin`-Headers, und Beschränkung des Refresh-Endpunkts auf das Ausstellen neuer Tokens (keine zustandsändernde Geschäftslogik).
 - **Upload-Sicherheit:** Nur JPEG, PNG und WebP erlaubt. Maximale Dateigröße: 5 MB. Dateien werden serverseitig re-encoded (image-Crate), um Exploits in Bild-Metadaten zu eliminieren.
 - **Datenschutz:** E-Mail-Adressen werden verschlüsselt gespeichert (AES-256-GCM). Account-Löschung entfernt alle personenbezogenen Daten inklusive Fotos.
 

@@ -3,7 +3,8 @@
     "name": "LILLY Screen Specifications",
     "version": "1.0.0",
     "description": "Machine-readable screen/page definitions for LILLY. Each screen describes its route, layout, components used, data requirements, and user interactions. Maps to SvelteKit file-based routes.",
-    "routing": "SvelteKit file-based routing (src/routes/)"
+    "routing": "SvelteKit file-based routing (src/routes/)",
+    "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/routes/ means frontend/src/routes/ in the monorepo)."
   },
 
   "screens": {

@@ -287,8 +287,8 @@ SvelteKit Page Transitions mit Crossfade: ausgehende Seite fadet aus (200ms), ei
 ### 10.1 Dateistruktur der Spezifikation
 
 ```
-docs/ux/
-├── UX_KONZEPT.md              ← Dieses Dokument (Übersicht, Richtlinien)
+docs/
+├── uxdesign.md                ← Dieses Dokument (Übersicht, Richtlinien)
 ├── design-tokens.json         ← Farben, Fonts, Spacing, Glassmorphism
 ├── components.json            ← Komponentenspezifikationen
 └── screens.json               ← Screen-/Seitenspezifikationen
