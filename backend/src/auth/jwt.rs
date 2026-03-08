@@ -1,0 +1,79 @@
+use chrono::Utc;
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: u32,
+    pub name: String,
+    pub exp: usize,
+    pub iat: usize,
+}
+
+pub fn create_token(
+    user_id: u32,
+    display_name: &str,
+    secret: &str,
+    expiry_seconds: u64,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = Utc::now().timestamp() as usize;
+    let claims = Claims {
+        sub: user_id,
+        name: display_name.to_string(),
+        exp: now + expiry_seconds as usize,
+        iat: now,
+    };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+}
+
+pub fn validate_token(
+    token: &str,
+    secret: &str,
+) -> Result<Claims, jsonwebtoken::errors::Error> {
+    let token_data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )?;
+
+    Ok(token_data.claims)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_and_validate_token() {
+        let secret = "test-secret-key";
+        let token = create_token(1, "TestUser", secret, 3600).expect("Failed to create token");
+
+        let claims = validate_token(&token, secret).expect("Failed to validate token");
+        assert_eq!(claims.sub, 1);
+        assert_eq!(claims.name, "TestUser");
+    }
+
+    #[test]
+    fn test_invalid_secret_fails_validation() {
+        let token = create_token(1, "TestUser", "secret1", 3600).expect("Failed to create token");
+        let result = validate_token(&token, "wrong-secret");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_expired_token_fails_validation() {
+        let secret = "test-secret-key";
+        // Create token that expired 1 second ago
+        let token = create_token(1, "TestUser", secret, 0).expect("Failed to create token");
+
+        // Wait briefly to ensure expiry
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let result = validate_token(&token, secret);
+        assert!(result.is_err());
+    }
+}

@@ -2,7 +2,41 @@
 
 LILLY is an open-source web application (PWA) for managing and trading paperback novel collections in German-speaking countries. It is built for collectors of German *Heftromane* (also known as *Groschenromane* or *Groschenhefte* – serialized pulp fiction novellas) and provides a central platform for cataloging, showcasing, and trading issues.
 
-> **Status:** In planning – specifications are located in the [`docs/`](docs/) folder.
+> **Status:** Under active development – Login page is functional, further features in progress.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+
+### Run with Docker
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/McNamara84/lilly.git
+cd lilly
+
+# 2. Create environment file
+cp .env.example .env
+
+# 3. Start the application
+docker compose up -d --build
+
+# 4. Open in browser
+# http://localhost
+```
+
+### Demo Credentials
+
+| Field    | Value            |
+|----------|------------------|
+| Email    | `demo@lilly.app` |
+| Password | `demo1234`       |
+
+The demo user is automatically created on first startup.
 
 ---
 
@@ -109,6 +143,108 @@ The following scale is the established standard in the German *Heftroman* collec
 The application is designed for **self-hosting** on your own server or VPS. All components run in Docker containers, orchestrated via Docker Compose. Caddy provides automatic HTTPS via Let's Encrypt.
 
 The PWA is **offline-capable**: core collection management features remain available without an internet connection (Service Worker, local cache). The UI follows a **mobile-first** approach and is fully usable on all screen sizes.
+
+---
+
+## Project Structure
+
+```
+lilly/
+├── frontend/              # SvelteKit PWA (Svelte 5, Skeleton v3, Tailwind CSS v4)
+├── backend/               # Rust / Axum REST API
+├── importer/              # Wiki data importer CLI (placeholder)
+├── docs/                  # Planning documents (German)
+├── docker-compose.yml     # Full stack orchestration
+├── Caddyfile              # Reverse proxy configuration
+└── .env.example           # Environment template
+```
+
+---
+
+## Development
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev          # Start dev server on http://localhost:5173
+```
+
+### Backend
+
+Requires [Rust](https://rustup.rs/) and a running MariaDB instance.
+
+```bash
+cd backend
+cargo run            # Start API server on http://localhost:8080
+```
+
+---
+
+## Testing
+
+### Frontend Unit Tests (Vitest + Testing Library)
+
+```bash
+cd frontend
+npm run test             # Run once
+npm run test:watch       # Watch mode
+npm run test:coverage    # With coverage report
+```
+
+### Frontend E2E Tests (Playwright)
+
+```bash
+cd frontend
+npx playwright install   # Install browsers (first time)
+npm run test:e2e         # Run E2E tests (requires Docker stack running)
+npm run test:e2e:ui      # Interactive UI mode
+```
+
+### Backend Tests (Rust)
+
+```bash
+cd backend
+cargo test               # Run all tests
+```
+
+---
+
+## Linting & Formatting
+
+### Frontend
+
+```bash
+cd frontend
+npm run lint             # ESLint check
+npm run lint:fix         # ESLint auto-fix
+npm run format:check     # Prettier check
+npm run format           # Prettier auto-format
+npm run check            # Svelte type check
+```
+
+### Backend
+
+```bash
+cd backend
+cargo fmt --check        # rustfmt check
+cargo clippy -- -D warnings  # Clippy lint
+```
+
+---
+
+## CI/CD
+
+GitHub Actions workflows run automatically:
+
+- **On Pull Requests** (`.github/workflows/ci.yml`):
+  - Frontend: lint, format check, type check, unit tests with coverage, build
+  - Backend: rustfmt, clippy, unit tests (with MariaDB service)
+  - E2E: full Docker stack + Playwright tests
+
+- **On Push to Main** (`.github/workflows/main.yml`):
+  - All PR checks + Docker image build validation
 
 ---
 
