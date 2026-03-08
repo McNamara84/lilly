@@ -9,10 +9,8 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn from_env() -> Self {
         Self {
-            database_url: std::env::var("DATABASE_URL")
-                .expect("DATABASE_URL must be set"),
-            jwt_secret: std::env::var("JWT_SECRET")
-                .expect("JWT_SECRET must be set"),
+            database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+            jwt_secret: std::env::var("JWT_SECRET").expect("JWT_SECRET must be set"),
             jwt_access_token_expiry: std::env::var("JWT_ACCESS_TOKEN_EXPIRY")
                 .unwrap_or_else(|_| "900".to_string())
                 .parse()

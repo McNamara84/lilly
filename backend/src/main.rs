@@ -62,7 +62,5 @@ async fn main() {
         .await
         .expect("Failed to bind listener");
 
-    axum::serve(listener, app)
-        .await
-        .expect("Server error");
+    axum::serve(listener, app).await.expect("Server error");
 }

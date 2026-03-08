@@ -4,6 +4,7 @@ use validator::Validate;
 #[derive(Debug, sqlx::FromRow)]
 pub struct User {
     pub id: u32,
+    #[allow(dead_code)]
     pub email: String,
     pub password_hash: Option<String>,
     pub display_name: String,

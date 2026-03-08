@@ -31,10 +31,7 @@ pub fn create_token(
     )
 }
 
-pub fn validate_token(
-    token: &str,
-    secret: &str,
-) -> Result<Claims, jsonwebtoken::errors::Error> {
+pub fn validate_token(token: &str, secret: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let token_data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
@@ -68,11 +65,21 @@ mod tests {
     #[test]
     fn test_expired_token_fails_validation() {
         let secret = "test-secret-key";
-        // Create token that expired 1 second ago
-        let token = create_token(1, "TestUser", secret, 0).expect("Failed to create token");
+        // Manually create a token that expired 120 seconds ago (beyond default leeway)
+        let now = chrono::Utc::now().timestamp() as usize;
+        let claims = Claims {
+            sub: 1,
+            name: "TestUser".to_string(),
+            exp: now - 120,
+            iat: now - 300,
+        };
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .expect("Failed to create token");
 
-        // Wait briefly to ensure expiry
-        std::thread::sleep(std::time::Duration::from_secs(1));
         let result = validate_token(&token, secret);
         assert!(result.is_err());
     }
