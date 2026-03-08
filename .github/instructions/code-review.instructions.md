@@ -1,4 +1,5 @@
 ---
+applyTo: "**"
 description: "Use when processing code review feedback, evaluating PR comments, or deciding whether to apply suggested changes. Covers review triage and decision-making."
 ---
 # Code Review Guidelines

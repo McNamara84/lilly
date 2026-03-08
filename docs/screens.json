@@ -14,7 +14,7 @@
     "dashboard": {
       "route": "/",
       "file": "src/routes/+page.svelte",
-      "title": "Dashboard",
+      "title": "Übersicht",
       "auth_required": true,
       "description": "Main landing page after login. Shows collection overview, recent activity, and trade suggestions at a glance.",
       "layout": {

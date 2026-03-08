@@ -104,19 +104,18 @@ Die App verwendet ein adaptives Shell-Layout, das sich am Breakpoint `lg` (1024p
 ```
 ┌──────────────────────────────────────────────────────┐
 │  TopBar (sticky, glassmorphism)           🔍 🌓 🔔 👤│
-├────────────┬─────────────────────────────────────────┤
-│            │                                         │
-│  Sidebar   │        Main Content Area                │
-│  (glass,   │        (scrollable)                     │
-│  280px /   │                                         │
-│  72px,     │        max-width: 1280px                │
-│  collaps-  │        centered                         │
-│  ible)     │                                         │
-│            │                                         │
-│  ┌──────┐  │                                         │
-│  │☰ / ◀│  │                                         │
-│  └──────┘  │                                         │
-└────────────┴─────────────────────────────────────────┘
+├────────────────┬─────────────────────────────────────┤
+│                │                                     │
+│  Sidebar       │    Main Content Area                │
+│  (glass,       │    (scrollable)                     │
+│  280px / 72px, │                                     │
+│  collapsible)  │    max-width: 1280px                │
+│                │    centered                         │
+│                │                                     │
+│  ┌──────┐      │                                     │
+│  │☰ / ◀│      │                                     │
+│  └──────┘      │                                     │
+└────────────────┴─────────────────────────────────────┘
 ```
 
 **Mobil (< 1024px):**
