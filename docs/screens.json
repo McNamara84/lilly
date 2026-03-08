@@ -79,7 +79,7 @@
         {
           "id": "collection_grid",
           "component": "CoverGrid",
-          "data_source": "GET /api/v1/me/collection?series={slug}&status={status}&condition_min={z}&condition_max={z}&sort={field}&q={search}&page={n}",
+          "data_source": "GET /api/v1/me/collection?series={slug}&status={status}&condition_min={condition_min}&condition_max={condition_max}&sort={field}&q={search}&page={n}",
           "pagination": "Infinite scroll with Intersection Observer",
           "interactions": {
             "tap_card": "Opens IssueDetailSheet for the tapped issue",
