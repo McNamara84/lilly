@@ -1,0 +1,264 @@
+{
+  "$description": "Design tokens for LILLY. Values are organized in a nested hierarchy (e.g. color.brand.primary.500) with plain values instead of DTCG $value token objects.",
+  "meta": {
+    "name": "LILLY Design Tokens",
+    "version": "1.0.0",
+    "description": "Design tokens for LILLY (Listing Inventory for Lovely Little Yellowbacks). Glassmorphism aesthetic with cyan accent on adaptive light/dark theme. Respects prefers-color-scheme with manual toggle.",
+    "framework": "Skeleton UI + Tailwind CSS",
+    "font": "Inter (self-hosted, bundled with frontend)"
+  },
+
+  "color": {
+    "brand": {
+      "primary": {
+        "50":  "#ecfeff",
+        "100": "#cffafe",
+        "200": "#a5f3fc",
+        "300": "#67e8f9",
+        "400": "#22d3ee",
+        "500": "#06b6d4",
+        "600": "#0891b2",
+        "700": "#0e7490",
+        "800": "#155e75",
+        "900": "#164e63",
+        "950": "#083344",
+        "$description": "Cyan/Teal primary palette. 500 is the base brand color."
+      },
+      "accent": {
+        "50":  "#f0f9ff",
+        "100": "#e0f2fe",
+        "200": "#bae6fd",
+        "300": "#7dd3fc",
+        "400": "#38bdf8",
+        "500": "#0ea5e9",
+        "600": "#0284c7",
+        "700": "#0369a1",
+        "800": "#075985",
+        "900": "#0c4a6e",
+        "950": "#082f49",
+        "$description": "Sky blue secondary accent for highlights and links."
+      }
+    },
+
+    "semantic": {
+      "success": "#10b981",
+      "warning": "#f59e0b",
+      "error": "#ef4444",
+      "info": "#06b6d4",
+      "$description": "Semantic colors for status indicators and feedback."
+    },
+
+    "condition": {
+      "Z0": "#10b981",
+      "Z1": "#34d399",
+      "Z2": "#a3e635",
+      "Z3": "#facc15",
+      "Z4": "#f97316",
+      "Z5": "#ef4444",
+      "$description": "Color coding for Heftroman condition grades Z0 (mint) to Z5 (poor). Green-to-red gradient for intuitive quality indication."
+    },
+
+    "collection_status": {
+      "owned": "#06b6d4",
+      "duplicate": "#a855f7",
+      "wanted": "#f59e0b",
+      "missing": "transparent",
+      "$description": "Colors for collection item status in grid views."
+    },
+
+    "dark": {
+      "surface": {
+        "base": "#0a0a0f",
+        "raised": "#12121a",
+        "overlay": "#1a1a25",
+        "glass": "rgba(255, 255, 255, 0.05)",
+        "glass_border": "rgba(255, 255, 255, 0.10)",
+        "glass_hover": "rgba(255, 255, 255, 0.08)",
+        "$description": "Dark mode surface colors. Glass variants for glassmorphism effect."
+      },
+      "text": {
+        "primary": "#f1f5f9",
+        "secondary": "#94a3b8",
+        "tertiary": "#64748b",
+        "inverse": "#0f172a",
+        "$description": "Dark mode text hierarchy."
+      }
+    },
+
+    "light": {
+      "surface": {
+        "base": "#f8fafc",
+        "raised": "#ffffff",
+        "overlay": "#f1f5f9",
+        "glass": "rgba(255, 255, 255, 0.60)",
+        "glass_border": "rgba(255, 255, 255, 0.40)",
+        "glass_hover": "rgba(255, 255, 255, 0.75)",
+        "$description": "Light mode surface colors. Glass variants use higher opacity."
+      },
+      "text": {
+        "primary": "#0f172a",
+        "secondary": "#475569",
+        "tertiary": "#94a3b8",
+        "inverse": "#f1f5f9",
+        "$description": "Light mode text hierarchy."
+      }
+    }
+  },
+
+  "typography": {
+    "font_family": {
+      "sans": "'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif",
+      "mono": "'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace",
+      "$description": "Inter as primary, JetBrains Mono for code/numbers."
+    },
+    "font_size": {
+      "xs":   "0.75rem",
+      "sm":   "0.875rem",
+      "base": "1rem",
+      "lg":   "1.125rem",
+      "xl":   "1.25rem",
+      "2xl":  "1.5rem",
+      "3xl":  "1.875rem",
+      "4xl":  "2.25rem",
+      "5xl":  "3rem"
+    },
+    "font_weight": {
+      "normal": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    },
+    "line_height": {
+      "tight": 1.25,
+      "normal": 1.5,
+      "relaxed": 1.75
+    },
+    "styles": {
+      "h1": { "size": "3xl", "weight": "bold", "line_height": "tight", "tracking": "-0.025em" },
+      "h2": { "size": "2xl", "weight": "semibold", "line_height": "tight", "tracking": "-0.02em" },
+      "h3": { "size": "xl", "weight": "semibold", "line_height": "tight" },
+      "h4": { "size": "lg", "weight": "medium", "line_height": "normal" },
+      "body": { "size": "base", "weight": "normal", "line_height": "normal" },
+      "body_small": { "size": "sm", "weight": "normal", "line_height": "normal" },
+      "caption": { "size": "xs", "weight": "medium", "line_height": "normal" },
+      "label": { "size": "sm", "weight": "medium", "line_height": "normal", "tracking": "0.025em" },
+      "stat_number": { "size": "4xl", "weight": "bold", "line_height": "tight", "font_feature": "tnum", "$description": "For collection statistics. Uses tabular numbers." }
+    }
+  },
+
+  "spacing": {
+    "0":   "0",
+    "px":  "1px",
+    "0.5": "0.125rem",
+    "1":   "0.25rem",
+    "1.5": "0.375rem",
+    "2":   "0.5rem",
+    "3":   "0.75rem",
+    "4":   "1rem",
+    "5":   "1.25rem",
+    "6":   "1.5rem",
+    "8":   "2rem",
+    "10":  "2.5rem",
+    "12":  "3rem",
+    "16":  "4rem",
+    "20":  "5rem",
+    "24":  "6rem",
+    "$description": "Spacing scale following Tailwind CSS convention (1 unit = 0.25rem = 4px)."
+  },
+
+  "border_radius": {
+    "none": "0",
+    "sm":   "0.25rem",
+    "md":   "0.5rem",
+    "lg":   "0.75rem",
+    "xl":   "1rem",
+    "2xl":  "1.5rem",
+    "full": "9999px",
+    "$description": "Generous border radii for modern, friendly appearance."
+  },
+
+  "glassmorphism": {
+    "card": {
+      "backdrop_blur": "16px",
+      "background": "var(--glass)",
+      "border": "1px solid var(--glass-border)",
+      "border_radius": "xl",
+      "shadow": "0 8px 32px rgba(0, 0, 0, 0.12)",
+      "$description": "Standard glass card used for most content containers."
+    },
+    "card_elevated": {
+      "backdrop_blur": "24px",
+      "background": "var(--glass-hover)",
+      "border": "1px solid var(--glass-border)",
+      "border_radius": "xl",
+      "shadow": "0 16px 48px rgba(0, 0, 0, 0.20)",
+      "$description": "Elevated glass card for modals, popovers, and floating elements."
+    },
+    "navbar": {
+      "backdrop_blur": "20px",
+      "background": "var(--glass)",
+      "border_bottom": "1px solid var(--glass-border)",
+      "shadow": "0 1px 3px rgba(0, 0, 0, 0.08)",
+      "$description": "Navigation bar glass effect. Slightly more blur for readability."
+    },
+    "sidebar": {
+      "backdrop_blur": "20px",
+      "background": "var(--glass)",
+      "border_right": "1px solid var(--glass-border)",
+      "$description": "Desktop sidebar glass effect."
+    },
+    "$description": "Glassmorphism design tokens. Use CSS custom properties for theme-aware glass colors. backdrop-filter: blur() creates the frosted glass effect."
+  },
+
+  "shadows": {
+    "sm":    "0 1px 2px rgba(0, 0, 0, 0.05)",
+    "md":    "0 4px 6px -1px rgba(0, 0, 0, 0.10)",
+    "lg":    "0 10px 15px -3px rgba(0, 0, 0, 0.10)",
+    "xl":    "0 20px 25px -5px rgba(0, 0, 0, 0.10)",
+    "glow":  "0 0 20px rgba(6, 182, 212, 0.30)",
+    "glow_hover": "0 0 30px rgba(6, 182, 212, 0.45)",
+    "$description": "Shadow scale. 'glow' variants use brand cyan for interactive element highlights."
+  },
+
+  "animation": {
+    "duration": {
+      "fast":   "100ms",
+      "normal": "200ms",
+      "slow":   "300ms",
+      "enter":  "250ms",
+      "exit":   "200ms"
+    },
+    "easing": {
+      "default":   "cubic-bezier(0.4, 0, 0.2, 1)",
+      "in":        "cubic-bezier(0.4, 0, 1, 1)",
+      "out":       "cubic-bezier(0, 0, 0.2, 1)",
+      "spring":    "cubic-bezier(0.34, 1.56, 0.64, 1)",
+      "$description": "'spring' easing for playful micro-interactions (e.g., adding to collection)."
+    },
+    "transitions": {
+      "hover": "all 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+      "focus": "box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+      "page":  "opacity 250ms cubic-bezier(0, 0, 0.2, 1)"
+    }
+  },
+
+  "breakpoints": {
+    "sm":  "640px",
+    "md":  "768px",
+    "lg":  "1024px",
+    "xl":  "1280px",
+    "2xl": "1536px",
+    "$description": "Tailwind CSS default breakpoints. Mobile-first: styles apply below breakpoint, prefix applies above. Sidebar appears at 'lg' (1024px). Bottom nav visible below 'lg'."
+  },
+
+  "layout": {
+    "sidebar_width": "280px",
+    "sidebar_collapsed_width": "72px",
+    "bottom_nav_height": "64px",
+    "top_bar_height": "56px",
+    "content_max_width": "1280px",
+    "cover_grid_min_column": "140px",
+    "cover_aspect_ratio": "2/3",
+    "$description": "Core layout dimensions. Cover grid uses CSS Grid with auto-fill and minmax for responsive columns."
+  }
+}
