@@ -74,8 +74,8 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 | SV-002 | Zu jedem Heft in der Sammlung kann der Zustand gemäß der Heftroman-Zustandsskala (Z0 bis Z5) angegeben werden: Z0 = neuwertig/ungelesen, Z1 = sehr gut, Z2 = gut, Z3 = akzeptabel, Z4 = mängelbehaftet, Z5 = schlecht/defekt. | MUSS | SV |
 | SV-003 | Nutzer können zu jedem Heft in ihrer Sammlung persönliche Notizen hinterlegen (z. B. Besonderheiten, Auflagenhinweise, Erinnerungen). | SOLL | SV |
 | SV-004 | Die Sammlung kann nach Serie, Heftnummer, Zustand, Titel und Autor gefiltert und sortiert werden. | MUSS | SV |
-| SV-005 | Nutzer können Hefte als „Vorhanden", „Doppelt/Tauschbar" oder „Gesucht" markieren. | MUSS | SV |
-| SV-006 | Eine Übersichtsansicht zeigt den Sammlungsfortschritt pro Serie als Balken oder Prozentwert an (z. B. „437 von 620 Heften – 70,5 %"). | MUSS | SV |
+| SV-005 | Nutzer können Hefte als „Vorhanden“, „Doppelt/Tauschbar“ oder „Gesucht“ markieren. | MUSS | SV |
+| SV-006 | Eine Übersichtsansicht zeigt den Sammlungsfortschritt pro Serie als Balken oder Prozentwert an (z. B. „437 von 620 Heften – 70,5 %“). | MUSS | SV |
 | SV-007 | Eine Rasteransicht zeigt alle Hefte einer Serie als Grid mit farblicher Kennzeichnung des Besitzstatus (vorhanden / fehlend / doppelt). | SOLL | SV |
 | SV-008 | Import und Export der Sammlungsdaten im CSV- und JSON-Format. | SOLL | SV |
 | SV-009 | Nutzer können mehrere Auflagen desselben Heftes getrennt erfassen. | KANN | SV |
@@ -84,7 +84,7 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 
 | ID | Beschreibung | Prio | Kat. |
 |---|---|---|---|
-| DI-001 | Zum Release werden die Stammdaten der Serien „Maddrax – Die dunkle Zukunft der Erde" und „Geisterjäger John Sinclair" vollständig importiert (Heftnummer, Titel, Autor, Ersterscheinungsdatum). | MUSS | DI |
+| DI-001 | Zum Release werden die Stammdaten der Serien „Maddrax – Die dunkle Zukunft der Erde“ und „Geisterjäger John Sinclair“ vollständig importiert (Heftnummer, Titel, Autor, Ersterscheinungsdatum). | MUSS | DI |
 | DI-002 | Datenquelle für Maddrax ist das Maddraxikon (de.maddraxikon.com). Datenquelle für John Sinclair ist das Gruselroman-Wiki (gruselroman-wiki.de). | MUSS | DI |
 | DI-003 | Der Datenimport erfolgt als einmaliger initialer Import mit anschließendem regelmäßigem Sync per Cronjob (z. B. wöchentlich), um neue Hefte automatisch zu erfassen. | MUSS | DI |
 | DI-004 | Cover-Bilder der Hefte werden aus den Wiki-Quellen als Referenzbilder importiert, sofern lizenzrechtlich zulässig. | SOLL | DI |
@@ -95,11 +95,11 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 
 | ID | Beschreibung | Prio | Kat. |
 |---|---|---|---|
-| TA-001 | Nutzer können Hefte, die sie als „Doppelt/Tauschbar" markiert haben, für den Tausch anbieten. | MUSS | TA |
-| TA-002 | Nutzer können eine „Suche"-Liste führen mit Heften, die sie suchen (automatisch ableitbar aus der Fehl-Liste). | MUSS | TA |
+| TA-001 | Nutzer können Hefte, die sie als „Doppelt/Tauschbar“ markiert haben, für den Tausch anbieten. | MUSS | TA |
+| TA-002 | Nutzer können eine „Suche“-Liste führen mit Heften, die sie suchen (automatisch ableitbar aus der Fehl-Liste). | MUSS | TA |
 | TA-003 | Das System bietet semi-automatisches Matching: Wenn Nutzer A ein Heft anbietet, das Nutzer B sucht (und umgekehrt), werden beide über einen potenziellen Tausch benachrichtigt. | MUSS | TA |
 | TA-004 | Tauschpartner können sich über ein internes Nachrichtensystem kontaktieren, um Details (Versand, Zustand etc.) zu klären. | MUSS | TA |
-| TA-005 | Ein Tausch kann von beiden Seiten als „Abgeschlossen" markiert werden. Abgeschlossene Tausche aktualisieren automatisch die jeweiligen Sammlungen. | SOLL | TA |
+| TA-005 | Ein Tausch kann von beiden Seiten als „Abgeschlossen“ markiert werden. Abgeschlossene Tausche aktualisieren automatisch die jeweiligen Sammlungen. | SOLL | TA |
 | TA-006 | LILLY ist ausdrücklich eine Tausch-Plattform. Es gibt keine Kauf-/Verkaufsfunktion, keine Preisangaben und kein Zahlungssystem. Der finanzielle Aspekt wird bewusst ausgeklammert. | MUSS | TA |
 | TA-007 | Nutzer können ein optionales Bewertungssystem für Tauschpartner nutzen (z. B. Zuverlässigkeit, Zustandsangaben korrekt). | KANN | TA |
 

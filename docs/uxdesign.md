@@ -109,9 +109,9 @@ Die App verwendet ein adaptives Shell-Layout, das sich am Breakpoint `lg` (1024p
 │  Sidebar   │        Main Content Area                │
 │  (glass,   │        (scrollable)                     │
 │  280px /   │                                         │
-│  72px      │        max-width: 1280px                │
-│  collap-   │        centered                         │
-│  sible)    │                                         │
+│  72px,     │        max-width: 1280px                │
+│  collaps-  │        centered                         │
+│  ible)     │                                         │
 │            │                                         │
 │  ┌──────┐  │                                         │
 │  │☰ / ◀│  │                                         │

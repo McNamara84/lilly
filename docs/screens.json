@@ -5,7 +5,7 @@
     "description": "Machine-readable screen/page definitions for LILLY. Each screen describes its route, layout, components used, data requirements, and user interactions. Maps to SvelteKit file-based routes.",
     "routing": "SvelteKit file-based routing (src/routes/)",
     "path_convention": "All file paths are relative to the frontend/ package root (e.g. src/routes/ means frontend/src/routes/ in the monorepo).",
-    "i18n_note": "All user-facing strings in this file (labels, titles, descriptions shown to users) are German (de-DE) placeholder examples. In implementation, replace them with Paraglide.js i18n keys — do not hardcode these strings.",
+    "i18n_note": "User-facing strings (labels, titles shown in the UI, empty state messages) are German (de-DE) placeholder examples — replace them with Paraglide.js i18n keys in implementation. Screen-level 'description' fields and section 'description' fields are developer documentation (English) and are not shown to users.",
     "section_schema": "Each section uses 'component' (string|null) for the primary component. If a section composes multiple components, 'includes' (string[]) lists all contained components. 'repeat' is always an object: { kind: 'fixed', count: N } for a known number of instances, or { kind: 'dynamic', per: '<entity>' } for data-driven repetition."
   },
 
@@ -111,6 +111,7 @@
         },
         {
           "id": "number_grid",
+          "component": null,
           "description": "After selecting a series: grid of all issue numbers. Color-coded: green=owned, purple=duplicate, amber=wanted, gray=not in collection. Tap to toggle ownership. Long press for detail view.",
           "visual": {
             "cell_size": "48x48px on mobile, 56x56px on desktop",
@@ -136,6 +137,7 @@
       "sections": [
         {
           "id": "series_header",
+          "component": null,
           "description": "Hero section with series name, publisher, genre, status badge (laufend/abgeschlossen), total issues count. Background: blurred random cover from the series.",
           "style": "Full-width, glassmorphism overlay on blurred background image, 200px height"
         },
@@ -163,6 +165,7 @@
       "sections": [
         {
           "id": "issue_header",
+          "component": null,
           "description": "Large cover image (left on desktop, top on mobile), issue metadata (number, title, author, date, cycle), series breadcrumb link"
         },
         {
@@ -174,15 +177,18 @@
         },
         {
           "id": "trade_availability",
+          "component": null,
           "description": "Shows how many collectors have this as duplicate (supply) and how many are seeking it (demand). Link to trade matching.",
           "style": "Two StatsCards side by side: 'Verfügbar zum Tausch: N' and 'Gesucht von: N'"
         },
         {
           "id": "comments_section",
+          "component": null,
           "description": "Community comments and ratings. Star rating display + comment list + add comment form."
         },
         {
           "id": "wiki_link",
+          "component": null,
           "description": "External link to the source wiki article. 'Mehr im Maddraxikon →' button."
         }
       ]
@@ -211,6 +217,7 @@
           "id": "active",
           "label": "Aktive Tausche",
           "icon": "Clock",
+          "component": null,
           "description": "List of ongoing trades with status (proposed/accepted), partner info, and item summary. Tap to open trade detail.",
           "data_source": "GET /api/v1/me/trades?status=proposed,accepted"
         }
@@ -226,15 +233,18 @@
       "sections": [
         {
           "id": "trade_header",
+          "component": null,
           "description": "Status badge (vorgeschlagen/akzeptiert/abgeschlossen), partner info, created date"
         },
         {
           "id": "trade_items",
+          "component": null,
           "description": "Two-column view: 'Du bietest' and 'Du erhältst'. Each column shows CoverCards with condition badges.",
           "layout": "Side-by-side on desktop, stacked on mobile with clear visual separator"
         },
         {
           "id": "trade_actions",
+          "component": null,
           "description": "Action buttons based on current status and user role (initiator vs responder)",
           "actions": {
             "proposed_responder": ["Annehmen (primary)", "Ablehnen (destructive)"],
@@ -275,12 +285,14 @@
       "sections": [
         {
           "id": "series_showcase",
+          "component": null,
           "description": "Horizontal scroll of series cards with cover art collage, name, genre badge, and issue count. Tap to navigate to series detail.",
           "style": "Large cards (280px wide) with glassmorphism, cover art as blurred background"
         },
         {
           "id": "community_stats",
           "component": "StatsCard",
+          "repeat": { "kind": "fixed", "count": 3 },
           "instances": [
             { "label": "Sammler",       "icon": "Users" },
             { "label": "Hefte erfasst", "icon": "Library" },
@@ -290,11 +302,13 @@
         },
         {
           "id": "top_collectors",
+          "component": null,
           "description": "Leaderboard-style list of most active public collectors. Avatar, name, total issues, completion percentage.",
           "data_source": "GET /api/v1/users?sort=collection_size&limit=10"
         },
         {
           "id": "most_wanted",
+          "component": null,
           "description": "Grid of most-wanted issues across the platform. Shows cover + number of seekers.",
           "data_source": "GET /api/v1/issues/most-wanted?limit=12"
         }
@@ -310,6 +324,7 @@
       "sections": [
         {
           "id": "profile_header",
+          "component": null,
           "description": "Avatar (editable), display name, member since, location. Edit button for own profile. Glassmorphism hero card.",
           "visual": "Large avatar (96px) with edit overlay on hover. Brand primary gradient accent stripe at top."
         },
@@ -321,6 +336,7 @@
         },
         {
           "id": "public_lists",
+          "component": null,
           "tabs": [
             { "label": "Tauschbar", "description": "Public list of duplicate items available for trade" },
             { "label": "Wunschliste", "description": "Public list of wanted items" }
@@ -329,6 +345,7 @@
         },
         {
           "id": "settings",
+          "component": null,
           "description": "Profile settings section (only on own profile). Glass card container.",
           "fields": [
             { "name": "display_name", "type": "text", "label": "Anzeigename" },
