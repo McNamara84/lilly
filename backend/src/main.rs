@@ -38,8 +38,13 @@ async fn main() {
 
     tracing::info!("Migrations applied");
 
-    // Seed demo user if no users exist
-    db::users::seed_demo_user(&pool).await;
+    // Seed demo user only if explicitly enabled (dev/test only)
+    if std::env::var("ENABLE_DEMO_SEED")
+        .unwrap_or_default()
+        .eq_ignore_ascii_case("true")
+    {
+        db::users::seed_demo_user(&pool).await;
+    }
 
     let app_state = routes::AppState {
         pool,

@@ -24,6 +24,7 @@ services:
       JWT_REFRESH_TOKEN_EXPIRY: ${JWT_REFRESH_TOKEN_EXPIRY}
       RUST_LOG: ${RUST_LOG}
       BACKEND_PORT: ${BACKEND_PORT}
+      ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
     depends_on:
       db:
         condition: service_healthy

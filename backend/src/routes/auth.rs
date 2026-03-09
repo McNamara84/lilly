@@ -23,10 +23,10 @@ async fn login(
         .await?
         .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
-    let password_hash = user
-        .password_hash
-        .as_ref()
-        .ok_or_else(|| AppError::Unauthorized("This account uses OAuth login".to_string()))?;
+    let password_hash = user.password_hash.as_ref().ok_or_else(|| {
+        tracing::warn!("Login attempt for OAuth-only account: {}", payload.email);
+        AppError::Unauthorized("Invalid email or password".to_string())
+    })?;
 
     let valid = password::verify_password(&payload.password, password_hash)
         .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
