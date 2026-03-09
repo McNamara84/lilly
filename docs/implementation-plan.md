@@ -13,7 +13,7 @@
 | Backend-Strategie | Vollständiges Rust/Axum-Backend mit MariaDB, Migrationen & Seed-Daten |
 | E2E-Test-Framework | Playwright |
 | Linting/Formatting | ESLint + Prettier (Frontend), Clippy + rustfmt (Backend) |
-| UI-Framework | Skeleton v3 (`@skeletonlabs/skeleton-svelte`) mit Tailwind CSS v4 |
+| UI-Framework | Skeleton (`@skeletonlabs/skeleton-svelte` v4.x) mit Tailwind CSS v4 |
 | Node.js | v22 LTS (gemäß architecture.md) |
 | Rust Edition | 2021 |
 
@@ -125,7 +125,7 @@ Ergänzungen für Rust (`target/`, `*.lock` für importer), Node (`node_modules/
 
 | Paket | Zweck |
 |---|---|
-| `@skeletonlabs/skeleton-svelte` | Skeleton v3 UI-Komponenten |
+| `@skeletonlabs/skeleton-svelte` | Skeleton UI-Komponenten (v4.x) |
 | `@tailwindcss/vite` | Tailwind CSS v4 Vite-Integration |
 | `tailwindcss` (v4) | Utility-First CSS |
 | `lucide-svelte` | Icon-Bibliothek |
@@ -172,7 +172,7 @@ Tailwind v4 nutzt CSS-first Configuration. In `frontend/src/app.css`:
 
 Die Design Tokens aus `docs/design-tokens.json` werden vollständig in die `@theme`-Direktive überführt.
 
-### 2.4 Skeleton v3 konfigurieren
+### 2.4 Skeleton konfigurieren
 
 - Skeleton Theme in `+layout.svelte` einbinden
 - Custom Theme erstellen, das zu den LILLY Design Tokens passt (Cyan-Primary)
@@ -266,8 +266,8 @@ Der Login-Endpunkt:
 - Validiert Input (E-Mail-Format, Passwort nicht leer)
 - Sucht User in MariaDB per E-Mail
 - Verifiziert Passwort mit argon2id
-- Gibt Access Token (JWT, 15 min) + Refresh Token (httpOnly Cookie, 30 Tage) zurück
-- Rate Limiting (10 Requests/Minute) via Tower-Middleware
+- Gibt Access Token (JWT, 15 min) zurück
+- Refresh Token (httpOnly Cookie, 30 Tage) und Rate Limiting (10 Requests/Minute) sind für einen späteren PR geplant
 
 ### 3.5 Error Handling
 

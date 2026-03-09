@@ -42,14 +42,17 @@ docker compose up -d --build
 # http://localhost
 ```
 
-### Demo Credentials
+### Demo Credentials (Development Only)
+
+> **Warning:** These credentials are publicly known. Never use `ENABLE_DEMO_SEED=true` in production.
+> Before exposing the service publicly, ensure demo seeding is disabled and remove any demo accounts.
 
 | Field    | Value            |
 |----------|------------------|
 | Email    | `demo@lilly.app` |
 | Password | `demo1234`       |
 
-The demo user is automatically created on first startup.
+The demo user is only created when `ENABLE_DEMO_SEED=true` is set (disabled by default).
 
 ---
 
@@ -163,7 +166,7 @@ The PWA is **offline-capable**: core collection management features remain avail
 
 ```
 lilly/
-├── frontend/              # SvelteKit PWA (Svelte 5, Skeleton v3, Tailwind CSS v4)
+├── frontend/              # SvelteKit PWA (Svelte 5, Skeleton UI, Tailwind CSS v4)
 ├── backend/               # Rust / Axum REST API
 ├── importer/              # Wiki data importer CLI (placeholder)
 ├── docs/                  # Planning documents (German)

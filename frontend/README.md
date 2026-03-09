@@ -1,6 +1,6 @@
 # LILLY Frontend
 
-The frontend for the LILLY project, built with **Svelte 5 / SvelteKit**, **Skeleton UI v3**, and **Tailwind CSS v4**.
+The frontend for the LILLY project, built with **Svelte 5 / SvelteKit**, **Skeleton UI**, and **Tailwind CSS v4**.
 
 For project documentation, setup instructions, and architecture details, see the [root README](../README.md).
 

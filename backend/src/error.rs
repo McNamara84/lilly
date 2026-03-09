@@ -28,8 +28,22 @@ impl From<sqlx::Error> for AppError {
 
 impl From<jsonwebtoken::errors::Error> for AppError {
     fn from(err: jsonwebtoken::errors::Error) -> Self {
-        tracing::error!("JWT error: {:?}", err);
-        AppError::Unauthorized("Invalid token".to_string())
+        use jsonwebtoken::errors::ErrorKind;
+        match err.kind() {
+            ErrorKind::InvalidToken
+            | ErrorKind::InvalidSignature
+            | ErrorKind::ExpiredSignature
+            | ErrorKind::InvalidAudience
+            | ErrorKind::InvalidIssuer
+            | ErrorKind::ImmatureSignature => {
+                tracing::warn!("JWT validation error: {:?}", err);
+                AppError::Unauthorized("Invalid token".to_string())
+            }
+            _ => {
+                tracing::error!("JWT error: {:?}", err);
+                AppError::InternalError(err.into())
+            }
+        }
     }
 }
 
