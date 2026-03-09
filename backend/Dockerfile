@@ -27,9 +27,13 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
+RUN groupadd --system appuser && useradd --system --gid appuser --no-create-home appuser
+
 WORKDIR /app
-COPY --from=builder /app/target/release/lilly-backend ./
-COPY --from=builder /app/migrations ./migrations
+COPY --from=builder --chown=appuser:appuser /app/target/release/lilly-backend ./
+COPY --from=builder --chown=appuser:appuser /app/migrations ./migrations
+
+USER appuser
 
 ENV RUST_LOG=info
 EXPOSE 8080
