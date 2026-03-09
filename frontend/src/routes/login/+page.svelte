@@ -38,8 +38,8 @@
 
 		try {
 			const response = await login({ email, password });
-			// Store token and redirect (to be implemented with dashboard)
-			console.log('Login successful', response);
+			// TODO: Store token and redirect to dashboard
+			void response;
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Ein unerwarteter Fehler ist aufgetreten';
 		} finally {
