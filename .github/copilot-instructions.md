@@ -67,6 +67,17 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 - Playwright: Use modern Playwright API patterns, prefer `data-testid` selectors for stability.
 - When a newer, cleaner approach exists for a pattern, prefer it over legacy alternatives.
 
+## Accessibility
+
+- Accessibility is a **high priority** in this project — consider it in every new implementation.
+- Use semantic HTML elements (`<nav>`, `<main>`, `<section>`, `<button>`, `<form>`, etc.) — avoid generic `<div>`/`<span>` when a semantic element exists.
+- All interactive elements must be keyboard-accessible (`Tab`, `Enter`, `Escape`).
+- Use proper ARIA attributes (`aria-label`, `aria-describedby`, `aria-invalid`, `role`) where semantic HTML alone is insufficient.
+- All form inputs must have associated `<label>` elements.
+- Images and icons must have `alt` text or `aria-label` (decorative icons: `aria-hidden="true"`).
+- Ensure sufficient color contrast (WCAG 2.1 AA minimum).
+- Support screen readers: logical heading hierarchy, focus management, live regions for dynamic content.
+
 ## Code Review
 
 - When points are raised in a code review, **carefully evaluate each one** before implementing changes.

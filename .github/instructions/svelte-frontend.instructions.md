@@ -26,6 +26,17 @@ applyTo: "frontend/**"
 - Use CSS custom properties from `docs/design-tokens.json` for theme colors.
 - Support both light and dark mode via Skeleton's theme system.
 
+## Accessibility
+
+- Use semantic HTML elements (`<nav>`, `<main>`, `<section>`, `<button>`, `<form>`, etc.) instead of generic `<div>`/`<span>`.
+- All interactive elements must be keyboard-navigable (`Tab`, `Enter`, `Escape`).
+- Use ARIA attributes (`aria-label`, `aria-describedby`, `aria-invalid`, `role`) where semantic HTML alone is insufficient.
+- Every form input must have an associated `<label>`.
+- Icons: use `aria-hidden="true"` for decorative icons, `aria-label` for meaningful ones.
+- Ensure sufficient color contrast (WCAG 2.1 AA).
+- Use logical heading hierarchy (`h1` > `h2` > `h3`) — never skip levels.
+- Dynamic content updates should use `aria-live` regions where appropriate.
+
 ## Routing & Data Loading
 
 - File-based routing in `src/routes/`.
