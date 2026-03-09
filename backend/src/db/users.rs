@@ -22,7 +22,8 @@ pub async fn seed_demo_user(pool: &MySqlPool) -> Result<(), anyhow::Error> {
         .await?;
 
     if count.0 == 0 {
-        let password_hash = crate::auth::password::hash_password("demo1234")?;
+        let password_hash =
+            crate::auth::password::hash_password("demo1234").map_err(|e| anyhow::anyhow!("{e}"))?;
 
         sqlx::query("INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)")
             .bind("demo@lilly.app")
