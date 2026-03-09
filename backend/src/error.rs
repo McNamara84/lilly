@@ -11,6 +11,7 @@ pub enum AppError {
     Unauthorized(String),
 
     #[error("{0}")]
+    #[allow(dead_code)]
     NotFound(String),
 
     #[error("Internal server error")]

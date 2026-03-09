@@ -16,10 +16,12 @@ pub fn create_token(
     secret: &str,
     expiry_seconds: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let now = Utc::now().timestamp() as usize;
     let claims = Claims {
         sub: user_id,
         name: display_name.to_string(),
+        #[allow(clippy::cast_possible_truncation)]
         exp: now + expiry_seconds as usize,
         iat: now,
     };
@@ -31,6 +33,7 @@ pub fn create_token(
     )
 }
 
+#[allow(dead_code)]
 pub fn validate_token(token: &str, secret: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let token_data = decode::<Claims>(
         token,
@@ -66,6 +69,7 @@ mod tests {
     fn test_expired_token_fails_validation() {
         let secret = "test-secret-key";
         // Manually create a token that expired 120 seconds ago (beyond default leeway)
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let now = chrono::Utc::now().timestamp() as usize;
         let claims = Claims {
             sub: 1,

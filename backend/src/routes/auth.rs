@@ -17,7 +17,7 @@ async fn login(
 ) -> Result<Json<LoginResponse>, AppError> {
     payload
         .validate()
-        .map_err(|e| AppError::BadRequest(format!("Validation error: {}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
 
     let user = users::find_user_by_email(&state.pool, &payload.email)
         .await?

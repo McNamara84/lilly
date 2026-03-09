@@ -39,7 +39,9 @@ describe('Login Page', () => {
 
 	it('shows tagline text', () => {
 		render(LoginPage);
-		expect(screen.getByText(/Listing Inventory for Lovely Little Yellowbacks/i)).toBeInTheDocument();
+		expect(
+			screen.getByText(/Listing Inventory for Lovely Little Yellowbacks/i)
+		).toBeInTheDocument();
 	});
 
 	it('shows registration and password reset links', () => {

@@ -41,7 +41,7 @@ mod tests {
 
         let config = AppConfig::from_env();
         assert_eq!(config.jwt_access_token_expiry, 900);
-        assert_eq!(config.jwt_refresh_token_expiry, 2592000);
+        assert_eq!(config.jwt_refresh_token_expiry, 2_592_000);
         assert_eq!(config.backend_port, 8080);
     }
 }

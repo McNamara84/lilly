@@ -33,6 +33,14 @@ export default ts.config(
 		}
 	},
 	{
-		ignores: ['build/', '.svelte-kit/', 'dist/', 'node_modules/', 'coverage/', 'playwright-report/', 'test-results/']
+		ignores: [
+			'build/',
+			'.svelte-kit/',
+			'dist/',
+			'node_modules/',
+			'coverage/',
+			'playwright-report/',
+			'test-results/'
+		]
 	}
 );
