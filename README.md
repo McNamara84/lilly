@@ -1,5 +1,18 @@
 # LILLY – Listing Inventory for Lovely Little Yellowbacks
 
+[![CI](https://github.com/McNamara84/lilly/actions/workflows/ci.yml/badge.svg)](https://github.com/McNamara84/lilly/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/McNamara84/lilly/branch/main/graph/badge.svg)](https://codecov.io/gh/McNamara84/lilly)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+![Svelte](https://img.shields.io/badge/Svelte_5-FF3E00?logo=svelte&logoColor=white)
+![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?logo=svelte&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS_4-06B6D4?logo=tailwindcss&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
+![Axum](https://img.shields.io/badge/Axum-000000?logo=rust&logoColor=white)
+![MariaDB](https://img.shields.io/badge/MariaDB_11-003545?logo=mariadb&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Caddy](https://img.shields.io/badge/Caddy_v2-1F88C0?logo=caddy&logoColor=white)
+
 LILLY is an open-source web application (PWA) for managing and trading paperback novel collections in German-speaking countries. It is built for collectors of German *Heftromane* (also known as *Groschenromane* or *Groschenhefte* – serialized pulp fiction novellas) and provides a central platform for cataloging, showcasing, and trading issues.
 
 > **Status:** Under active development – Login page is functional, further features in progress.
