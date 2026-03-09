@@ -43,7 +43,9 @@ async fn main() {
         .unwrap_or_default()
         .eq_ignore_ascii_case("true")
     {
-        db::users::seed_demo_user(&pool).await;
+        if let Err(e) = db::users::seed_demo_user(&pool).await {
+            tracing::error!("Failed to seed demo user: {e}");
+        }
     }
 
     let app_state = routes::AppState {

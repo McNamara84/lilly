@@ -16,24 +16,23 @@ pub async fn find_user_by_email(
     Ok(user)
 }
 
-pub async fn seed_demo_user(pool: &MySqlPool) {
+pub async fn seed_demo_user(pool: &MySqlPool) -> Result<(), anyhow::Error> {
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
         .fetch_one(pool)
-        .await
-        .unwrap_or((0,));
+        .await?;
 
     if count.0 == 0 {
-        let password_hash =
-            crate::auth::password::hash_password("demo1234").expect("Failed to hash demo password");
+        let password_hash = crate::auth::password::hash_password("demo1234")?;
 
         sqlx::query("INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)")
             .bind("demo@lilly.app")
             .bind(&password_hash)
             .bind("Demo-Sammler")
             .execute(pool)
-            .await
-            .expect("Failed to seed demo user");
+            .await?;
 
         tracing::info!("Demo user seeded: demo@lilly.app");
     }
+
+    Ok(())
 }
