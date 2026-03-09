@@ -50,17 +50,28 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 
 ## Testing
 
-- Aim for **close to 100% test coverage** wherever feasible. The minimum acceptable threshold is 70%, but always strive higher.
+- Aim for **100% test coverage** on every new feature, bugfix, or refactor. The absolute minimum threshold is 70%, but always target 100%.
 - Write unit tests for all business logic, utility functions, and components.
 - Write integration tests for API endpoints, database queries, and critical user flows.
 - Frontend: Use Vitest + Testing Library for component and unit tests.
+- Frontend E2E: Use Playwright with `data-testid` as the primary selector strategy for stable element targeting.
 - Backend: Use Rust's built-in test framework (`#[cfg(test)]`, `#[tokio::test]`).
 - Test edge cases, error paths, and boundary conditions — not just the happy path.
+
+## Code Style & Modernness
+
+- Always use the **most modern, idiomatic features** of each language and framework.
+- Svelte 5: Runes only (`$state`, `$derived`, `$effect`, `$props`) — never legacy stores or `$:` syntax.
+- Rust: Use current edition idioms, modern error handling patterns, and latest stable features.
+- TypeScript: Use modern syntax (satisfies, const assertions, template literal types where appropriate).
+- Playwright: Use modern Playwright API patterns, prefer `data-testid` selectors for stability.
+- When a newer, cleaner approach exists for a pattern, prefer it over legacy alternatives.
 
 ## Code Review
 
 - When points are raised in a code review, **carefully evaluate each one** before implementing changes.
 - Determine whether the criticism is justified and whether the suggested change actually improves the code.
+- Verify the reviewer's claims — they may be factually incorrect. Check against docs, tests, or specs before acting.
 - Do not blindly apply all review suggestions — some may be subjective, context-dependent, or counterproductive.
 - Prioritize: correctness > security > performance > readability > style.
 
