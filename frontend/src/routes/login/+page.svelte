@@ -8,10 +8,12 @@
 	let emailTouched = $state(false);
 	let passwordTouched = $state(false);
 
+	let trimmedEmail = $derived(email.trim());
+
 	let emailError = $derived(
-		emailTouched && !email.trim()
+		emailTouched && !trimmedEmail
 			? 'E-Mail-Adresse ist erforderlich'
-			: emailTouched && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+			: emailTouched && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)
 				? 'Bitte eine gültige E-Mail-Adresse eingeben'
 				: ''
 	);
@@ -21,7 +23,7 @@
 	);
 
 	let isFormValid = $derived(
-		email.trim() !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && password.trim() !== ''
+		trimmedEmail !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail) && password.trim() !== ''
 	);
 
 	async function handleSubmit(event: SubmitEvent) {
@@ -35,7 +37,7 @@
 		errorMessage = '';
 
 		try {
-			const response = await login({ email, password });
+			const response = await login({ email: trimmedEmail, password });
 			// TODO: Store token and redirect to dashboard
 			void response;
 		} catch (err) {
@@ -61,12 +63,13 @@
 		</div>
 
 		<!-- Login Form -->
-		<form onsubmit={handleSubmit} class="space-y-4" novalidate>
+		<form onsubmit={handleSubmit} class="space-y-4" novalidate data-testid="login-form">
 			{#if errorMessage}
 				<div
 					class="rounded-lg px-4 py-3 text-sm"
 					style="background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444;"
 					role="alert"
+					data-testid="login-error"
 				>
 					{errorMessage}
 				</div>
@@ -83,6 +86,7 @@
 				</label>
 				<input
 					id="email"
+					data-testid="email-input"
 					type="email"
 					bind:value={email}
 					onblur={() => (emailTouched = true)}
@@ -109,6 +113,7 @@
 				</label>
 				<input
 					id="password"
+					data-testid="password-input"
 					type="password"
 					bind:value={password}
 					onblur={() => (passwordTouched = true)}
@@ -127,6 +132,7 @@
 			<!-- Submit Button -->
 			<button
 				type="submit"
+				data-testid="submit-button"
 				disabled={isLoading}
 				class="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
 				style="background-color: var(--color-brand-700);"
@@ -176,6 +182,7 @@
 				class="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors cursor-not-allowed opacity-50"
 				style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-secondary);"
 				title="Google-Login ist noch nicht verfügbar"
+				data-testid="oauth-google"
 			>
 				<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
 					<path
@@ -203,6 +210,7 @@
 				class="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors cursor-not-allowed opacity-50"
 				style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-secondary);"
 				title="GitHub-Login ist noch nicht verfügbar"
+				data-testid="oauth-github"
 			>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
 					<path

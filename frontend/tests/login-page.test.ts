@@ -4,7 +4,7 @@ import { userEvent } from '@testing-library/user-event';
 import LoginPage from '../src/routes/login/+page.svelte';
 
 // Mock the API module
-vi.mock('../src/lib/api/auth', () => ({
+vi.mock('$lib/api/auth', () => ({
 	login: vi.fn()
 }));
 
@@ -84,7 +84,7 @@ describe('Login Page', () => {
 	});
 
 	it('calls login API on valid form submission', async () => {
-		const { login } = await import('../src/lib/api/auth');
+		const { login } = await import('$lib/api/auth');
 		const mockLogin = vi.mocked(login);
 		mockLogin.mockResolvedValue({
 			access_token: 'test-token',
@@ -106,7 +106,7 @@ describe('Login Page', () => {
 	});
 
 	it('shows error message on failed login', async () => {
-		const { login } = await import('../src/lib/api/auth');
+		const { login } = await import('$lib/api/auth');
 		const mockLogin = vi.mocked(login);
 		mockLogin.mockRejectedValue(new Error('Invalid email or password'));
 

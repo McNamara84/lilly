@@ -19,7 +19,7 @@ async fn login(
         .validate()
         .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
 
-    let user = users::find_user_by_email(&state.pool, &payload.email)
+    let user = users::find_user_by_email(&state.inner.pool, &payload.email)
         .await?
         .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
@@ -40,13 +40,13 @@ async fn login(
     let access_token = jwt::create_token(
         user.id,
         &user.display_name,
-        &state.jwt_secret,
-        state.jwt_access_expiry,
+        &state.inner.jwt_secret,
+        state.inner.jwt_access_expiry,
     )?;
 
     Ok(Json(LoginResponse {
         access_token,
         token_type: "Bearer".to_string(),
-        expires_in: state.jwt_access_expiry,
+        expires_in: state.inner.jwt_access_expiry,
     }))
 }

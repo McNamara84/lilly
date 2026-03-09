@@ -25,10 +25,12 @@ export async function login(credentials: LoginRequest): Promise<LoginResponse> {
 	});
 
 	if (!response.ok) {
-		const errorBody: ApiError = await response.json().catch(() => ({
-			error: 'An unexpected error occurred'
-		}));
-		throw new Error(errorBody.error);
+		const errorBody = await response.json().catch(() => ({}));
+		const message =
+			typeof errorBody?.error === 'string' && errorBody.error
+				? errorBody.error
+				: 'An unexpected error occurred';
+		throw new Error(message);
 	}
 
 	return response.json();

@@ -49,10 +49,12 @@ async fn main() {
     }
 
     let app_state = routes::AppState {
-        pool,
-        jwt_secret: config.jwt_secret,
-        jwt_access_expiry: config.jwt_access_token_expiry,
-        jwt_refresh_expiry: config.jwt_refresh_token_expiry,
+        inner: std::sync::Arc::new(routes::AppStateInner {
+            pool,
+            jwt_secret: config.jwt_secret,
+            jwt_access_expiry: config.jwt_access_token_expiry,
+            jwt_refresh_expiry: config.jwt_refresh_token_expiry,
+        }),
     };
 
     let app = Router::new()
