@@ -28,7 +28,7 @@
 	<header
 		class="glass-nav fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-4"
 	>
-		<span class="text-xl font-bold tracking-tight" style="color: var(--color-brand-500);">
+		<span class="text-xl font-bold tracking-tight" style="color: var(--color-brand-700);">
 			LILLY
 		</span>
 		<button

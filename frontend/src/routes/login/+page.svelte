@@ -54,7 +54,7 @@
 	<div class="glass-elevated w-full max-w-[420px] p-8">
 		<!-- Logo & Tagline -->
 		<div class="text-center mb-8">
-			<h1 class="text-4xl font-bold mb-2" style="color: var(--color-brand-500);">LILLY</h1>
+			<h1 class="text-4xl font-bold mb-2" style="color: var(--color-brand-700);">LILLY</h1>
 			<p style="color: var(--text-secondary);" class="text-sm">
 				Listing Inventory for Lovely Little Yellowbacks
 			</p>
@@ -129,7 +129,7 @@
 				type="submit"
 				disabled={isLoading}
 				class="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-				style="background-color: var(--color-brand-500);"
+				style="background-color: var(--color-brand-700);"
 			>
 				{#if isLoading}
 					<span class="inline-flex items-center gap-2">
