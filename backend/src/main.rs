@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use axum::Router;
 use sqlx::mysql::MySqlPoolOptions;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -53,7 +53,25 @@ async fn main() {
         .merge(routes::auth::router())
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive());
+        .layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list([
+                    "http://localhost".parse().unwrap(),
+                    "http://localhost:5173".parse().unwrap(),
+                    "http://localhost:80".parse().unwrap(),
+                ]))
+                .allow_methods(AllowMethods::list([
+                    http::Method::GET,
+                    http::Method::POST,
+                    http::Method::PUT,
+                    http::Method::DELETE,
+                    http::Method::OPTIONS,
+                ]))
+                .allow_headers(AllowHeaders::list([
+                    http::header::CONTENT_TYPE,
+                    http::header::AUTHORIZATION,
+                ])),
+        );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.backend_port));
     tracing::info!("Backend listening on {}", addr);

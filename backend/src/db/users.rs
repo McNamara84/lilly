@@ -34,6 +34,6 @@ pub async fn seed_demo_user(pool: &MySqlPool) {
             .await
             .expect("Failed to seed demo user");
 
-        tracing::info!("Demo user seeded: demo@lilly.app / demo1234");
+        tracing::info!("Demo user seeded: demo@lilly.app");
     }
 }

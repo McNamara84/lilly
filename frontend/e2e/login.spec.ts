@@ -26,8 +26,8 @@ test.describe('Login Page', () => {
 		await page.getByLabel(/passwort/i).fill('demo1234');
 		await page.getByRole('button', { name: /anmelden/i }).click();
 
-		// After successful login, no error should appear
-		await page.waitForTimeout(1000);
+		// Wait for the login request to complete (button re-enables after loading)
+		await expect(page.getByRole('button', { name: /anmelden/i })).toBeEnabled();
 		await expect(page.getByRole('alert')).not.toBeVisible();
 	});
 

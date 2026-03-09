@@ -13,7 +13,9 @@ export interface ApiError {
 	error: string;
 }
 
-const API_BASE = '/api/v1';
+import { PUBLIC_API_BASE_URL } from '$env/static/public';
+
+const API_BASE = PUBLIC_API_BASE_URL || '/api/v1';
 
 export async function login(credentials: LoginRequest): Promise<LoginResponse> {
 	const response = await fetch(`${API_BASE}/auth/login`, {

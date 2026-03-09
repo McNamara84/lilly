@@ -45,6 +45,8 @@ jobs:
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
     defaults:

@@ -1,42 +1,28 @@
-# sv
+# LILLY Frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+The frontend for the LILLY project, built with **Svelte 5 / SvelteKit**, **Skeleton UI v3**, and **Tailwind CSS v4**.
 
-## Creating a project
+For project documentation, setup instructions, and architecture details, see the [root README](../README.md).
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Development
 
-```sh
-# create a new project
-npx sv create my-app
+```bash
+npm install
+npm run dev          # Start dev server on http://localhost:5173
 ```
 
-To recreate this project with the same configuration:
+## Testing
 
-```sh
-# recreate this project
-npx sv@0.12.5 create --template minimal --types ts --install npm frontend
+```bash
+npm run test             # Unit tests (Vitest)
+npm run test:coverage    # Unit tests with coverage
+npm run test:e2e         # E2E tests (Playwright, requires Docker stack)
 ```
 
-## Developing
+## Linting & Formatting
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+```bash
+npm run lint             # ESLint
+npm run format:check     # Prettier
+npm run check            # Svelte type check
 ```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
