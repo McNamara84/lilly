@@ -20,8 +20,11 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::SERVICE_UNAVAILABLE
     };
 
-    (status, Json(json!({
-        "status": if db_ok { "ok" } else { "degraded" },
-        "database": db_ok
-    })))
+    (
+        status,
+        Json(json!({
+            "status": if db_ok { "ok" } else { "degraded" },
+            "database": db_ok
+        })),
+    )
 }
