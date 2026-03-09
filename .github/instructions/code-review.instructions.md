@@ -8,10 +8,11 @@ description: "Use when processing code review feedback, evaluating PR comments, 
 
 When points are raised in a code review, **do not blindly apply all suggestions**. For each piece of feedback:
 
-1. **Assess validity**: Is the criticism technically correct?
-2. **Check context**: Does the reviewer understand the full context of the change?
+1. **Assess validity**: Is the criticism technically correct? Verify the claim — the reviewer may be wrong.
+2. **Check context**: Does the reviewer understand the full context of the change? They may be missing information.
 3. **Weigh trade-offs**: Does the suggested change improve correctness, security, or performance — or is it purely stylistic?
 4. **Consider scope**: Is the suggestion within scope of the current PR, or does it belong in a separate change?
+5. **Test the assumption**: If the reviewer claims something is broken or suboptimal, verify it with a test or benchmark before changing the code.
 
 ## Priority Order
 
@@ -29,6 +30,8 @@ When review points conflict, prioritize in this order:
 - The suggestion is based on a misunderstanding of the requirements.
 - The change would break existing tests or behavior without justification.
 - The suggestion is purely cosmetic and adds review churn without value.
+- The reviewer is factually incorrect — explain why with evidence (docs, tests, specs).
+- The reviewer suggests a pattern that is outdated when a more modern, idiomatic alternative exists.
 
 ## When to Accept
 
@@ -36,3 +39,4 @@ When review points conflict, prioritize in this order:
 - The suggestion makes error handling more robust.
 - The change improves test coverage for uncovered paths.
 - The suggestion aligns code with documented project conventions.
+- The reviewer points out a more modern language/framework feature that should be used.

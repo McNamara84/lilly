@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+frontend/build/
+frontend/.svelte-kit/
+backend/target/
+importer/target/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+*.pdb
+
+# Test results
+frontend/test-results/
+frontend/playwright-report/
+frontend/coverage/
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log

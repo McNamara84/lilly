@@ -6,7 +6,7 @@ applyTo: ["**/*.test.ts", "**/*.test.js", "**/*.spec.ts", "**/*.spec.js", "**/te
 
 ## Coverage Goal
 
-Aim for **close to 100% test coverage** wherever feasible. The minimum acceptable threshold is 70%, but always push higher. Every new feature, bugfix, or refactor should include corresponding tests.
+Aim for **100% test coverage** on every new feature, bugfix, or refactor. This is the target even when hard to achieve — never settle for less without a documented reason. The absolute minimum acceptable threshold is 70%, but treat that as a failure case, not a goal.
 
 ## What to Test
 
@@ -19,11 +19,20 @@ Aim for **close to 100% test coverage** wherever feasible. The minimum acceptabl
 ## Frontend (Vitest + Testing Library)
 
 - Use `@testing-library/svelte` for component tests — test behavior, not implementation.
-- Query by accessible roles, labels, and text — avoid test IDs when possible.
+- Query by accessible roles, labels, and text for assertions that validate the user experience.
+- Use `data-testid` attributes when the selector must be stable and is not itself part of the test assertion (e.g., container elements, dynamic lists, layout anchors).
 - Mock API calls with `vi.mock()` or MSW (Mock Service Worker).
 - Test user interactions: clicks, form submissions, keyboard navigation.
 - Verify rendered output, not internal component state.
 - Test loading states, error states, and empty states — not just the happy path.
+
+## E2E Tests (Playwright)
+
+- Use `data-testid` attributes as the primary selector strategy for stable, refactor-proof element targeting.
+- Add `data-testid` attributes to components during implementation — this is not test pollution, it is test infrastructure.
+- Use accessible selectors (`getByRole`, `getByLabel`) only when the accessible property itself is what you are testing.
+- Write Playwright tests with modern Playwright APIs: `expect(locator).toBeVisible()`, `locator.click()`, etc.
+- Cover critical user flows end-to-end: login, navigation, form submissions, error scenarios.
 
 ## Backend (Rust)
 
