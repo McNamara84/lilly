@@ -121,7 +121,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Copy .env
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          echo 'ENABLE_DEMO_SEED=true' >> .env
       - name: Start services
         run: docker compose up -d --build --wait
         timeout-minutes: 10
