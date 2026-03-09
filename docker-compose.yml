@@ -37,8 +37,6 @@ services:
   frontend:
     build:
       context: ./frontend
-    environment:
-      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
     depends_on:
       backend:
         condition: service_healthy
