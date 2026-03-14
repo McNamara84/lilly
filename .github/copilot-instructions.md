@@ -94,6 +94,15 @@ Before considering any implementation task complete, **always run the relevant l
 - **Frontend (Svelte/TS)**: Run `npm run format:check` (Prettier), `npm run lint` (ESLint), `npx svelte-check`, and `npx vitest run` — ensure zero errors and all tests pass before committing. If Prettier reports issues, run `npx prettier --write .` to fix them.
 - **Never skip these checks** — formatting or lint failures in CI are avoidable and waste review cycles.
 
+## Definition of Done
+
+A feature, bugfix, or refactor is considered **done** when all of the following are met:
+
+- **Code coverage >80%** — every change must maintain or improve test coverage above 80% (statements). Always aim for 100%, but 80% is the hard minimum.
+- **README updated if needed** — if the change introduces new features, commands, setup steps, or alters the project status, update the root `README.md` accordingly.
+- **All pre-commit checks pass** — see the Pre-Commit Checks section above.
+- **No unresolved lint or type errors** — zero warnings treated as errors in CI.
+
 ## Git Workflow
 
 - **Never commit or push on behalf of the user.** Prepare all changes, run all checks, and then let the user commit and push manually.
