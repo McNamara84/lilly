@@ -5,6 +5,12 @@
 
 	const auth = getAuthState();
 
+	$effect(() => {
+		if (!auth.isLoading && !auth.isAuthenticated) {
+			goto(resolve('/login'));
+		}
+	});
+
 	async function handleLogout() {
 		await performLogout();
 		await goto(resolve('/login'));

@@ -63,3 +63,29 @@ pub async fn revoke_all_user_refresh_tokens(
 
     Ok(())
 }
+
+/// Atomically revoke an old refresh token and store a new one.
+pub async fn rotate_refresh_token(
+    pool: &MySqlPool,
+    old_token_hash: &str,
+    new_user_id: u32,
+    new_token_hash: &str,
+    new_expires_at: chrono::NaiveDateTime,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = ?")
+        .bind(old_token_hash)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
+        .bind(new_user_id)
+        .bind(new_token_hash)
+        .bind(new_expires_at)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
+}

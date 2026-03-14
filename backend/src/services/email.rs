@@ -1,9 +1,18 @@
 use lettre::message::header::ContentType;
+use lettre::message::Mailbox;
 use lettre::transport::smtp::authentication::Credentials;
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use lettre::{Address, AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 use crate::config::AppConfig;
 use crate::error::AppError;
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
 
 #[derive(Clone)]
 pub enum EmailService {
@@ -19,23 +28,35 @@ pub enum EmailService {
 impl EmailService {
     pub fn from_config(config: &AppConfig) -> Self {
         if let Some(host) = &config.smtp_host {
-            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
-                .expect("Failed to create SMTP transport")
-                .port(config.smtp_port);
+            match AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host) {
+                Ok(builder) => {
+                    let mut builder = builder.port(config.smtp_port);
 
-            if let (Some(user), Some(password)) = (&config.smtp_user, &config.smtp_password) {
-                builder = builder.credentials(Credentials::new(user.clone(), password.clone()));
-            }
+                    if let (Some(user), Some(password)) = (&config.smtp_user, &config.smtp_password)
+                    {
+                        builder =
+                            builder.credentials(Credentials::new(user.clone(), password.clone()));
+                    }
 
-            let transport = builder.build();
+                    let transport = builder.build();
 
-            tracing::info!(
-                "Email service configured with SMTP: {host}:{}",
-                config.smtp_port
-            );
-            Self::Smtp {
-                transport,
-                from: config.smtp_from.clone(),
+                    tracing::info!(
+                        "Email service configured with SMTP: {host}:{}",
+                        config.smtp_port
+                    );
+                    Self::Smtp {
+                        transport,
+                        from: config.smtp_from.clone(),
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to create SMTP transport for host '{host}': {e} — falling back to log mode"
+                    );
+                    Self::Log {
+                        from: config.smtp_from.clone(),
+                    }
+                }
             }
         } else {
             tracing::warn!("SMTP_HOST not set — emails will be logged to console (dev mode)");
@@ -54,13 +75,14 @@ impl EmailService {
     ) -> Result<(), AppError> {
         let verify_url = format!("{base_url}/api/v1/auth/verify?token={verification_token}");
 
+        let safe_name = html_escape(display_name);
         let subject = "Bestätige deine E-Mail-Adresse – LILLY";
         let body = format!(
             r#"<!DOCTYPE html>
 <html lang="de">
 <head><meta charset="utf-8"></head>
 <body style="font-family: Inter, sans-serif; color: #1a1a1a;">
-<h2>Hallo {display_name},</h2>
+<h2>Hallo {safe_name},</h2>
 <p>willkommen bei LILLY! Bitte bestätige deine E-Mail-Adresse, indem du auf den folgenden Link klickst:</p>
 <p><a href="{verify_url}" style="display: inline-block; padding: 12px 24px; background-color: #06b6d4; color: white; text-decoration: none; border-radius: 8px;">E-Mail bestätigen</a></p>
 <p>Oder kopiere diesen Link in deinen Browser:</p>
@@ -75,17 +97,18 @@ impl EmailService {
 
         let sender = self.sender_address();
 
+        let to_address: Address = to_email.parse().map_err(|e| {
+            AppError::InternalError(anyhow::anyhow!("Invalid recipient email address: {e}"))
+        })?;
+        let recipient = Mailbox::new(Some(display_name.to_string()), to_address);
+
         match self {
             Self::Smtp { transport, .. } => {
                 let email = Message::builder()
                     .from(sender.parse().map_err(|e| {
                         AppError::InternalError(anyhow::anyhow!("Invalid from address: {e}"))
                     })?)
-                    .to(format!("{display_name} <{to_email}>")
-                        .parse()
-                        .map_err(|e| {
-                            AppError::InternalError(anyhow::anyhow!("Invalid to address: {e}"))
-                        })?)
+                    .to(recipient)
                     .subject(subject)
                     .header(ContentType::TEXT_HTML)
                     .body(body)
@@ -163,6 +186,41 @@ mod tests {
             .send_verification_email(
                 "user@example.com",
                 "Test User",
+                "abc123token",
+                "http://localhost",
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_html_escape_special_characters() {
+        assert_eq!(
+            html_escape("<script>alert('xss')</script>"),
+            "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+        );
+    }
+
+    #[test]
+    fn test_html_escape_ampersand_and_quotes() {
+        assert_eq!(html_escape("A & B \"C\""), "A &amp; B &quot;C&quot;");
+    }
+
+    #[test]
+    fn test_html_escape_plain_text_unchanged() {
+        assert_eq!(html_escape("Max Mustermann"), "Max Mustermann");
+    }
+
+    #[tokio::test]
+    async fn test_log_fallback_escapes_html_in_display_name() {
+        let service = EmailService::Log {
+            from: "noreply@lilly.app".to_string(),
+        };
+        // Should not error even with HTML characters in display_name
+        let result = service
+            .send_verification_email(
+                "user@example.com",
+                "<b>Evil</b>",
                 "abc123token",
                 "http://localhost",
             )

@@ -85,6 +85,8 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 - Verify the reviewer's claims — they may be factually incorrect. Check against docs, tests, or specs before acting.
 - Do not blindly apply all review suggestions — some may be subjective, context-dependent, or counterproductive.
 - Prioritize: correctness > security > performance > readability > style.
+- Dismiss feedback that is factually wrong (e.g. claiming a standard library method doesn't exist when it does), out of scope for the current PR, or based on aspirational guidelines where the required infrastructure is not yet in place.
+- When a suggestion references a project guideline (e.g. i18n via Paraglide.js), verify first whether the tooling/dependency actually exists in the project before implementing. If not, the feedback is valid in principle but should be tracked as a separate task — not applied as part of the current change.
 
 ## Pre-Commit Checks
 

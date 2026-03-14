@@ -113,6 +113,7 @@ async fn register(
         .map_err(|e| AppError::InternalError(anyhow::anyhow!("Password hashing failed: {e}")))?;
 
     let verification_token = generate_random_token();
+    let verification_token_hash = hash_token(&verification_token);
 
     #[allow(clippy::cast_possible_truncation)]
     let now = Utc::now().naive_utc();
@@ -123,7 +124,7 @@ async fn register(
         &payload.email,
         &password_hash,
         &payload.display_name,
-        &verification_token,
+        &verification_token_hash,
         expires_at,
         now,
     )
@@ -161,7 +162,8 @@ async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQ
     let redirect_ok = format!("{}/login?verified=true", state.inner.app_base_url);
     let redirect_err = format!("{}/login?verify_error=invalid", state.inner.app_base_url);
 
-    let user = match users::find_user_by_verification_token(&state.inner.pool, &query.token).await {
+    let token_hash = hash_token(&query.token);
+    let user = match users::find_user_by_verification_token(&state.inner.pool, &token_hash).await {
         Ok(Some(user)) => user,
         Ok(None) => return Redirect::to(&redirect_err).into_response(),
         Err(e) => {
@@ -197,11 +199,16 @@ async fn resend_verification(
     if let Ok(Some(user)) = users::find_user_by_email(&state.inner.pool, &payload.email).await {
         if !user.email_verified {
             let token = generate_random_token();
+            let token_hash = hash_token(&token);
             let expires_at = Utc::now().naive_utc() + chrono::Duration::hours(24);
 
-            if let Err(e) =
-                users::update_verification_token(&state.inner.pool, user.id, &token, expires_at)
-                    .await
+            if let Err(e) = users::update_verification_token(
+                &state.inner.pool,
+                user.id,
+                &token_hash,
+                expires_at,
+            )
+            .await
             {
                 tracing::error!("Failed to update verification token: {e}");
             } else if let Err(e) = state
@@ -254,7 +261,10 @@ async fn login(
 
     // Check email verification
     if !user.email_verified {
-        return Err(AppError::Forbidden("Email not verified".to_string()));
+        return Err(AppError::Forbidden {
+            message: "Email not verified".to_string(),
+            code: Some("EMAIL_NOT_VERIFIED".to_string()),
+        });
     }
 
     // Create access token
@@ -326,9 +336,6 @@ async fn refresh(
             AppError::Unauthorized("Invalid refresh token".to_string())
         })?;
 
-    // Revoke old token (token rotation)
-    refresh_tokens::revoke_refresh_token(&state.inner.pool, &token_hash).await?;
-
     // Load user to get current display_name
     let user = users::find_user_by_id(&state.inner.pool, token_row.user_id)
         .await?
@@ -350,8 +357,10 @@ async fn refresh(
     let refresh_expires_at = Utc::now().naive_utc()
         + chrono::Duration::seconds(state.inner.jwt_refresh_expiry.cast_signed());
 
-    refresh_tokens::store_refresh_token(
+    // Atomically revoke old token and store new one
+    refresh_tokens::rotate_refresh_token(
         &state.inner.pool,
+        &token_hash,
         user.id,
         &new_refresh_hash,
         refresh_expires_at,
