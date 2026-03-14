@@ -22,8 +22,7 @@
 			return 'Registrierung erfolgreich! Bitte prüfe deine E-Mails und bestätige deine Adresse.';
 		if (params.get('verified') === 'true')
 			return 'E-Mail erfolgreich bestätigt! Du kannst dich jetzt anmelden.';
-		if (params.get('verify_error') === 'invalid')
-			return '';
+		if (params.get('verify_error') === 'invalid') return '';
 		return '';
 	});
 

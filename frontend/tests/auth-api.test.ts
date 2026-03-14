@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { login, register, fetchMe, refreshToken, logout, resendVerification } from '../src/lib/api/auth';
+import {
+	login,
+	register,
+	fetchMe,
+	refreshToken,
+	logout,
+	resendVerification
+} from '../src/lib/api/auth';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -54,8 +61,7 @@ describe('Auth API Client', () => {
 		it('preserves error code from API response', async () => {
 			mockFetch.mockResolvedValue({
 				ok: false,
-				json: () =>
-					Promise.resolve({ error: 'Email not verified', code: 'EMAIL_NOT_VERIFIED' })
+				json: () => Promise.resolve({ error: 'Email not verified', code: 'EMAIL_NOT_VERIFIED' })
 			});
 
 			try {

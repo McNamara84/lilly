@@ -24,7 +24,9 @@
 			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
 				2. Erhobene Daten
 			</h2>
-			<p>Bei der Registrierung und Nutzung von LILLY werden folgende personenbezogene Daten erhoben:</p>
+			<p>
+				Bei der Registrierung und Nutzung von LILLY werden folgende personenbezogene Daten erhoben:
+			</p>
 			<ul class="list-disc list-inside mt-2 space-y-1">
 				<li>Anzeigename</li>
 				<li>E-Mail-Adresse</li>
@@ -69,9 +71,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				6. Ihre Rechte
-			</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">6. Ihre Rechte</h2>
 			<p>Sie haben das Recht auf:</p>
 			<ul class="list-disc list-inside mt-2 space-y-1">
 				<li>Auskunft über Ihre gespeicherten Daten</li>
@@ -84,9 +84,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				7. Cookies
-			</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">7. Cookies</h2>
 			<p>
 				LILLY verwendet ausschließlich technisch notwendige Cookies zur Authentifizierung (HttpOnly,
 				SameSite). Es werden keine Tracking- oder Analyse-Cookies eingesetzt.
@@ -94,9 +92,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				8. Kontakt
-			</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">8. Kontakt</h2>
 			<p>
 				Bei Fragen zum Datenschutz wenden Sie sich bitte an den Betreiber über die auf der Plattform
 				bereitgestellten Kontaktmöglichkeiten.

@@ -35,7 +35,9 @@ const API_BASE = '/api/v1';
 
 async function handleResponse<T>(response: Response): Promise<T> {
 	if (!response.ok) {
-		const errorBody: ApiError = await response.json().catch(() => ({ error: 'An unexpected error occurred' }));
+		const errorBody: ApiError = await response
+			.json()
+			.catch(() => ({ error: 'An unexpected error occurred' }));
 		const error = new Error(
 			typeof errorBody?.error === 'string' && errorBody.error
 				? errorBody.error

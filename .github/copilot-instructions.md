@@ -91,8 +91,12 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 Before considering any implementation task complete, **always run the relevant linters and checks** to ensure CI will pass:
 
 - **Backend (Rust)**: Run `cargo fmt --check` and `cargo clippy` — CI enforces both. Fix all issues before committing.
-- **Frontend (Svelte/TS)**: Run `npm run lint`, `npx svelte-check`, and `npx vitest run` — ensure zero errors and all tests pass before committing.
+- **Frontend (Svelte/TS)**: Run `npm run format:check` (Prettier), `npm run lint` (ESLint), `npx svelte-check`, and `npx vitest run` — ensure zero errors and all tests pass before committing. If Prettier reports issues, run `npx prettier --write .` to fix them.
 - **Never skip these checks** — formatting or lint failures in CI are avoidable and waste review cycles.
+
+## Git Workflow
+
+- **Never commit or push on behalf of the user.** Prepare all changes, run all checks, and then let the user commit and push manually.
 
 ## Security
 

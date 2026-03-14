@@ -23,7 +23,12 @@
 				Willkommen zurück, {auth.user.display_name}!
 			</h2>
 			<p class="text-sm mt-1" style="color: var(--text-secondary);">
-				{new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+				{new Date().toLocaleDateString('de-DE', {
+					weekday: 'long',
+					day: 'numeric',
+					month: 'long',
+					year: 'numeric'
+				})}
 			</p>
 		</div>
 

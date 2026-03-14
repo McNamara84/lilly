@@ -221,7 +221,8 @@
 						>
 							<div
 								class="h-full rounded-full transition-all duration-300"
-								style="width: {(passwordStrength.score + 1) * 20}%; background-color: {passwordStrength.color};"
+								style="width: {(passwordStrength.score + 1) *
+									20}%; background-color: {passwordStrength.color};"
 							></div>
 						</div>
 					</div>
@@ -253,9 +254,7 @@
 					class="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
 					style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-primary);"
 					aria-invalid={passwordConfirmationError ? 'true' : undefined}
-					aria-describedby={passwordConfirmationError
-						? 'password-confirmation-error'
-						: undefined}
+					aria-describedby={passwordConfirmationError ? 'password-confirmation-error' : undefined}
 				/>
 				{#if passwordConfirmationError}
 					<p id="password-confirmation-error" class="mt-1 text-xs" style="color: #ef4444;">
@@ -385,7 +384,9 @@
 		<div class="mt-6 text-center">
 			<p class="text-sm" style="color: var(--text-secondary);">
 				Bereits ein Konto?
-				<a href={resolve('/login')} style="color: var(--color-brand-500);" class="font-medium">Anmelden</a>
+				<a href={resolve('/login')} style="color: var(--color-brand-500);" class="font-medium"
+					>Anmelden</a
+				>
 			</p>
 		</div>
 	</div>
