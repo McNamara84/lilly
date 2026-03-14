@@ -94,10 +94,11 @@ export async function logout(): Promise<void> {
 }
 
 export async function resendVerification(email: string): Promise<void> {
-	await fetch(`${API_BASE}/auth/resend-verification`, {
+	const response = await fetch(`${API_BASE}/auth/resend-verification`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		credentials: 'same-origin',
 		body: JSON.stringify({ email })
 	});
+	await handleResponse<{ message: string }>(response);
 }

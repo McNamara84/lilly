@@ -153,7 +153,10 @@ describe('Auth API Client', () => {
 
 	describe('resendVerification', () => {
 		it('sends email in request body', async () => {
-			mockFetch.mockResolvedValue({ ok: true });
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve({ message: 'ok' })
+			});
 
 			await resendVerification('user@test.com');
 
@@ -163,6 +166,15 @@ describe('Auth API Client', () => {
 				credentials: 'same-origin',
 				body: JSON.stringify({ email: 'user@test.com' })
 			});
+		});
+
+		it('throws on server error', async () => {
+			mockFetch.mockResolvedValue({
+				ok: false,
+				json: () => Promise.resolve({ error: 'Internal server error' })
+			});
+
+			await expect(resendVerification('user@test.com')).rejects.toThrow('Internal server error');
 		});
 	});
 

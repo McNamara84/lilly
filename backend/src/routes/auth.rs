@@ -99,13 +99,17 @@ async fn register(
         ));
     }
 
-    // Check if email already exists
+    // Check if email already exists — return same success message to prevent user enumeration
     if users::find_user_by_email(&state.inner.pool, &payload.email)
         .await?
         .is_some()
     {
-        return Err(AppError::BadRequest(
-            "An account with this email already exists".to_string(),
+        return Ok((
+            StatusCode::CREATED,
+            Json(RegisterResponse {
+                message: "Registration successful. Please check your email to verify your account."
+                    .to_string(),
+            }),
         ));
     }
 
@@ -365,7 +369,14 @@ async fn refresh(
         &new_refresh_hash,
         refresh_expires_at,
     )
-    .await?;
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => {
+            tracing::warn!("Refresh token already revoked — possible replay attack");
+            AppError::Unauthorized("Invalid refresh token".to_string())
+        }
+        other => AppError::from(other),
+    })?;
 
     let access_cookie = build_cookie(
         "access_token",

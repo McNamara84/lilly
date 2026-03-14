@@ -124,7 +124,9 @@ describe('Register Page', () => {
 	it('shows error message on failed registration', async () => {
 		const { register } = await import('$lib/api/auth');
 		const mockRegister = vi.mocked(register);
-		mockRegister.mockRejectedValue(new Error('An account with this email already exists'));
+		mockRegister.mockRejectedValue(
+			new Error('Password is too weak. Please choose a stronger password.')
+		);
 
 		render(RegisterPage);
 		const user = userEvent.setup();
@@ -137,7 +139,7 @@ describe('Register Page', () => {
 		await user.click(screen.getByRole('button', { name: /registrieren/i }));
 
 		const errorAlert = await screen.findByRole('alert');
-		expect(errorAlert).toHaveTextContent(/already exists/i);
+		expect(errorAlert).toHaveTextContent(/too weak/i);
 	});
 
 	it('redirects to login on successful registration', async () => {
