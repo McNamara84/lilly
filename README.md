@@ -15,7 +15,7 @@
 
 LILLY is an open-source web application (PWA) for managing and trading paperback novel collections in German-speaking countries. It is built for collectors of German *Heftromane* (also known as *Groschenromane* or *Groschenhefte* – serialized pulp fiction novellas) and provides a central platform for cataloging, showcasing, and trading issues.
 
-> **Status:** Under active development – Login page is functional, further features in progress.
+> **Status:** Under active development – Login, registration, email verification, and dashboard are functional. Further features in progress.
 
 ---
 
