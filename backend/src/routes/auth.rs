@@ -123,7 +123,7 @@ async fn register(
     let now = Utc::now().naive_utc();
     let expires_at = now + chrono::Duration::hours(24);
 
-    users::create_user(
+    let user_created = match users::create_user(
         &state.inner.pool,
         &payload.email,
         &password_hash,
@@ -133,24 +133,36 @@ async fn register(
         now,
     )
     .await
-    .map_err(|e| {
-        tracing::error!("Failed to create user: {e}");
-        AppError::InternalError(anyhow::anyhow!("Failed to create user"))
-    })?;
-
-    // Send verification email (best-effort — don't fail registration if email sending fails)
-    if let Err(e) = state
-        .inner
-        .email_service
-        .send_verification_email(
-            &payload.email,
-            &payload.display_name,
-            &verification_token,
-            &state.inner.app_base_url,
-        )
-        .await
     {
-        tracing::error!("Failed to send verification email: {e}");
+        Ok(_) => true,
+        Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
+            // Race condition: concurrent registration with the same email.
+            // Return generic success to prevent user enumeration.
+            false
+        }
+        Err(e) => {
+            tracing::error!("Failed to create user: {e}");
+            return Err(AppError::InternalError(anyhow::anyhow!(
+                "Failed to create user"
+            )));
+        }
+    };
+
+    // Send verification email only if user was actually created
+    if user_created {
+        if let Err(e) = state
+            .inner
+            .email_service
+            .send_verification_email(
+                &payload.email,
+                &payload.display_name,
+                &verification_token,
+                &state.inner.app_base_url,
+            )
+            .await
+        {
+            tracing::error!("Failed to send verification email: {e}");
+        }
     }
 
     Ok((
