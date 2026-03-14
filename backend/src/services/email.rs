@@ -18,32 +18,29 @@ pub enum EmailService {
 
 impl EmailService {
     pub fn from_config(config: &AppConfig) -> Self {
-        match &config.smtp_host {
-            Some(host) => {
-                let mut builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
-                    .expect("Failed to create SMTP transport")
-                    .port(config.smtp_port);
+        if let Some(host) = &config.smtp_host {
+            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
+                .expect("Failed to create SMTP transport")
+                .port(config.smtp_port);
 
-                if let (Some(user), Some(password)) = (&config.smtp_user, &config.smtp_password) {
-                    builder = builder.credentials(Credentials::new(user.clone(), password.clone()));
-                }
-
-                let transport = builder.build();
-
-                tracing::info!(
-                    "Email service configured with SMTP: {host}:{}",
-                    config.smtp_port
-                );
-                Self::Smtp {
-                    transport,
-                    from: config.smtp_from.clone(),
-                }
+            if let (Some(user), Some(password)) = (&config.smtp_user, &config.smtp_password) {
+                builder = builder.credentials(Credentials::new(user.clone(), password.clone()));
             }
-            None => {
-                tracing::warn!("SMTP_HOST not set — emails will be logged to console (dev mode)");
-                Self::Log {
-                    from: config.smtp_from.clone(),
-                }
+
+            let transport = builder.build();
+
+            tracing::info!(
+                "Email service configured with SMTP: {host}:{}",
+                config.smtp_port
+            );
+            Self::Smtp {
+                transport,
+                from: config.smtp_from.clone(),
+            }
+        } else {
+            tracing::warn!("SMTP_HOST not set — emails will be logged to console (dev mode)");
+            Self::Log {
+                from: config.smtp_from.clone(),
             }
         }
     }
@@ -76,12 +73,12 @@ impl EmailService {
 </html>"#
         );
 
-        let from_address = self.from_address();
+        let sender = self.sender_address();
 
         match self {
             Self::Smtp { transport, .. } => {
                 let email = Message::builder()
-                    .from(from_address.parse().map_err(|e| {
+                    .from(sender.parse().map_err(|e| {
                         AppError::InternalError(anyhow::anyhow!("Invalid from address: {e}"))
                     })?)
                     .to(format!("{display_name} <{to_email}>")
@@ -117,7 +114,7 @@ impl EmailService {
         Ok(())
     }
 
-    fn from_address(&self) -> &str {
+    fn sender_address(&self) -> &str {
         match self {
             Self::Smtp { from, .. } | Self::Log { from } => from,
         }

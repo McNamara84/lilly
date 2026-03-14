@@ -65,6 +65,7 @@ pub struct VerifyQuery {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct ErrorResponse {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]

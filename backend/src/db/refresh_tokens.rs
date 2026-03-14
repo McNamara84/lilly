@@ -1,6 +1,7 @@
 use sqlx::MySqlPool;
 
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 pub struct RefreshTokenRow {
     pub id: u32,
     pub user_id: u32,
@@ -50,6 +51,7 @@ pub async fn revoke_refresh_token(pool: &MySqlPool, token_hash: &str) -> Result<
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn revoke_all_user_refresh_tokens(
     pool: &MySqlPool,
     user_id: u32,

@@ -270,8 +270,8 @@ async fn login(
     let refresh_token_hash = hash_token(&raw_refresh_token);
 
     #[allow(clippy::cast_possible_truncation)]
-    let refresh_expires_at =
-        Utc::now().naive_utc() + chrono::Duration::seconds(state.inner.jwt_refresh_expiry as i64);
+    let refresh_expires_at = Utc::now().naive_utc()
+        + chrono::Duration::seconds(state.inner.jwt_refresh_expiry.cast_signed());
 
     refresh_tokens::store_refresh_token(
         &state.inner.pool,
@@ -286,7 +286,7 @@ async fn login(
         "access_token",
         access_token,
         "/api",
-        state.inner.jwt_access_expiry as i64,
+        state.inner.jwt_access_expiry.cast_signed(),
         state.inner.cookie_secure,
     );
 
@@ -294,7 +294,7 @@ async fn login(
         "refresh_token",
         raw_refresh_token,
         "/api/v1/auth",
-        state.inner.jwt_refresh_expiry as i64,
+        state.inner.jwt_refresh_expiry.cast_signed(),
         state.inner.cookie_secure,
     );
 
@@ -347,8 +347,8 @@ async fn refresh(
     let new_refresh_hash = hash_token(&new_raw_refresh);
 
     #[allow(clippy::cast_possible_truncation)]
-    let refresh_expires_at =
-        Utc::now().naive_utc() + chrono::Duration::seconds(state.inner.jwt_refresh_expiry as i64);
+    let refresh_expires_at = Utc::now().naive_utc()
+        + chrono::Duration::seconds(state.inner.jwt_refresh_expiry.cast_signed());
 
     refresh_tokens::store_refresh_token(
         &state.inner.pool,
@@ -362,7 +362,7 @@ async fn refresh(
         "access_token",
         new_access_token,
         "/api",
-        state.inner.jwt_access_expiry as i64,
+        state.inner.jwt_access_expiry.cast_signed(),
         state.inner.cookie_secure,
     );
 
@@ -370,7 +370,7 @@ async fn refresh(
         "refresh_token",
         new_raw_refresh,
         "/api/v1/auth",
-        state.inner.jwt_refresh_expiry as i64,
+        state.inner.jwt_refresh_expiry.cast_signed(),
         state.inner.cookie_secure,
     );
 

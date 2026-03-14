@@ -9,6 +9,7 @@ use crate::routes::AppState;
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub user_id: u32,
+    #[allow(dead_code)]
     pub display_name: String,
 }
 
