@@ -148,4 +148,85 @@ describe('Login Page', () => {
 		const resendButton = await screen.findByTestId('resend-verification-button');
 		expect(resendButton).toBeInTheDocument();
 	});
+
+	it('sends resend verification email on button click', async () => {
+		const { login, resendVerification } = await import('$lib/api/auth');
+		const mockLogin = vi.mocked(login);
+		const mockResend = vi.mocked(resendVerification);
+
+		const error = new Error('Email not verified') as Error & { code?: string };
+		error.code = 'EMAIL_NOT_VERIFIED';
+		mockLogin.mockRejectedValue(error);
+		mockResend.mockResolvedValue(undefined);
+
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		await user.type(screen.getByLabelText(/e-mail/i), 'unverified@test.com');
+		await user.type(screen.getByLabelText(/passwort/i), 'password123');
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+
+		const resendButton = await screen.findByTestId('resend-verification-button');
+		await user.click(resendButton);
+
+		expect(mockResend).toHaveBeenCalledWith('unverified@test.com');
+		expect(await screen.findByText(/Bestätigungsmail wurde erneut gesendet/i)).toBeInTheDocument();
+	});
+
+	it('shows generic error message on login failure without code', async () => {
+		const { login } = await import('$lib/api/auth');
+		const mockLogin = vi.mocked(login);
+		mockLogin.mockRejectedValue(new Error(''));
+
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		await user.type(screen.getByLabelText(/e-mail/i), 'test@test.com');
+		await user.type(screen.getByLabelText(/passwort/i), 'password123');
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+
+		const errorAlert = await screen.findByRole('alert');
+		expect(errorAlert).toHaveTextContent(/unerwarteter Fehler/i);
+	});
+
+	it('does not submit form when fields are invalid', async () => {
+		const { login } = await import('$lib/api/auth');
+		const mockLogin = vi.mocked(login);
+
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		// Click submit without filling in fields
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+
+		expect(mockLogin).not.toHaveBeenCalled();
+	});
+
+	it('does not call resend when email is empty', async () => {
+		const { login, resendVerification } = await import('$lib/api/auth');
+		const mockLogin = vi.mocked(login);
+		const mockResend = vi.mocked(resendVerification);
+
+		const error = new Error('Email not verified') as Error & { code?: string };
+		error.code = 'EMAIL_NOT_VERIFIED';
+		mockLogin.mockRejectedValue(error);
+
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		// Type email, then clear it, then submit
+		const emailInput = screen.getByLabelText(/e-mail/i);
+		await user.type(emailInput, 'test@test.com');
+		await user.type(screen.getByLabelText(/passwort/i), 'password');
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+
+		// Now clear the email field before clicking resend
+		await user.clear(emailInput);
+
+		const resendButton = await screen.findByTestId('resend-verification-button');
+		await user.click(resendButton);
+
+		// resendVerification should not be called with empty email
+		expect(mockResend).not.toHaveBeenCalled();
+	});
 });
