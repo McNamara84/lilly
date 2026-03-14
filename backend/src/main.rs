@@ -12,6 +12,7 @@ mod db;
 mod error;
 mod models;
 mod routes;
+mod services;
 
 #[tokio::main]
 async fn main() {
@@ -48,12 +49,17 @@ async fn main() {
         }
     }
 
+    let email_service = services::email::EmailService::from_config(&config);
+
     let app_state = routes::AppState {
         inner: std::sync::Arc::new(routes::AppStateInner {
             pool,
             jwt_secret: config.jwt_secret,
             jwt_access_expiry: config.jwt_access_token_expiry,
             jwt_refresh_expiry: config.jwt_refresh_token_expiry,
+            email_service,
+            app_base_url: config.app_base_url,
+            cookie_secure: config.cookie_secure,
         }),
     };
 
@@ -79,7 +85,8 @@ async fn main() {
                 .allow_headers(AllowHeaders::list([
                     http::header::CONTENT_TYPE,
                     http::header::AUTHORIZATION,
-                ])),
+                ]))
+                .allow_credentials(true),
         );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.backend_port));

@@ -11,6 +11,9 @@ pub enum AppError {
     Unauthorized(String),
 
     #[error("{0}")]
+    Forbidden(String),
+
+    #[error("{0}")]
     #[allow(dead_code)]
     NotFound(String),
 
@@ -52,6 +55,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::InternalError(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -81,6 +85,13 @@ mod tests {
         let error = AppError::Unauthorized("not logged in".to_string());
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn test_forbidden_status() {
+        let error = AppError::Forbidden("access denied".to_string());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[test]

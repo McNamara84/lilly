@@ -86,6 +86,14 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 - Do not blindly apply all review suggestions — some may be subjective, context-dependent, or counterproductive.
 - Prioritize: correctness > security > performance > readability > style.
 
+## Pre-Commit Checks
+
+Before considering any implementation task complete, **always run the relevant linters and checks** to ensure CI will pass:
+
+- **Backend (Rust)**: Run `cargo fmt --check` and `cargo clippy` — CI enforces both. Fix all issues before committing.
+- **Frontend (Svelte/TS)**: Run `npm run lint`, `npx svelte-check`, and `npx vitest run` — ensure zero errors and all tests pass before committing.
+- **Never skip these checks** — formatting or lint failures in CI are avoidable and waste review cycles.
+
 ## Security
 
 - Follow OWASP Top 10 guidelines.

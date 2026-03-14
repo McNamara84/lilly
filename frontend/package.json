@@ -49,6 +49,9 @@
 		"@skeletonlabs/skeleton-svelte": "^4.12.1",
 		"@sveltejs/adapter-node": "^5.5.4",
 		"@tailwindcss/vite": "^4.2.1",
+		"@zxcvbn-ts/core": "^3.0.4",
+		"@zxcvbn-ts/language-common": "^3.0.4",
+		"@zxcvbn-ts/language-de": "^3.0.2",
 		"lucide-svelte": "^0.577.0",
 		"tailwindcss": "^4.2.1"
 	}

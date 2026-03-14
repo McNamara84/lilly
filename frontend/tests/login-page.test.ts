@@ -5,12 +5,25 @@ import LoginPage from '../src/routes/login/+page.svelte';
 
 // Mock the API module
 vi.mock('$lib/api/auth', () => ({
-	login: vi.fn()
+	login: vi.fn(),
+	resendVerification: vi.fn()
 }));
 
 // Mock SvelteKit modules
 vi.mock('$app/navigation', () => ({
 	goto: vi.fn()
+}));
+
+// Mock $app/state
+vi.mock('$app/state', () => ({
+	page: {
+		url: new URL('http://localhost/login')
+	}
+}));
+
+// Mock auth store
+vi.mock('$lib/stores/auth.svelte', () => ({
+	initAuth: vi.fn().mockResolvedValue(undefined)
 }));
 
 describe('Login Page', () => {
@@ -44,10 +57,11 @@ describe('Login Page', () => {
 		).toBeInTheDocument();
 	});
 
-	it('shows registration and password reset links', () => {
+	it('shows registration link', () => {
 		render(LoginPage);
-		expect(screen.getByText(/Registrieren/i)).toBeInTheDocument();
-		expect(screen.getByText(/Passwort vergessen/i)).toBeInTheDocument();
+		const link = screen.getByRole('link', { name: /registrieren/i });
+		expect(link).toBeInTheDocument();
+		expect(link).toHaveAttribute('href', '/register');
 	});
 
 	it('shows email validation error on blur with empty field', async () => {
@@ -86,11 +100,7 @@ describe('Login Page', () => {
 	it('calls login API on valid form submission', async () => {
 		const { login } = await import('$lib/api/auth');
 		const mockLogin = vi.mocked(login);
-		mockLogin.mockResolvedValue({
-			access_token: 'test-token',
-			token_type: 'Bearer',
-			expires_in: 900
-		});
+		mockLogin.mockResolvedValue({ message: 'Login successful' });
 
 		render(LoginPage);
 		const user = userEvent.setup();
@@ -119,5 +129,23 @@ describe('Login Page', () => {
 
 		const errorAlert = await screen.findByRole('alert');
 		expect(errorAlert).toHaveTextContent(/Invalid email or password/i);
+	});
+
+	it('shows resend verification button when email is not verified', async () => {
+		const { login } = await import('$lib/api/auth');
+		const mockLogin = vi.mocked(login);
+		const error = new Error('Email not verified') as Error & { code?: string };
+		error.code = 'EMAIL_NOT_VERIFIED';
+		mockLogin.mockRejectedValue(error);
+
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		await user.type(screen.getByLabelText(/e-mail/i), 'unverified@test.com');
+		await user.type(screen.getByLabelText(/passwort/i), 'password123');
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+
+		const resendButton = await screen.findByTestId('resend-verification-button');
+		expect(resendButton).toBeInTheDocument();
 	});
 });
