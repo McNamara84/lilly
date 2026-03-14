@@ -85,6 +85,29 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 - Verify the reviewer's claims — they may be factually incorrect. Check against docs, tests, or specs before acting.
 - Do not blindly apply all review suggestions — some may be subjective, context-dependent, or counterproductive.
 - Prioritize: correctness > security > performance > readability > style.
+- Dismiss feedback that is factually wrong (e.g. claiming a standard library method doesn't exist when it does), out of scope for the current PR, or based on aspirational guidelines where the required infrastructure is not yet in place.
+- When a suggestion references a project guideline (e.g. i18n via Paraglide.js), verify first whether the tooling/dependency actually exists in the project before implementing. If not, the feedback is valid in principle but should be tracked as a separate task — not applied as part of the current change.
+
+## Pre-Commit Checks
+
+Before considering any implementation task complete, **always run the relevant linters and checks** to ensure CI will pass:
+
+- **Backend (Rust)**: Run `cargo fmt --check` and `cargo clippy` — CI enforces both. Fix all issues before committing.
+- **Frontend (Svelte/TS)**: Run `npm run format:check` (Prettier), `npm run lint` (ESLint), `npx svelte-check`, and `npx vitest run` — ensure zero errors and all tests pass before committing. If Prettier reports issues, run `npx prettier --write .` to fix them.
+- **Never skip these checks** — formatting or lint failures in CI are avoidable and waste review cycles.
+
+## Definition of Done
+
+A feature, bugfix, or refactor is considered **done** when all of the following are met:
+
+- **Code coverage >80%** — every change must maintain or improve test coverage above 80% (statements). Always aim for 100%, but 80% is the hard minimum.
+- **README updated if needed** — if the change introduces new features, commands, setup steps, or alters the project status, update the root `README.md` accordingly.
+- **All pre-commit checks pass** — see the Pre-Commit Checks section above.
+- **No unresolved lint or type errors** — zero warnings treated as errors in CI.
+
+## Git Workflow
+
+- **Never commit or push on behalf of the user.** Prepare all changes, run all checks, and then let the user commit and push manually.
 
 ## Security
 

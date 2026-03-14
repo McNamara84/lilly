@@ -1,1 +1,1 @@
-// Services module - placeholder for future business logic
+pub mod email;

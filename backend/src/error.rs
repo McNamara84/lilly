@@ -10,6 +10,12 @@ pub enum AppError {
     #[error("{0}")]
     Unauthorized(String),
 
+    #[error("{message}")]
+    Forbidden {
+        message: String,
+        code: Option<String>,
+    },
+
     #[error("{0}")]
     #[allow(dead_code)]
     NotFound(String),
@@ -49,17 +55,25 @@ impl From<jsonwebtoken::errors::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+        let (status, message, code) = match &self {
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
+            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None),
+            AppError::Forbidden { message, code } => {
+                (StatusCode::FORBIDDEN, message.clone(), code.clone())
+            }
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone(), None),
             AppError::InternalError(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),
+                None,
             ),
         };
 
-        let body = json!({ "error": message });
+        let body = if let Some(code) = code {
+            json!({ "error": message, "code": code })
+        } else {
+            json!({ "error": message })
+        };
         (status, axum::Json(body)).into_response()
     }
 }
@@ -81,6 +95,26 @@ mod tests {
         let error = AppError::Unauthorized("not logged in".to_string());
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn test_forbidden_status() {
+        let error = AppError::Forbidden {
+            message: "access denied".to_string(),
+            code: None,
+        };
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn test_forbidden_with_code_includes_code_in_response() {
+        let error = AppError::Forbidden {
+            message: "Email not verified".to_string(),
+            code: Some("EMAIL_NOT_VERIFIED".to_string()),
+        };
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[test]

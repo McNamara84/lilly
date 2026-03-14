@@ -1,35 +1,31 @@
 <script lang="ts">
-	import { login, resendVerification } from '$lib/api/auth';
-	import { initAuth } from '$lib/stores/auth.svelte';
+	import { register } from '$lib/api/auth';
+	import { checkPasswordStrength, MIN_SCORE } from '$lib/utils/password-strength';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
 
+	let displayName = $state('');
 	let email = $state('');
 	let password = $state('');
+	let passwordConfirmation = $state('');
+	let privacyConsent = $state(false);
 	let errorMessage = $state('');
 	let isLoading = $state(false);
+
+	let displayNameTouched = $state(false);
 	let emailTouched = $state(false);
 	let passwordTouched = $state(false);
-	let showResendVerification = $state(false);
-	let resendSent = $state(false);
+	let passwordConfirmationTouched = $state(false);
 
+	let trimmedDisplayName = $derived(displayName.trim());
 	let trimmedEmail = $derived(email.trim());
 
-	let successMessage = $derived.by(() => {
-		const params = page.url.searchParams;
-		if (params.get('registered') === 'true')
-			return 'Registrierung erfolgreich! Bitte prüfe deine E-Mails und bestätige deine Adresse.';
-		if (params.get('verified') === 'true')
-			return 'E-Mail erfolgreich bestätigt! Du kannst dich jetzt anmelden.';
-		if (params.get('verify_error') === 'invalid') return '';
-		return '';
-	});
+	let passwordStrength = $derived(
+		checkPasswordStrength(password, [trimmedDisplayName, trimmedEmail])
+	);
 
-	let verifyError = $derived(
-		page.url.searchParams.get('verify_error') === 'invalid'
-			? 'Der Bestätigungslink ist ungültig oder abgelaufen.'
-			: ''
+	let displayNameError = $derived(
+		displayNameTouched && !trimmedDisplayName ? 'Anzeigename ist erforderlich' : ''
 	);
 
 	let emailError = $derived(
@@ -41,57 +37,70 @@
 	);
 
 	let passwordError = $derived(
-		passwordTouched && !password.trim() ? 'Passwort ist erforderlich' : ''
+		passwordTouched && !password
+			? 'Passwort ist erforderlich'
+			: passwordTouched && password.length < 8
+				? 'Passwort muss mindestens 8 Zeichen lang sein'
+				: passwordTouched && passwordStrength.score < MIN_SCORE
+					? 'Passwort ist zu schwach'
+					: ''
+	);
+
+	let passwordConfirmationError = $derived(
+		passwordConfirmationTouched && !passwordConfirmation
+			? 'Passwortbestätigung ist erforderlich'
+			: passwordConfirmationTouched && passwordConfirmation !== password
+				? 'Passwörter stimmen nicht überein'
+				: ''
 	);
 
 	let isFormValid = $derived(
-		trimmedEmail !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail) && password.trim() !== ''
+		trimmedDisplayName !== '' &&
+			trimmedEmail !== '' &&
+			/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail) &&
+			password.length >= 8 &&
+			passwordStrength.score >= MIN_SCORE &&
+			passwordConfirmation === password &&
+			privacyConsent
 	);
 
 	async function handleSubmit(event: SubmitEvent) {
 		event.preventDefault();
+		displayNameTouched = true;
 		emailTouched = true;
 		passwordTouched = true;
+		passwordConfirmationTouched = true;
 
 		if (!isFormValid) return;
 
 		isLoading = true;
 		errorMessage = '';
-		showResendVerification = false;
 
 		try {
-			await login({ email: trimmedEmail, password });
-			await initAuth();
-			await goto(resolve('/'));
+			await register({
+				display_name: trimmedDisplayName,
+				email: trimmedEmail,
+				password,
+				password_confirmation: passwordConfirmation,
+				privacy_consent: privacyConsent
+			});
+			// eslint-disable-next-line svelte/no-navigation-without-resolve -- query params appended to resolved route
+			await goto(`${resolve('/login')}?registered=true`);
 		} catch (err) {
-			const error = err as Error & { code?: string };
-			if (error.code === 'EMAIL_NOT_VERIFIED') {
-				errorMessage = 'Deine E-Mail-Adresse wurde noch nicht bestätigt.';
-				showResendVerification = true;
-			} else {
-				errorMessage = error.message || 'Ein unerwarteter Fehler ist aufgetreten';
-			}
+			errorMessage = err instanceof Error ? err.message : 'Ein unerwarteter Fehler ist aufgetreten';
 		} finally {
 			isLoading = false;
-		}
-	}
-
-	async function handleResendVerification() {
-		if (!trimmedEmail) return;
-		try {
-			await resendVerification(trimmedEmail);
-			resendSent = true;
-		} catch {
-			resendSent = true;
 		}
 	}
 </script>
 
 <svelte:head>
-	<title>Anmelden – LILLY</title>
+	<title>Registrieren – LILLY</title>
 </svelte:head>
 
-<div class="min-h-[calc(100vh-3.5rem)] flex items-center justify-center px-4 py-8 login-background">
+<div
+	class="min-h-[calc(100vh-3.5rem)] flex items-center justify-center px-4 py-8 register-background"
+>
 	<div class="glass-elevated w-full max-w-[420px] p-8">
 		<!-- Logo & Tagline -->
 		<div class="text-center mb-8">
@@ -101,59 +110,47 @@
 			</p>
 		</div>
 
-		<!-- Login Form -->
-		<form onsubmit={handleSubmit} class="space-y-4" novalidate data-testid="login-form">
-			{#if successMessage}
-				<div
-					class="rounded-lg px-4 py-3 text-sm"
-					style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); color: #22c55e;"
-					role="status"
-					data-testid="login-success"
-				>
-					{successMessage}
-				</div>
-			{/if}
-
-			{#if verifyError}
-				<div
-					class="rounded-lg px-4 py-3 text-sm"
-					style="background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444;"
-					role="alert"
-					data-testid="verify-error"
-				>
-					{verifyError}
-				</div>
-			{/if}
-
+		<!-- Register Form -->
+		<form onsubmit={handleSubmit} class="space-y-4" novalidate data-testid="register-form">
 			{#if errorMessage}
 				<div
 					class="rounded-lg px-4 py-3 text-sm"
 					style="background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444;"
 					role="alert"
-					data-testid="login-error"
+					data-testid="register-error"
 				>
 					{errorMessage}
-					{#if showResendVerification}
-						<div class="mt-2">
-							{#if resendSent}
-								<p class="text-xs" style="color: var(--text-secondary);">
-									Bestätigungsmail wurde erneut gesendet.
-								</p>
-							{:else}
-								<button
-									type="button"
-									onclick={handleResendVerification}
-									class="underline text-xs font-medium"
-									style="color: var(--color-brand-500);"
-									data-testid="resend-verification-button"
-								>
-									Bestätigungsmail erneut senden
-								</button>
-							{/if}
-						</div>
-					{/if}
 				</div>
 			{/if}
+
+			<!-- Display Name -->
+			<div>
+				<label
+					for="display-name"
+					class="block text-sm font-medium mb-1.5"
+					style="color: var(--text-secondary);"
+				>
+					Anzeigename
+				</label>
+				<input
+					id="display-name"
+					data-testid="display-name-input"
+					type="text"
+					bind:value={displayName}
+					onblur={() => (displayNameTouched = true)}
+					placeholder="Max Mustermann"
+					autocomplete="name"
+					class="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
+					style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-primary);"
+					aria-invalid={displayNameError ? 'true' : undefined}
+					aria-describedby={displayNameError ? 'display-name-error' : undefined}
+				/>
+				{#if displayNameError}
+					<p id="display-name-error" class="mt-1 text-xs" style="color: #ef4444;">
+						{displayNameError}
+					</p>
+				{/if}
+			</div>
 
 			<!-- Email -->
 			<div>
@@ -198,15 +195,96 @@
 					bind:value={password}
 					onblur={() => (passwordTouched = true)}
 					placeholder="••••••••"
-					autocomplete="current-password"
+					autocomplete="new-password"
 					class="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
 					style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-primary);"
 					aria-invalid={passwordError ? 'true' : undefined}
-					aria-describedby={passwordError ? 'password-error' : undefined}
+					aria-describedby="password-strength-info{passwordError ? ' password-error' : ''}"
 				/>
-				{#if passwordError}
-					<p id="password-error" class="mt-1 text-xs" style="color: #ef4444;">{passwordError}</p>
+				{#if password}
+					<div class="mt-2" data-testid="password-strength">
+						<div class="flex items-center justify-between mb-1">
+							<span class="text-xs" style="color: var(--text-tertiary);">Passwortstärke</span>
+							<span class="text-xs font-medium" style="color: {passwordStrength.color};">
+								{passwordStrength.label}
+							</span>
+						</div>
+						<div
+							class="h-1.5 w-full rounded-full overflow-hidden"
+							style="background-color: var(--surface-raised);"
+							role="progressbar"
+							aria-valuenow={passwordStrength.score}
+							aria-valuemin={0}
+							aria-valuemax={4}
+							aria-label="Passwortstärke: {passwordStrength.label}"
+							id="password-strength-info"
+						>
+							<div
+								class="h-full rounded-full transition-all duration-300"
+								style="width: {(passwordStrength.score + 1) *
+									20}%; background-color: {passwordStrength.color};"
+							></div>
+						</div>
+					</div>
 				{/if}
+				{#if passwordError}
+					<p id="password-error" class="mt-1 text-xs" style="color: #ef4444;">
+						{passwordError}
+					</p>
+				{/if}
+			</div>
+
+			<!-- Password Confirmation -->
+			<div>
+				<label
+					for="password-confirmation"
+					class="block text-sm font-medium mb-1.5"
+					style="color: var(--text-secondary);"
+				>
+					Passwort bestätigen
+				</label>
+				<input
+					id="password-confirmation"
+					data-testid="password-confirmation-input"
+					type="password"
+					bind:value={passwordConfirmation}
+					onblur={() => (passwordConfirmationTouched = true)}
+					placeholder="••••••••"
+					autocomplete="new-password"
+					class="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
+					style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-primary);"
+					aria-invalid={passwordConfirmationError ? 'true' : undefined}
+					aria-describedby={passwordConfirmationError ? 'password-confirmation-error' : undefined}
+				/>
+				{#if passwordConfirmationError}
+					<p id="password-confirmation-error" class="mt-1 text-xs" style="color: #ef4444;">
+						{passwordConfirmationError}
+					</p>
+				{/if}
+			</div>
+
+			<!-- Privacy Consent -->
+			<div class="flex items-start gap-3">
+				<input
+					id="privacy-consent"
+					data-testid="privacy-consent-checkbox"
+					type="checkbox"
+					bind:checked={privacyConsent}
+					class="mt-0.5 h-4 w-4 rounded accent-[var(--color-brand-700)]"
+				/>
+				<label for="privacy-consent" class="text-sm" style="color: var(--text-secondary);">
+					Ich stimme der
+					<a
+						href={resolve('/privacy')}
+						class="underline font-medium"
+						style="color: var(--color-brand-500);"
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						Datenschutzerklärung
+					</a>
+					zu.
+				</label>
 			</div>
 
 			<!-- Submit Button -->
@@ -224,6 +302,7 @@
 							xmlns="http://www.w3.org/2000/svg"
 							fill="none"
 							viewBox="0 0 24 24"
+							aria-hidden="true"
 						>
 							<circle
 								class="opacity-25"
@@ -239,10 +318,10 @@
 								d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
 							></path>
 						</svg>
-						Anmelden…
+						Registrieren…
 					</span>
 				{:else}
-					Anmelden
+					Registrieren
 				{/if}
 			</button>
 		</form>
@@ -254,7 +333,7 @@
 			<div class="flex-1 h-px" style="background-color: var(--glass-border);"></div>
 		</div>
 
-		<!-- OAuth Buttons -->
+		<!-- OAuth Buttons (disabled) -->
 		<div class="grid grid-cols-2 gap-3">
 			<button
 				type="button"
@@ -302,12 +381,11 @@
 		</div>
 
 		<!-- Links -->
-		<div class="mt-6 text-center space-y-2">
-			<p class="text-sm" style="color: var(--text-tertiary);">Passwort vergessen?</p>
+		<div class="mt-6 text-center">
 			<p class="text-sm" style="color: var(--text-secondary);">
-				Noch kein Konto?
-				<a href={resolve('/register')} style="color: var(--color-brand-500);" class="font-medium"
-					>Registrieren</a
+				Bereits ein Konto?
+				<a href={resolve('/login')} style="color: var(--color-brand-500);" class="font-medium"
+					>Anmelden</a
 				>
 			</p>
 		</div>
@@ -315,7 +393,7 @@
 </div>
 
 <style>
-	.login-background {
+	.register-background {
 		background:
 			radial-gradient(ellipse at 20% 50%, rgba(6, 182, 212, 0.08) 0%, transparent 50%),
 			radial-gradient(ellipse at 80% 20%, rgba(14, 165, 233, 0.06) 0%, transparent 50%),
