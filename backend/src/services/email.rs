@@ -147,11 +147,11 @@ mod tests {
     }
 
     #[test]
-    fn test_from_address_returns_configured_from() {
+    fn test_sender_address_returns_configured_from() {
         let service = EmailService::Log {
             from: "noreply@lilly.app".to_string(),
         };
-        assert_eq!(service.from_address(), "noreply@lilly.app");
+        assert_eq!(service.sender_address(), "noreply@lilly.app");
     }
 
     #[tokio::test]
