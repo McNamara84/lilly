@@ -14,7 +14,7 @@ describe('Password Strength', () => {
 	});
 
 	it('returns higher score for strong password', () => {
-		const result = checkPasswordStrength('Kj$9mP!xL2@qWzR');
+		const result = checkPasswordStrength('Kj$9mP!xL2@qWzR'); // ggignore
 		expect(result.score).toBeGreaterThanOrEqual(MIN_SCORE);
 	});
 

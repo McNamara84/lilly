@@ -115,8 +115,8 @@ describe('Register Page', () => {
 		expect(mockRegister).toHaveBeenCalledWith({
 			display_name: 'Max Mustermann',
 			email: 'max@example.com',
-			password: 'Kj$9mP!xL2@q',
-			password_confirmation: 'Kj$9mP!xL2@q',
+			password: 'Kj$9mP!xL2@q', // ggignore
+			password_confirmation: 'Kj$9mP!xL2@q', // ggignore
 			privacy_consent: true
 		});
 	});

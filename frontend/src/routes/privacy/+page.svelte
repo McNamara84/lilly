@@ -1,3 +1,7 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+</script>
+
 <svelte:head>
 	<title>Datenschutzerklärung – LILLY</title>
 </svelte:head>
@@ -100,13 +104,9 @@
 		</section>
 	</div>
 
-<script lang="ts">
-	import { resolveRoute } from '$app/paths';
-</script>
-
 	<div class="mt-8">
 		<a
-			href={resolveRoute('/register')}
+			href={resolve('/register')}
 			class="text-sm font-medium"
 			style="color: var(--color-brand-500);"
 		>

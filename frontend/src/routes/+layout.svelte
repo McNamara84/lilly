@@ -2,7 +2,7 @@
 	import '../app.css';
 	import { initAuth, getAuthState, performLogout } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
-	import { resolveRoute } from '$app/paths';
+	import { resolve } from '$app/paths';
 
 	let { children } = $props();
 
@@ -26,7 +26,7 @@
 
 	async function handleLogout() {
 		await performLogout();
-		await goto(resolveRoute('/login'));
+		await goto(resolve('/login'));
 	}
 </script>
 
@@ -41,7 +41,7 @@
 	<header
 		class="glass-nav fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-4"
 	>
-		<a href={resolveRoute('/')} class="text-xl font-bold tracking-tight" style="color: var(--color-brand-700);">
+		<a href={resolve('/')} class="text-xl font-bold tracking-tight" style="color: var(--color-brand-700);">
 			LILLY
 		</a>
 		<div class="flex items-center gap-3">

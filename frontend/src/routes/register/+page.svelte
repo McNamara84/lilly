@@ -2,7 +2,7 @@
 	import { register } from '$lib/api/auth';
 	import { checkPasswordStrength, MIN_SCORE } from '$lib/utils/password-strength';
 	import { goto } from '$app/navigation';
-	import { resolveRoute } from '$app/paths';
+	import { resolve } from '$app/paths';
 
 	let displayName = $state('');
 	let email = $state('');
@@ -84,7 +84,8 @@
 				password_confirmation: passwordConfirmation,
 				privacy_consent: privacyConsent
 			});
-			await goto(`${resolveRoute('/login')}?registered=true`);
+			// eslint-disable-next-line svelte/no-navigation-without-resolve -- query params appended to resolved route
+			await goto(`${resolve('/login')}?registered=true`);
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Ein unerwarteter Fehler ist aufgetreten';
 		} finally {
@@ -275,7 +276,7 @@
 				<label for="privacy-consent" class="text-sm" style="color: var(--text-secondary);">
 					Ich stimme der
 					<a
-						href={resolveRoute('/privacy')}
+						href={resolve('/privacy')}
 						class="underline font-medium"
 						style="color: var(--color-brand-500);"
 						target="_blank"
@@ -384,7 +385,7 @@
 		<div class="mt-6 text-center">
 			<p class="text-sm" style="color: var(--text-secondary);">
 				Bereits ein Konto?
-				<a href={resolveRoute('/login')} style="color: var(--color-brand-500);" class="font-medium">Anmelden</a>
+				<a href={resolve('/login')} style="color: var(--color-brand-500);" class="font-medium">Anmelden</a>
 			</p>
 		</div>
 	</div>

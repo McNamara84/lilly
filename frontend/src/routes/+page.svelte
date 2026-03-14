@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { getAuthState, performLogout } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
-	import { resolveRoute } from '$app/paths';
+	import { resolve } from '$app/paths';
 
 	const auth = getAuthState();
 
 	async function handleLogout() {
 		await performLogout();
-		await goto(resolveRoute('/login'));
+		await goto(resolve('/login'));
 	}
 </script>
 

@@ -2,7 +2,7 @@
 	import { login, resendVerification } from '$lib/api/auth';
 	import { initAuth } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
-	import { resolveRoute } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 
 	let email = $state('');
@@ -63,7 +63,7 @@
 		try {
 			await login({ email: trimmedEmail, password });
 			await initAuth();
-			await goto(resolveRoute('/'));
+			await goto(resolve('/'));
 		} catch (err) {
 			const error = err as Error & { code?: string };
 			if (error.code === 'EMAIL_NOT_VERIFIED') {
@@ -307,7 +307,7 @@
 			<p class="text-sm" style="color: var(--text-tertiary);">Passwort vergessen?</p>
 			<p class="text-sm" style="color: var(--text-secondary);">
 				Noch kein Konto?
-				<a href={resolveRoute('/register')} style="color: var(--color-brand-500);" class="font-medium"
+				<a href={resolve('/register')} style="color: var(--color-brand-500);" class="font-medium"
 					>Registrieren</a
 				>
 			</p>
