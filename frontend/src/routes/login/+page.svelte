@@ -82,7 +82,7 @@
 			await resendVerification(trimmedEmail);
 			resendSent = true;
 		} catch {
-			// Silently fail — server always responds 200 for security
+			resendSent = true;
 		}
 	}
 </script>
