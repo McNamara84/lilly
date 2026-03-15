@@ -29,6 +29,7 @@ const mockHistory = [
 	{
 		id: 1,
 		series_id: 1,
+		series_slug: 'maddrax',
 		adapter_name: 'maddrax',
 		status: 'completed',
 		total_issues: 620,
@@ -94,6 +95,7 @@ describe('Admin Import Page', () => {
 		vi.mocked(startImport).mockResolvedValue({
 			id: 5,
 			series_id: 1,
+			series_slug: 'maddrax',
 			adapter_name: 'maddrax',
 			status: 'running',
 			total_issues: 0,

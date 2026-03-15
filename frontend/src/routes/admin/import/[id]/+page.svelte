@@ -66,8 +66,7 @@
 	async function handleActivate() {
 		if (!job) return;
 		try {
-			// Fetch series slug from the series data — for now use series_id
-			await activateSeries(String(job.series_id));
+			await activateSeries(job.series_slug);
 			await loadJob();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Activation failed';

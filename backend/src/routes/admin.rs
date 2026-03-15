@@ -153,7 +153,7 @@ async fn start_import(
     tokio::spawn(async move {
         if let Err(e) = run_import(
             state_inner,
-            pool,
+            pool.clone(),
             media_path,
             adapter_name,
             series_id,
@@ -162,6 +162,9 @@ async fn start_import(
         .await
         {
             tracing::error!(job_id, error = %e, "Import task failed");
+            if let Err(db_err) = import_jobs::fail_import_job(&pool, job_id, &e.to_string()).await {
+                tracing::error!(job_id, error = %db_err, "Failed to mark import job as failed");
+            }
         }
     });
 
@@ -172,7 +175,10 @@ async fn start_import(
             AppError::InternalError(anyhow::anyhow!("Failed to retrieve created import job"))
         })?;
 
-    Ok(Json(ImportJobResponse::from(&job)))
+    Ok(Json(ImportJobResponse::from_job_with_slug(
+        &job,
+        metadata.slug,
+    )))
 }
 
 async fn run_import(
@@ -230,7 +236,9 @@ async fn run_import(
                 .await
                 .is_ok()
             {
-                cover_local = Some(cover_path.to_string_lossy().to_string());
+                cover_local = Some(format!(
+                    "/media/covers/series-{series_id}/{issue_number}.{ext}"
+                ));
             }
         }
 
@@ -272,7 +280,8 @@ async fn get_import_job(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Import job {id} not found")))?;
 
-    Ok(Json(ImportJobResponse::from(&job)))
+    let slug = resolve_series_slug(&state.inner.pool, job.series_id).await?;
+    Ok(Json(ImportJobResponse::from_job_with_slug(&job, slug)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -329,7 +338,6 @@ async fn import_history(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ImportJobResponse>>, AppError> {
-    // Get all import jobs across all series
     let jobs = sqlx::query_as::<_, crate::models::series::ImportJob>(
         "SELECT id, series_id, adapter_name, status, total_issues, imported_issues, \
          error_message, started_by, started_at, completed_at, created_at \
@@ -338,8 +346,21 @@ async fn import_history(
     .fetch_all(&state.inner.pool)
     .await?;
 
-    let response: Vec<ImportJobResponse> = jobs.iter().map(ImportJobResponse::from).collect();
+    let mut response = Vec::with_capacity(jobs.len());
+    for job in &jobs {
+        let slug = resolve_series_slug(&state.inner.pool, job.series_id)
+            .await
+            .unwrap_or_default();
+        response.push(ImportJobResponse::from_job_with_slug(job, slug));
+    }
     Ok(Json(response))
+}
+
+async fn resolve_series_slug(pool: &sqlx::MySqlPool, series_id: u32) -> Result<String, AppError> {
+    let s = series::find_series_by_id(pool, series_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Series {series_id} not found")))?;
+    Ok(s.slug)
 }
 
 #[cfg(test)]

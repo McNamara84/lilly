@@ -86,6 +86,7 @@ pub struct ImportJob {
 pub struct ImportJobResponse {
     pub id: u32,
     pub series_id: u32,
+    pub series_slug: String,
     pub adapter_name: String,
     pub status: String,
     pub total_issues: u32,
@@ -130,11 +131,12 @@ impl From<&Issue> for IssueResponse {
     }
 }
 
-impl From<&ImportJob> for ImportJobResponse {
-    fn from(j: &ImportJob) -> Self {
+impl ImportJobResponse {
+    pub fn from_job_with_slug(j: &ImportJob, series_slug: String) -> Self {
         Self {
             id: j.id,
             series_id: j.series_id,
+            series_slug,
             adapter_name: j.adapter_name.clone(),
             status: j.status.clone(),
             total_issues: j.total_issues,
@@ -209,8 +211,9 @@ mod tests {
             completed_at: None,
             created_at: chrono::NaiveDateTime::default(),
         };
-        let resp = ImportJobResponse::from(&job);
+        let resp = ImportJobResponse::from_job_with_slug(&job, "maddrax".to_string());
         assert_eq!(resp.adapter_name, "maddrax");
+        assert_eq!(resp.series_slug, "maddrax");
         assert_eq!(resp.total_issues, 620);
         assert_eq!(resp.imported_issues, 150);
     }

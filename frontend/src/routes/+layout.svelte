@@ -53,7 +53,7 @@
 				{#if auth.isAdmin}
 					<a
 						href={resolve('/admin')}
-						class="text-sm hidden sm:inline px-2 py-1 rounded"
+						class="text-sm px-2 py-1 rounded"
 						style="color: var(--text-secondary);"
 						data-testid="admin-link"
 					>

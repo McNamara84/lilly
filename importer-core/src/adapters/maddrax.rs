@@ -250,18 +250,39 @@ fn extract_cover_url(html: &str) -> Option<String> {
 }
 
 fn parse_german_date(s: &str) -> Option<chrono::NaiveDate> {
-    // Try common German date formats
     let trimmed = s.trim();
 
-    // "15. März 2026" or "15.03.2026"
-    if let Ok(date) = chrono::NaiveDate::parse_from_str(trimmed, "%d. %B %Y") {
-        return Some(date);
-    }
+    // Try numeric format first: "15.03.2026"
     if let Ok(date) = chrono::NaiveDate::parse_from_str(trimmed, "%d.%m.%Y") {
         return Some(date);
     }
 
-    // Try extracting just a year
+    // Handle German month names: "15. März 2026"
+    let german_months = [
+        ("Januar", "01"),
+        ("Februar", "02"),
+        ("März", "03"),
+        ("April", "04"),
+        ("Mai", "05"),
+        ("Juni", "06"),
+        ("Juli", "07"),
+        ("August", "08"),
+        ("September", "09"),
+        ("Oktober", "10"),
+        ("November", "11"),
+        ("Dezember", "12"),
+    ];
+
+    for (name, num) in &german_months {
+        if trimmed.contains(name) {
+            let normalized = trimmed.replace(name, num);
+            // "15. 03 2026" → parse with spaces
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(&normalized, "%d. %m %Y") {
+                return Some(date);
+            }
+        }
+    }
+
     None
 }
 
@@ -329,6 +350,24 @@ mod tests {
     #[test]
     fn test_parse_german_date_invalid() {
         assert!(parse_german_date("invalid").is_none());
+    }
+
+    #[test]
+    fn test_parse_german_date_german_month_name() {
+        let date = parse_german_date("15. März 2026");
+        assert_eq!(
+            date,
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 15).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_parse_german_date_dezember() {
+        let date = parse_german_date("24. Dezember 2025");
+        assert_eq!(
+            date,
+            Some(chrono::NaiveDate::from_ymd_opt(2025, 12, 24).unwrap())
+        );
     }
 
     #[test]

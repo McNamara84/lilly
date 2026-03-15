@@ -22,6 +22,7 @@ export interface Adapter {
 export interface ImportJob {
 	id: number;
 	series_id: number;
+	series_slug: string;
 	adapter_name: string;
 	status: string;
 	total_issues: number;
