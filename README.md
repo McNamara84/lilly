@@ -136,7 +136,7 @@ The following scale is the established standard in the German *Heftroman* collec
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      Docker Host (VPS)                        │
+│                      Docker Host (VPS)                       │
 │                                                              │
 │  ┌────────────┐    ┌────────────┐    ┌──────────────┐        │
 │  │   Caddy    │    │  SvelteKit │    │  Rust / Axum │        │
@@ -150,9 +150,9 @@ The following scale is the established standard in the German *Heftroman* collec
 │  │   /media   │                └──────────────┘              │
 │  │  (Volume)  │                                              │
 │  └────────────┘  ┌────────────────────────┐                  │
-│                  │   Wiki-Importer (Cron)  │                  │
-│                  │   Rust CLI → MariaDB    │                  │
-│                  └────────────────────────┘                   │
+│                  │   Wiki-Importer (Cron)  │                 │
+│                  │   Rust CLI → MariaDB    │                 │
+│                  └────────────────────────┘                  │
 └──────────────────────────────────────────────────────────────┘
 ```
 

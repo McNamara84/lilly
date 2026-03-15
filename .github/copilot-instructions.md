@@ -94,6 +94,7 @@ Before considering any implementation task complete, **always run the relevant l
 
 - **Backend (Rust)**: Run `cargo fmt --check` and `cargo clippy` — CI enforces both. Fix all issues before committing.
 - **Frontend (Svelte/TS)**: Run `npm run format:check` (Prettier), `npm run lint` (ESLint), `npx svelte-check`, and `npx vitest run` — ensure zero errors and all tests pass before committing. If Prettier reports issues, run `npx prettier --write .` to fix them.
+- **Frontend dependency changes**: After any `npm install`, `npm update`, or manual `package.json` edits, always run `npm ci` to verify that `package-lock.json` is in sync. If `npm ci` fails, delete `node_modules/` and `package-lock.json`, then run `npm install` to regenerate a clean lock file. CI uses `npm ci` which requires an exact match between `package.json` and `package-lock.json`.
 - **Never skip these checks** — formatting or lint failures in CI are avoidable and waste review cycles.
 
 ## Definition of Done
