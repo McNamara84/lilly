@@ -1,0 +1,387 @@
+use axum::extract::{Path, Query, State};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+
+use super::AppState;
+use crate::auth::middleware::AdminUser;
+use crate::db::{import_jobs, issues, series};
+use crate::error::AppError;
+use crate::models::series::{ImportJobResponse, IssueResponse, SeriesResponse};
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/api/v1/admin/series", get(list_all_series))
+        .route(
+            "/api/v1/admin/series/{slug}/activate",
+            post(activate_series),
+        )
+        .route(
+            "/api/v1/admin/series/{slug}/deactivate",
+            post(deactivate_series),
+        )
+        .route("/api/v1/admin/adapters", get(list_adapters))
+        .route("/api/v1/admin/import", post(start_import))
+        .route("/api/v1/admin/import/history", get(import_history))
+        .route("/api/v1/admin/import/{id}", get(get_import_job))
+        .route("/api/v1/admin/import/{id}/issues", get(get_import_issues))
+}
+
+async fn list_all_series(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<SeriesResponse>>, AppError> {
+    let all_series = series::find_all_series(&state.inner.pool, false).await?;
+    let response: Vec<SeriesResponse> = all_series.iter().map(SeriesResponse::from).collect();
+    Ok(Json(response))
+}
+
+async fn activate_series(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let s = series::find_series_by_slug(&state.inner.pool, &slug)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Series '{slug}' not found")))?;
+
+    series::set_series_active(&state.inner.pool, s.id, true).await?;
+    tracing::info!(slug = %slug, "Series activated");
+
+    Ok(Json(serde_json::json!({ "message": "Series activated" })))
+}
+
+async fn deactivate_series(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let s = series::find_series_by_slug(&state.inner.pool, &slug)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Series '{slug}' not found")))?;
+
+    series::set_series_active(&state.inner.pool, s.id, false).await?;
+    tracing::info!(slug = %slug, "Series deactivated");
+
+    Ok(Json(serde_json::json!({ "message": "Series deactivated" })))
+}
+
+#[derive(Debug, Serialize)]
+struct AdapterInfo {
+    name: String,
+    display_name: String,
+    version: String,
+}
+
+async fn list_adapters(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AdapterInfo>>, AppError> {
+    let adapters = state
+        .inner
+        .adapter_registry
+        .list()
+        .into_iter()
+        .map(|(name, display_name, version)| AdapterInfo {
+            name: name.to_string(),
+            display_name: display_name.to_string(),
+            version: version.to_string(),
+        })
+        .collect();
+
+    Ok(Json(adapters))
+}
+
+#[derive(Debug, Deserialize)]
+struct StartImportRequest {
+    adapter: String,
+}
+
+async fn start_import(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Json(request): Json<StartImportRequest>,
+) -> Result<Json<ImportJobResponse>, AppError> {
+    // Verify adapter exists
+    let adapter = state
+        .inner
+        .adapter_registry
+        .get(&request.adapter)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown adapter: '{}'", request.adapter)))?;
+
+    // Fetch series metadata from the adapter
+    let metadata = adapter
+        .fetch_series_metadata()
+        .await
+        .map_err(|e| AppError::InternalError(e.into()))?;
+
+    // Create or find series
+    let series_id = match series::find_series_by_slug(&state.inner.pool, &metadata.slug).await? {
+        Some(existing) => existing.id,
+        None => {
+            series::create_series(
+                &state.inner.pool,
+                &metadata.name,
+                &metadata.slug,
+                metadata.publisher.as_deref(),
+                metadata.genre.as_deref(),
+                metadata.frequency.as_deref(),
+                metadata.total_issues,
+                &metadata.status.to_string(),
+                metadata.source_url.as_deref(),
+            )
+            .await?
+        }
+    };
+
+    // Create import job
+    let job_id = import_jobs::create_import_job(
+        &state.inner.pool,
+        series_id,
+        &request.adapter,
+        admin.0.user_id,
+    )
+    .await?;
+
+    // Spawn background import task
+    let pool = state.inner.pool.clone();
+    let media_path = state.inner.media_path.clone();
+    let adapter_name = request.adapter.clone();
+    // Clone the Arc to keep state alive for the spawned task
+    let state_inner = state.inner.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = run_import(
+            state_inner,
+            pool,
+            media_path,
+            adapter_name,
+            series_id,
+            job_id,
+        )
+        .await
+        {
+            tracing::error!(job_id, error = %e, "Import task failed");
+        }
+    });
+
+    // Return the job immediately
+    let job = import_jobs::find_import_job_by_id(&state.inner.pool, job_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::InternalError(anyhow::anyhow!("Failed to retrieve created import job"))
+        })?;
+
+    Ok(Json(ImportJobResponse::from(&job)))
+}
+
+async fn run_import(
+    state_inner: std::sync::Arc<super::AppStateInner>,
+    pool: sqlx::MySqlPool,
+    media_path: std::path::PathBuf,
+    adapter_name: String,
+    series_id: u32,
+    job_id: u32,
+) -> Result<(), anyhow::Error> {
+    let adapter = state_inner
+        .adapter_registry
+        .get(&adapter_name)
+        .ok_or_else(|| anyhow::anyhow!("Adapter '{adapter_name}' not found"))?;
+
+    // Fetch issue list
+    let issue_numbers = match adapter.fetch_issue_list().await {
+        Ok(nums) => nums,
+        Err(e) => {
+            import_jobs::fail_import_job(&pool, job_id, &e.to_string()).await?;
+            return Err(e.into());
+        }
+    };
+
+    let total = u32::try_from(issue_numbers.len()).unwrap_or(u32::MAX);
+    import_jobs::update_import_progress(&pool, job_id, 0, total).await?;
+
+    // Create covers directory
+    let cover_dir = media_path
+        .join("covers")
+        .join(format!("series-{series_id}"));
+    tokio::fs::create_dir_all(&cover_dir).await?;
+
+    let mut imported = 0u32;
+    for issue_number in &issue_numbers {
+        // Fetch issue details
+        let details = match adapter.fetch_issue_details(*issue_number).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(issue_number, error = %e, "Failed to fetch issue details, skipping");
+                continue;
+            }
+        };
+
+        // Fetch cover
+        let mut cover_local = None;
+        if let Ok(Some(cover_data)) = adapter.fetch_cover(*issue_number).await {
+            let ext = if cover_data.content_type.contains("png") {
+                "png"
+            } else {
+                "jpg"
+            };
+            let cover_path = cover_dir.join(format!("{issue_number}.{ext}"));
+            if tokio::fs::write(&cover_path, &cover_data.bytes)
+                .await
+                .is_ok()
+            {
+                cover_local = Some(cover_path.to_string_lossy().to_string());
+            }
+        }
+
+        // Upsert issue
+        if let Err(e) = issues::upsert_issue(
+            &pool,
+            series_id,
+            *issue_number,
+            &details.title,
+            details.author.as_deref(),
+            details.published_at,
+            details.cycle.as_deref(),
+            None, // cover_url from wiki not stored
+            cover_local.as_deref(),
+            details.source_wiki_url.as_deref(),
+        )
+        .await
+        {
+            tracing::warn!(issue_number, error = %e, "Failed to upsert issue");
+            continue;
+        }
+
+        imported += 1;
+        import_jobs::update_import_progress(&pool, job_id, imported, total).await?;
+    }
+
+    import_jobs::complete_import_job(&pool, job_id).await?;
+    tracing::info!(job_id, imported, total, "Import completed");
+
+    Ok(())
+}
+
+async fn get_import_job(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> Result<Json<ImportJobResponse>, AppError> {
+    let job = import_jobs::find_import_job_by_id(&state.inner.pool, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Import job {id} not found")))?;
+
+    Ok(Json(ImportJobResponse::from(&job)))
+}
+
+#[derive(Debug, Deserialize)]
+struct PaginationParams {
+    #[serde(default = "default_page")]
+    page: u32,
+    #[serde(default = "default_per_page")]
+    per_page: u32,
+}
+
+const fn default_page() -> u32 {
+    1
+}
+
+const fn default_per_page() -> u32 {
+    50
+}
+
+async fn get_import_issues(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedIssueResponse>, AppError> {
+    let per_page = params.per_page.min(100);
+
+    let job = import_jobs::find_import_job_by_id(&state.inner.pool, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Import job {id} not found")))?;
+
+    let total = issues::count_issues_by_series(&state.inner.pool, job.series_id).await?;
+    let issue_list =
+        issues::find_issues_by_series(&state.inner.pool, job.series_id, params.page, per_page)
+            .await?;
+    let data: Vec<IssueResponse> = issue_list.iter().map(IssueResponse::from).collect();
+
+    Ok(Json(PaginatedIssueResponse {
+        data,
+        page: params.page,
+        per_page,
+        total,
+    }))
+}
+
+#[derive(Debug, Serialize)]
+struct PaginatedIssueResponse {
+    data: Vec<IssueResponse>,
+    page: u32,
+    per_page: u32,
+    total: u32,
+}
+
+async fn import_history(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ImportJobResponse>>, AppError> {
+    // Get all import jobs across all series
+    let jobs = sqlx::query_as::<_, crate::models::series::ImportJob>(
+        "SELECT id, series_id, adapter_name, status, total_issues, imported_issues, \
+         error_message, started_by, started_at, completed_at, created_at \
+         FROM import_jobs ORDER BY created_at DESC",
+    )
+    .fetch_all(&state.inner.pool)
+    .await?;
+
+    let response: Vec<ImportJobResponse> = jobs.iter().map(ImportJobResponse::from).collect();
+    Ok(Json(response))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_adapter_info_serialization() {
+        let info = AdapterInfo {
+            name: "maddrax".to_string(),
+            display_name: "Maddrax".to_string(),
+            version: "0.9".to_string(),
+        };
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["name"], "maddrax");
+        assert_eq!(json["display_name"], "Maddrax");
+        assert_eq!(json["version"], "0.9");
+    }
+
+    #[test]
+    fn test_start_import_request_deserialization() {
+        let req: StartImportRequest = serde_json::from_str(r#"{"adapter": "maddrax"}"#).unwrap();
+        assert_eq!(req.adapter, "maddrax");
+    }
+
+    #[test]
+    fn test_paginated_issue_response_serialization() {
+        let resp = PaginatedIssueResponse {
+            data: vec![],
+            page: 1,
+            per_page: 50,
+            total: 0,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["page"], 1);
+        assert_eq!(json["total"], 0);
+        assert!(json["data"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_default_pagination() {
+        assert_eq!(default_page(), 1);
+        assert_eq!(default_per_page(), 50);
+    }
+}

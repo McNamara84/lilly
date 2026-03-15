@@ -1,9 +1,14 @@
+use std::path::PathBuf;
 use std::sync::Arc;
+
+use lilly_importer_core::adapter::AdapterRegistry;
 
 use crate::services::email::EmailService;
 
+pub mod admin;
 pub mod auth;
 pub mod health;
+pub mod series;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,4 +23,6 @@ pub struct AppStateInner {
     pub email_service: EmailService,
     pub app_base_url: String,
     pub cookie_secure: bool,
+    pub adapter_registry: AdapterRegistry,
+    pub media_path: PathBuf,
 }

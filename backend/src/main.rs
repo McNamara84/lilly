@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use axum::Router;
+use lilly_importer_core::adapter::AdapterRegistry;
+use lilly_importer_core::adapters::maddrax::MaddraxAdapter;
 use sqlx::mysql::MySqlPoolOptions;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -56,6 +59,9 @@ async fn main() {
 
     let email_service = services::email::EmailService::from_config(&config);
 
+    let mut adapter_registry = AdapterRegistry::new();
+    adapter_registry.register(Box::new(MaddraxAdapter::new()));
+
     let app_state = routes::AppState {
         inner: std::sync::Arc::new(routes::AppStateInner {
             pool,
@@ -65,12 +71,16 @@ async fn main() {
             email_service,
             app_base_url: config.app_base_url,
             cookie_secure: config.cookie_secure,
+            adapter_registry,
+            media_path: PathBuf::from(config.media_path),
         }),
     };
 
     let app = Router::new()
         .merge(routes::health::router())
         .merge(routes::auth::router())
+        .merge(routes::series::router())
+        .merge(routes::admin::router())
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())
         .layer(

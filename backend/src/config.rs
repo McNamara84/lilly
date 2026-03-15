@@ -12,6 +12,7 @@ pub struct AppConfig {
     pub app_base_url: String,
     pub cookie_secure: bool,
     pub admin_email: Option<String>,
+    pub media_path: String,
 }
 
 impl AppConfig {
@@ -49,6 +50,7 @@ impl AppConfig {
                 .parse()
                 .unwrap_or(false),
             admin_email: std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty()),
+            media_path: std::env::var("MEDIA_PATH").unwrap_or_else(|_| "/media".to_string()),
         }
     }
 }
@@ -85,5 +87,6 @@ mod tests {
         assert_eq!(config.app_base_url, "http://localhost");
         assert!(!config.cookie_secure);
         assert!(config.admin_email.is_none());
+        assert_eq!(config.media_path, "/media");
     }
 }
