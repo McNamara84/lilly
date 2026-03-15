@@ -93,13 +93,13 @@ mod tests {
 
     #[async_trait]
     impl WikiAdapter for MockAdapter {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "mock"
         }
-        fn display_name(&self) -> &str {
+        fn display_name(&self) -> &'static str {
             "Mock Adapter"
         }
-        fn version(&self) -> &str {
+        fn version(&self) -> &'static str {
             "1.0"
         }
         async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {

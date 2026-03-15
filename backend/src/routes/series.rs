@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_pagination_params_defaults() {
-        let params: PaginationParams = serde_json::from_str(r#"{}"#).unwrap();
+        let params: PaginationParams = serde_json::from_str(r"{}").unwrap();
         assert_eq!(params.page, 1);
         assert_eq!(params.per_page, 50);
     }

@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_extract_infobox_field_from_html() {
-        let html = r#"<table><tr><th>Titel</th><td>Dunkle Zukunft</td></tr></table>"#;
+        let html = r"<table><tr><th>Titel</th><td>Dunkle Zukunft</td></tr></table>";
         let document = Html::parse_document(html);
         let result = extract_infobox_field(&document, "Titel");
         assert_eq!(result, Some("Dunkle Zukunft".to_string()));
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_extract_infobox_field_missing() {
-        let html = r#"<table><tr><th>Autor</th><td>Test</td></tr></table>"#;
+        let html = r"<table><tr><th>Autor</th><td>Test</td></tr></table>";
         let document = Html::parse_document(html);
         let result = extract_infobox_field(&document, "Titel");
         assert!(result.is_none());
@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_extract_cover_url_none() {
-        let html = r#"<div><p>No images here</p></div>"#;
+        let html = r"<div><p>No images here</p></div>";
         let result = extract_cover_url(html);
         assert!(result.is_none());
     }
