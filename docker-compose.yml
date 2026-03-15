@@ -26,6 +26,7 @@ services:
       RUST_LOG: ${RUST_LOG}
       BACKEND_PORT: ${BACKEND_PORT}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       MEDIA_PATH: /media
     volumes:
       - media_data:/media
