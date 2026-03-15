@@ -35,7 +35,13 @@ describe('+page.ts load function', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
 			isLoading: false,
-			user: { id: 1, email: 'test@test.com', display_name: 'Test', email_verified: true }
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			}
 		});
 
 		const { load } = await import('../src/routes/+page.ts');

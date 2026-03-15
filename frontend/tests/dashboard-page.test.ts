@@ -28,7 +28,13 @@ describe('Dashboard Page', () => {
 	it('renders welcome header with user display name', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Max Mustermann', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Max Mustermann',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 
@@ -41,7 +47,13 @@ describe('Dashboard Page', () => {
 	it('renders stats cards with zero values', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Test', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 
@@ -57,7 +69,13 @@ describe('Dashboard Page', () => {
 	it('renders empty state message', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Test', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 
@@ -70,7 +88,13 @@ describe('Dashboard Page', () => {
 	it('renders logout button', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Test', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 
@@ -84,7 +108,13 @@ describe('Dashboard Page', () => {
 
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Test', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 
@@ -113,7 +143,13 @@ describe('Dashboard Page', () => {
 	it('sets the page title', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Test', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 

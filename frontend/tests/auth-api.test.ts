@@ -106,7 +106,8 @@ describe('Auth API Client', () => {
 						id: 1,
 						email: 'user@test.com',
 						display_name: 'User',
-						email_verified: true
+						email_verified: true,
+						role: 'user'
 					})
 			});
 

@@ -287,6 +287,7 @@ async fn login(
     let access_token = jwt::create_token(
         user.id,
         &user.display_name,
+        &user.role,
         &state.inner.jwt_secret,
         state.inner.jwt_access_expiry,
     )?;
@@ -361,6 +362,7 @@ async fn refresh(
     let new_access_token = jwt::create_token(
         user.id,
         &user.display_name,
+        &user.role,
         &state.inner.jwt_secret,
         state.inner.jwt_access_expiry,
     )?;
@@ -452,6 +454,7 @@ async fn me(
         email: user.email,
         display_name: user.display_name,
         email_verified: user.email_verified,
+        role: user.role,
     }))
 }
 

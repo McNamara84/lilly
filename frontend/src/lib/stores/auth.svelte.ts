@@ -14,6 +14,9 @@ export function getAuthState() {
 		},
 		get isAuthenticated() {
 			return user !== null;
+		},
+		get isAdmin() {
+			return user?.role === 'admin';
 		}
 	};
 }

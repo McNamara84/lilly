@@ -7,6 +7,7 @@ pub struct User {
     pub email: String,
     pub password_hash: Option<String>,
     pub display_name: String,
+    pub role: String,
     pub email_verified: bool,
 }
 
@@ -46,6 +47,7 @@ pub struct MeResponse {
     pub email: String,
     pub display_name: String,
     pub email_verified: bool,
+    pub role: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -197,11 +199,13 @@ mod tests {
             email: "user@example.com".to_string(),
             display_name: "Max".to_string(),
             email_verified: true,
+            role: "user".to_string(),
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["id"], 1);
         assert_eq!(json["email"], "user@example.com");
         assert_eq!(json["display_name"], "Max");
         assert_eq!(json["email_verified"], true);
+        assert_eq!(json["role"], "user");
     }
 }

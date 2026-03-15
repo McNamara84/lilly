@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct Claims {
     pub sub: u32,
     pub name: String,
+    pub role: String,
     pub exp: usize,
     pub iat: usize,
 }
@@ -13,6 +14,7 @@ pub struct Claims {
 pub fn create_token(
     user_id: u32,
     display_name: &str,
+    role: &str,
     secret: &str,
     expiry_seconds: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -21,6 +23,7 @@ pub fn create_token(
     let claims = Claims {
         sub: user_id,
         name: display_name.to_string(),
+        role: role.to_string(),
         #[allow(clippy::cast_possible_truncation)]
         exp: now + expiry_seconds as usize,
         iat: now,
@@ -51,16 +54,19 @@ mod tests {
     #[test]
     fn test_create_and_validate_token() {
         let secret = "test-secret-key";
-        let token = create_token(1, "TestUser", secret, 3600).expect("Failed to create token");
+        let token =
+            create_token(1, "TestUser", "user", secret, 3600).expect("Failed to create token");
 
         let claims = validate_token(&token, secret).expect("Failed to validate token");
         assert_eq!(claims.sub, 1);
         assert_eq!(claims.name, "TestUser");
+        assert_eq!(claims.role, "user");
     }
 
     #[test]
     fn test_invalid_secret_fails_validation() {
-        let token = create_token(1, "TestUser", "secret1", 3600).expect("Failed to create token");
+        let token =
+            create_token(1, "TestUser", "admin", "secret1", 3600).expect("Failed to create token");
         let result = validate_token(&token, "wrong-secret");
         assert!(result.is_err());
     }
@@ -74,6 +80,7 @@ mod tests {
         let claims = Claims {
             sub: 1,
             name: "TestUser".to_string(),
+            role: "user".to_string(),
             exp: now - 120,
             iat: now - 300,
         };

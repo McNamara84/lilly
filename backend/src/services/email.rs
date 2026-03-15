@@ -163,6 +163,7 @@ mod tests {
             smtp_from: "test@lilly.app".to_string(),
             app_base_url: "http://localhost".to_string(),
             cookie_secure: false,
+            admin_email: None,
         };
 
         let service = EmailService::from_config(&config);

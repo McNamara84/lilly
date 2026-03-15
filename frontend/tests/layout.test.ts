@@ -79,7 +79,13 @@ describe('Layout', () => {
 	it('shows user display name and logout button when authenticated', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Max Mustermann', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Max Mustermann',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 
@@ -106,7 +112,13 @@ describe('Layout', () => {
 
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
-			user: { id: 1, email: 'test@test.com', display_name: 'Test', email_verified: true },
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
 			isLoading: false
 		});
 

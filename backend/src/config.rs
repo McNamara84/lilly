@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub smtp_from: String,
     pub app_base_url: String,
     pub cookie_secure: bool,
+    pub admin_email: Option<String>,
 }
 
 impl AppConfig {
@@ -47,6 +48,7 @@ impl AppConfig {
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()
                 .unwrap_or(false),
+            admin_email: std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty()),
         }
     }
 }
@@ -69,6 +71,7 @@ mod tests {
         std::env::remove_var("SMTP_FROM");
         std::env::remove_var("APP_BASE_URL");
         std::env::remove_var("COOKIE_SECURE");
+        std::env::remove_var("ADMIN_EMAIL");
 
         let config = AppConfig::from_env();
         assert_eq!(config.jwt_access_token_expiry, 900);
@@ -81,5 +84,6 @@ mod tests {
         assert_eq!(config.smtp_from, "noreply@lilly.app");
         assert_eq!(config.app_base_url, "http://localhost");
         assert!(!config.cookie_secure);
+        assert!(config.admin_email.is_none());
     }
 }

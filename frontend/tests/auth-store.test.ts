@@ -28,7 +28,8 @@ describe('Auth Store', () => {
 			id: 1,
 			email: 'test@test.com',
 			display_name: 'Test User',
-			email_verified: true
+			email_verified: true,
+			role: 'user'
 		});
 
 		const { initAuth, getAuthState } = await import('$lib/stores/auth.svelte');
@@ -40,7 +41,8 @@ describe('Auth Store', () => {
 			id: 1,
 			email: 'test@test.com',
 			display_name: 'Test User',
-			email_verified: true
+			email_verified: true,
+			role: 'user'
 		});
 		expect(auth.isAuthenticated).toBe(true);
 		expect(auth.isLoading).toBe(false);
@@ -55,7 +57,8 @@ describe('Auth Store', () => {
 			id: 2,
 			email: 'refreshed@test.com',
 			display_name: 'Refreshed',
-			email_verified: true
+			email_verified: true,
+			role: 'user'
 		});
 		mockRefreshToken.mockResolvedValue(undefined);
 
@@ -69,7 +72,8 @@ describe('Auth Store', () => {
 			id: 2,
 			email: 'refreshed@test.com',
 			display_name: 'Refreshed',
-			email_verified: true
+			email_verified: true,
+			role: 'user'
 		});
 		expect(auth.isAuthenticated).toBe(true);
 	});
@@ -100,7 +104,8 @@ describe('Auth Store', () => {
 			id: 1,
 			email: 'test@test.com',
 			display_name: 'Test',
-			email_verified: true
+			email_verified: true,
+			role: 'user'
 		});
 		mockLogout.mockResolvedValue(undefined);
 
@@ -124,7 +129,8 @@ describe('Auth Store', () => {
 			id: 1,
 			email: 'test@test.com',
 			display_name: 'Test',
-			email_verified: true
+			email_verified: true,
+			role: 'user'
 		});
 		mockLogout.mockRejectedValue(new Error('Network error'));
 
@@ -140,12 +146,19 @@ describe('Auth Store', () => {
 	it('setUser updates the user state', async () => {
 		const { setUser, getAuthState } = await import('$lib/stores/auth.svelte');
 
-		setUser({ id: 5, email: 'set@test.com', display_name: 'Set User', email_verified: true });
+		setUser({
+			id: 5,
+			email: 'set@test.com',
+			display_name: 'Set User',
+			email_verified: true,
+			role: 'user'
+		});
 		expect(getAuthState().user).toEqual({
 			id: 5,
 			email: 'set@test.com',
 			display_name: 'Set User',
-			email_verified: true
+			email_verified: true,
+			role: 'user'
 		});
 		expect(getAuthState().isAuthenticated).toBe(true);
 
