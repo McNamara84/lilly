@@ -41,10 +41,14 @@
 	}
 
 	async function goToPage(p: number) {
-		currentPage = p;
-		const result = await fetchSeriesIssues(slug, p);
-		issues = result.data;
-		total = result.total;
+		try {
+			currentPage = p;
+			const result = await fetchSeriesIssues(slug, p);
+			issues = result.data;
+			total = result.total;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load issues';
+		}
 	}
 
 	const totalPages = $derived(Math.ceil(total / 50));

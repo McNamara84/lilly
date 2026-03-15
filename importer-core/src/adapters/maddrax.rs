@@ -15,16 +15,19 @@ pub struct MaddraxAdapter {
 }
 
 impl MaddraxAdapter {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
+    /// Creates a new `MaddraxAdapter`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AdapterError::Other` if the HTTP client cannot be built.
+    pub fn new() -> Result<Self, AdapterError> {
+        Ok(Self {
             client: Client::builder()
                 .user_agent("LILLY-Importer/0.9 (Heftroman-Collection-Manager)")
                 .timeout(Duration::from_secs(30))
-                .build()
-                .expect("Failed to build HTTP client"),
+                .build()?,
             delay: Duration::from_millis(DEFAULT_DELAY_MS),
-        }
+        })
     }
 
     #[must_use]
@@ -68,7 +71,7 @@ impl MaddraxAdapter {
 
 impl Default for MaddraxAdapter {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to build HTTP client")
     }
 }
 
@@ -292,25 +295,25 @@ mod tests {
 
     #[test]
     fn test_adapter_name() {
-        let adapter = MaddraxAdapter::new();
+        let adapter = MaddraxAdapter::new().unwrap();
         assert_eq!(adapter.name(), "maddrax");
     }
 
     #[test]
     fn test_adapter_display_name() {
-        let adapter = MaddraxAdapter::new();
+        let adapter = MaddraxAdapter::new().unwrap();
         assert!(adapter.display_name().contains("Maddrax"));
     }
 
     #[test]
     fn test_adapter_version() {
-        let adapter = MaddraxAdapter::new();
+        let adapter = MaddraxAdapter::new().unwrap();
         assert_eq!(adapter.version(), "0.9");
     }
 
     #[tokio::test]
     async fn test_fetch_series_metadata() {
-        let adapter = MaddraxAdapter::new();
+        let adapter = MaddraxAdapter::new().unwrap();
         let metadata = adapter.fetch_series_metadata().await.unwrap();
         assert_eq!(metadata.slug, "maddrax");
         assert_eq!(metadata.status, SeriesStatus::Running);
@@ -378,7 +381,9 @@ mod tests {
 
     #[test]
     fn test_with_delay() {
-        let adapter = MaddraxAdapter::new().with_delay(Duration::from_millis(100));
+        let adapter = MaddraxAdapter::new()
+            .unwrap()
+            .with_delay(Duration::from_millis(100));
         assert_eq!(adapter.delay, Duration::from_millis(100));
     }
 

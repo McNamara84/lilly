@@ -50,7 +50,8 @@ async fn list_series_issues(
     Path(slug): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<IssueResponse>>, AppError> {
-    let per_page = params.per_page.min(100);
+    let per_page = params.per_page.clamp(1, 100);
+    let page = params.page.max(1);
 
     let s = series::find_series_by_slug(&state.inner.pool, &slug)
         .await?
@@ -61,13 +62,12 @@ async fn list_series_issues(
     }
 
     let total = issues::count_issues_by_series(&state.inner.pool, s.id).await?;
-    let issue_list =
-        issues::find_issues_by_series(&state.inner.pool, s.id, params.page, per_page).await?;
+    let issue_list = issues::find_issues_by_series(&state.inner.pool, s.id, page, per_page).await?;
     let data: Vec<IssueResponse> = issue_list.iter().map(IssueResponse::from).collect();
 
     Ok(Json(PaginatedResponse {
         data,
-        page: params.page,
+        page,
         per_page,
         total,
     }))

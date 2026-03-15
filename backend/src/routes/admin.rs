@@ -134,6 +134,13 @@ async fn start_import(
         }
     };
 
+    // Guard: prevent concurrent imports for the same series
+    if import_jobs::has_active_import_for_series(&state.inner.pool, series_id).await? {
+        return Err(AppError::BadRequest(
+            "An import is already running for this series".to_string(),
+        ));
+    }
+
     // Create import job
     let job_id = import_jobs::create_import_job(
         &state.inner.pool,
@@ -195,13 +202,10 @@ async fn run_import(
         .ok_or_else(|| anyhow::anyhow!("Adapter '{adapter_name}' not found"))?;
 
     // Fetch issue list
-    let issue_numbers = match adapter.fetch_issue_list().await {
-        Ok(nums) => nums,
-        Err(e) => {
-            import_jobs::fail_import_job(&pool, job_id, &e.to_string()).await?;
-            return Err(e.into());
-        }
-    };
+    let issue_numbers = adapter
+        .fetch_issue_list()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to fetch issue list: {e}"))?;
 
     let total = u32::try_from(issue_numbers.len()).unwrap_or(u32::MAX);
     import_jobs::update_import_progress(&pool, job_id, 0, total).await?;
@@ -306,7 +310,8 @@ async fn get_import_issues(
     Path(id): Path<u32>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedIssueResponse>, AppError> {
-    let per_page = params.per_page.min(100);
+    let per_page = params.per_page.clamp(1, 100);
+    let page = params.page.max(1);
 
     let job = import_jobs::find_import_job_by_id(&state.inner.pool, id)
         .await?
@@ -314,13 +319,12 @@ async fn get_import_issues(
 
     let total = issues::count_issues_by_series(&state.inner.pool, job.series_id).await?;
     let issue_list =
-        issues::find_issues_by_series(&state.inner.pool, job.series_id, params.page, per_page)
-            .await?;
+        issues::find_issues_by_series(&state.inner.pool, job.series_id, page, per_page).await?;
     let data: Vec<IssueResponse> = issue_list.iter().map(IssueResponse::from).collect();
 
     Ok(Json(PaginatedIssueResponse {
         data,
-        page: params.page,
+        page,
         per_page,
         total,
     }))

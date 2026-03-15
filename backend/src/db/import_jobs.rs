@@ -83,6 +83,19 @@ pub async fn find_import_jobs_by_series(
     .await
 }
 
+pub async fn has_active_import_for_series(
+    pool: &MySqlPool,
+    series_id: u32,
+) -> Result<bool, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM import_jobs WHERE series_id = ? AND status IN ('pending', 'running')",
+    )
+    .bind(series_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0 > 0)
+}
+
 pub async fn find_import_job_by_id(
     pool: &MySqlPool,
     job_id: u32,

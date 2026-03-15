@@ -18,8 +18,14 @@
 	let pollInterval = $state<ReturnType<typeof setInterval> | null>(null);
 
 	const jobId = $derived(Number($page.params.id));
+	const invalidJobId = $derived(!Number.isFinite(jobId) || jobId < 1);
 
 	async function loadJob() {
+		if (invalidJobId) {
+			error = 'Invalid import job ID';
+			loading = false;
+			return;
+		}
 		try {
 			job = await fetchImportJob(jobId);
 

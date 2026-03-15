@@ -60,7 +60,9 @@ async fn main() {
     let email_service = services::email::EmailService::from_config(&config);
 
     let mut adapter_registry = AdapterRegistry::new();
-    adapter_registry.register(Box::new(MaddraxAdapter::new()));
+    adapter_registry.register(Box::new(
+        MaddraxAdapter::new().expect("Failed to create Maddrax adapter"),
+    ));
 
     let app_state = routes::AppState {
         inner: std::sync::Arc::new(routes::AppStateInner {
