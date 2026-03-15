@@ -143,6 +143,7 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `frequency` | VARCHAR(50) | NULL | Erscheinungsrhythmus (wöchentlich, 14-tägig etc.) |
 | `total_issues` | INT UNSIGNED | NULL | Aktuelle Gesamtzahl Hefte (NULL bei laufenden Serien) |
 | `status` | ENUM | NOT NULL | 'running' \| 'completed' \| 'cancelled' |
+| `active` | BOOLEAN | NOT NULL, DEF 0 | Ob die Serie für normale Nutzer sichtbar ist. Importierte Serien starten als inaktiv und müssen von einem Admin nach Prüfung aktiviert werden. |
 | `source_url` | VARCHAR(500) | NULL | URL der Datenquelle (Wiki) |
 | `created_at` | TIMESTAMP | NOT NULL | Erstellungszeitpunkt |
 | `updated_at` | TIMESTAMP | NOT NULL | Letzter Sync-Zeitpunkt |
@@ -158,7 +159,8 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `author` | VARCHAR(500) | NULL | Autor(en), kommasepariert |
 | `published_at` | DATE | NULL | Ersterscheinungsdatum |
 | `cycle` | VARCHAR(255) | NULL | Zyklus / Handlungsabschnitt |
-| `cover_url` | VARCHAR(500) | NULL | Pfad zum Cover-Bild (lokal oder Wiki-URL) |
+| `cover_url` | VARCHAR(500) | NULL | URL zum Cover-Bild in der Wiki-Quelle |
+| `cover_local_path` | VARCHAR(500) | NULL | Relativer Pfad zum lokal gespeicherten Cover im /media-Volume |
 | `source_wiki_url` | VARCHAR(500) | NULL | Link zum Wiki-Eintrag des Heftes |
 | `created_at` | TIMESTAMP | NOT NULL | Import-Zeitpunkt |
 
@@ -172,6 +174,7 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `email` | VARCHAR(255) | NOT NULL, UQ | E-Mail-Adresse (verschlüsselt gespeichert) |
 | `password_hash` | VARCHAR(255) | NULL | argon2id-Hash (NULL bei reinem OAuth-Login) |
 | `display_name` | VARCHAR(100) | NOT NULL | Anzeigename / Sammlername |
+| `role` | ENUM | NOT NULL, DEF 'user' | 'user' \| 'admin' — Benutzerrolle. Admins können Imports starten und Serien verwalten. |
 | `avatar_path` | VARCHAR(500) | NULL | Pfad zum Avatar-Bild |
 | `location` | VARCHAR(255) | NULL | Standort (freiwillig, für Tausch-Nähe) |
 | `profile_public` | BOOLEAN | NOT NULL, DEF 0 | Profil öffentlich sichtbar? |
@@ -205,7 +208,25 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `sort_order` | TINYINT | NOT NULL, DEF 0 | Sortierreihenfolge der Fotos |
 | `created_at` | TIMESTAMP | NOT NULL | Upload-Zeitpunkt |
 
-### 4.6 Tabellen: trades, messages, comments
+### 4.6 Tabelle: `import_jobs`
+
+| Spalte | Typ | Constraint | Beschreibung |
+|---|---|---|---|
+| `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
+| `series_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf series.id (ON DELETE CASCADE) |
+| `adapter_name` | VARCHAR(100) | NOT NULL | Name des verwendeten Import-Adapters (z. B. „maddrax") |
+| `status` | ENUM | NOT NULL, DEF 'pending' | 'pending' \| 'running' \| 'completed' \| 'failed' |
+| `total_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Gesamtzahl zu importierender Hefte |
+| `imported_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Bisher importierte Hefte (für Fortschrittsanzeige) |
+| `error_message` | TEXT | NULL | Fehlermeldung bei Status 'failed' |
+| `started_by` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf users.id — Admin, der den Import gestartet hat |
+| `started_at` | TIMESTAMP | NULL | Zeitpunkt des Import-Starts |
+| `completed_at` | TIMESTAMP | NULL | Zeitpunkt des Import-Abschlusses |
+| `created_at` | TIMESTAMP | NOT NULL | Erstellungszeitpunkt des Jobs |
+
+*Der Import-Fortschritt wird in der Datenbank persistiert und überlebt Server-Neustarts. Die Import-Historie ist pro Serie einsehbar.*
+
+### 4.7 Tabellen: trades, messages, comments
 
 Die verbleibenden Tabellen folgen demselben Muster. Hier eine kompakte Übersicht der Kernfelder:
 
@@ -235,8 +256,12 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **POST** | `/api/v1/auth/login` | Nein | Login → Access + Refresh Token |
 | **POST** | `/api/v1/auth/oauth/{provider}` | Nein | OAuth-Login (Google/GitHub) |
 | **POST** | `/api/v1/auth/refresh` | Refresh | Token-Erneuerung |
-| **GET** | `/api/v1/series` | Nein | Alle Serien auflisten |
-| **GET** | `/api/v1/series/{slug}/issues` | Nein | Alle Hefte einer Serie (paginiert) |
+| **GET** | `/api/v1/auth/me` | Ja | Aktueller Nutzer (inkl. Rolle) |
+| **POST** | `/api/v1/auth/logout` | Ja | Logout (Cookies löschen) |
+| **GET** | `/api/v1/auth/verify` | Nein | E-Mail-Verifizierung per Token |
+| **POST** | `/api/v1/auth/resend-verification` | Nein | Verifizierungs-E-Mail erneut senden |
+| **GET** | `/api/v1/series` | Nein | Alle **aktiven** Serien auflisten |
+| **GET** | `/api/v1/series/{slug}/issues` | Nein | Alle Hefte einer aktiven Serie (paginiert) |
 | **GET** | `/api/v1/issues/{id}` | Nein | Heft-Details + Community-Kommentare |
 | **GET** | `/api/v1/me/collection` | Ja | Eigene Sammlung (Filter, Paginierung) |
 | **POST** | `/api/v1/me/collection` | Ja | Heft zur Sammlung hinzufügen |
@@ -256,6 +281,21 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **GET** | `/api/v1/users` | Nein | Öffentliche Sammler-Liste (sortier-/filterbar) |
 | **GET** | `/api/v1/issues/most-wanted` | Nein | Meistgesuchte Hefte plattformweit |
 
+#### 5.1.1 Admin-Endpunkte
+
+Alle Admin-Endpunkte erfordern einen authentifizierten Nutzer mit der Rolle `admin`. Bei fehlendem Admin-Recht wird HTTP 403 (Forbidden) zurückgegeben.
+
+| Methode | Pfad | Auth | Beschreibung |
+|---|---|---|---|
+| **GET** | `/api/v1/admin/series` | Admin | Alle Serien (inkl. inaktive) auflisten |
+| **POST** | `/api/v1/admin/series/{slug}/activate` | Admin | Serie für normale Nutzer sichtbar machen |
+| **POST** | `/api/v1/admin/series/{slug}/deactivate` | Admin | Serie für normale Nutzer ausblenden |
+| **GET** | `/api/v1/admin/adapters` | Admin | Verfügbare Import-Adapter auflisten (Name, Version) |
+| **POST** | `/api/v1/admin/import` | Admin | Import starten (`{ "adapter": "maddrax" }`) → gibt Import-Job-ID zurück |
+| **GET** | `/api/v1/admin/import/{id}` | Admin | Import-Job-Status & Fortschritt abfragen |
+| **GET** | `/api/v1/admin/import/{id}/issues` | Admin | Importierte Hefte eines Jobs (paginiert, für Prüfansicht) |
+| **GET** | `/api/v1/admin/import/history` | Admin | Import-Historie aller Jobs |
+
 ### 5.2 Abgeleiteter Status "Fehlend" (missing)
 
 Der Status `missing` wird **nicht** in der Datenbank gespeichert. Er ist ein abgeleiteter (virtueller) Status, der sich aus der Differenz zwischen der Gesamtmenge der Hefte einer Serie (`issues`-Tabelle) und den Sammlungseinträgen des Nutzers (`collection_entries`-Tabelle) ergibt.
@@ -274,7 +314,7 @@ Wenn ein authentifizierter Nutzer die Heftliste einer Serie abruft, reichert das
 
 Die Authentifizierung basiert auf einem JWT-Paar:
 
-- **Access Token:** Kurzlebig (15 Minuten), wird bei jedem API-Request im Authorization-Header mitgesendet. Enthält user_id und display_name als Claims.
+- **Access Token:** Kurzlebig (15 Minuten), wird als httpOnly-Cookie gespeichert. Enthält user_id, display_name und role als Claims.
 - **Refresh Token:** Langlebig (30 Tage), wird als httpOnly-Cookie gespeichert. Dient ausschließlich zur Erneuerung des Access Tokens.
 - **OAuth2 Flow:** Authorization Code Flow mit PKCE für Google und GitHub. Nach erfolgreicher OAuth-Authentifizierung wird ein lokaler JWT ausgestellt.
 - **Passwort-Hashing:** argon2id mit empfohlenen Parametern (m=19456, t=2, p=1).
@@ -285,29 +325,52 @@ Die Authentifizierung basiert auf einem JWT-Paar:
 
 ### 6.1 Modulares Adapter-System
 
-Der Wiki-Importer ist als Rust-CLI-Tool implementiert, das sowohl manuell als auch per Cronjob ausgeführt werden kann. Das Kernkonzept ist ein Adapter-Pattern:
+Die Import-Logik ist als eigenständiges Rust-Crate (`importer-core`) implementiert, das als Shared Library sowohl vom Backend (Axum) als auch optional vom CLI-Tool (`importer/`) genutzt werden kann. Imports werden über die Admin-WebUI gestartet und laufen asynchron als Tokio-Background-Tasks im Backend.
 
-- **Trait `WikiAdapter`:** Definiert die Schnittstelle, die jede Datenquelle implementieren muss: `fetch_series_metadata()`, `fetch_issue_list()`, `fetch_issue_details(number)`, `fetch_cover(number)`.
-- **`MaddraxikonAdapter`:** Implementierung für de.maddraxikon.com. Nutzt eine Kombination aus MediaWiki-API (für strukturierte Daten) und HTML-Scraping (für Tabellen und Cover via reqwest + scraper).
-- **`GruselromanWikiAdapter`:** Implementierung für gruselroman-wiki.de. Selbes Trait, angepasste Parsing-Logik.
+Das Kernkonzept ist ein Adapter-Pattern mit Trait-basierter Architektur:
+
+- **Trait `WikiAdapter`:** Definiert die Schnittstelle, die jede Datenquelle implementieren muss: `fetch_series_metadata()`, `fetch_issue_list()`, `fetch_issue_details(number)`, `fetch_cover(number)`. Jeder Adapter gibt zusätzlich `name()`, `display_name()` und `version()` zurück.
+- **`AdapterRegistry`:** Zentrale Registrierung aller verfügbaren Adapter. Das Backend initialisiert die Registry beim Start und stellt sie via `AppState` bereit.
+- **`ProgressReporter`-Trait:** Entkoppelt die Fortschrittsmeldung von der Persistenz. Das Backend implementiert dieses Trait mit DB-Writes in die `import_jobs`-Tabelle, das CLI könnte es mit stdout-Output implementieren.
+- **`MaddraxAdapter` (v0.9):** Erster konkreter Adapter für de.maddraxikon.com. Nutzt eine Kombination aus MediaWiki-API (für strukturierte Daten) und HTML-Scraping (für Tabellen und Cover via `reqwest` + `scraper`).
+
+**Crate-Struktur:**
+
+```
+importer-core/
+├── Cargo.toml
+└── src/
+    ├── lib.rs            # Öffentliche API, re-exports
+    ├── adapter.rs        # WikiAdapter-Trait + AdapterRegistry
+    ├── types.rs          # SeriesData, IssueData, CoverData
+    ├── progress.rs       # ProgressReporter-Trait
+    └── adapters/
+        ├── mod.rs        # Adapter-Registrierung
+        └── maddrax.rs    # MaddraxAdapter v0.9
+```
 
 ### 6.2 Import-Ablauf
 
-1. **Initialer Import:** Einmalige vollständige Erfassung aller Hefte einer Serie. Der Adapter iteriert über alle Heftnummern und schreibt Stammdaten + Cover in die Datenbank bzw. das Dateisystem.
-2. **Inkrementeller Sync:** Wöchentlicher Cronjob prüft auf neue Hefte (Vergleich der höchsten Heftnummer in DB vs. Wiki) und importiert nur die Differenz.
-3. **Cover-Download:** Cover-Bilder werden lokal im `/media/covers/{series_slug}/{number}.jpg`-Format gespeichert und automatisch auf eine einheitliche Größe skaliert.
-4. **Logging:** Jeder Import-Lauf wird protokolliert (Anzahl neue Hefte, Fehler, Dauer), um Probleme früh zu erkennen.
+1. **Admin startet Import:** Admin wählt in der WebUI einen verfügbaren Adapter und klickt „Import starten". Das Backend erstellt einen `import_jobs`-Eintrag mit Status `pending`.
+2. **Asynchrone Ausführung:** Ein `tokio::spawn`-Task führt den Import im Hintergrund aus. Der Fortschritt (importierte Hefte / Gesamtanzahl) wird laufend in der `import_jobs`-Tabelle aktualisiert.
+3. **Serien-Erstellung:** Der Adapter ruft `fetch_series_metadata()` auf und erstellt/aktualisiert den `series`-Eintrag mit `active = false` (für Nutzer noch nicht sichtbar).
+4. **Heft-Import:** Für jede Heftnummer: `fetch_issue_details()` + `fetch_cover()` → Heft-Upsert in `issues` + Cover lokal speichern.
+5. **Cover-Download:** Cover-Bilder werden lokal im `/media/covers/{series_slug}/{number}.jpg`-Format gespeichert.
+6. **Fortschritts-Polling:** Admin pollt `GET /api/v1/admin/import/{id}` für den aktuellen Status.
+7. **Prüfung & Aktivierung:** Nach Abschluss prüft der Admin stichprobenartig die importierten Daten und aktiviert die Serie über `POST /api/v1/admin/series/{slug}/activate`.
+8. **Inkrementeller Sync (Follow-up):** Wöchentlicher Cronjob prüft auf neue Hefte und importiert nur die Differenz. Wird erst nach stabilem Erstimport implementiert.
+9. **Logging:** Jeder Import-Lauf wird in der `import_jobs`-Tabelle protokolliert (Anzahl Hefte, Fehler, Dauer). Import-Historie ist über die Admin-UI einsehbar.
 
 ### 6.3 Hinzufügen neuer Serien
 
 Um eine neue Serie (z. B. Perry Rhodan via Perrypedia) zu integrieren, sind folgende Schritte erforderlich:
 
-- Neuen Adapter implementieren, der den `WikiAdapter`-Trait erfüllt.
-- Adapter in der CLI-Konfiguration registrieren.
-- Initialen Import durchführen.
-- Cronjob-Konfiguration um die neue Serie erweitern.
+- Neuen Adapter implementieren, der den `WikiAdapter`-Trait erfüllt (neue Datei unter `importer-core/src/adapters/`).
+- Adapter in der `AdapterRegistry` registrieren (`importer-core/src/adapters/mod.rs`).
+- Backend neu bauen und deployen — der neue Adapter erscheint automatisch in der Admin-UI.
+- Admin startet den Import über die WebUI und aktiviert die Serie nach Prüfung.
 
-Es sind keine Änderungen am Backend, Frontend oder Datenbankschema notwendig.
+Es sind keine Änderungen am Frontend, an der Datenbank oder an der Backend-Kern-Logik notwendig.
 
 ---
 
@@ -348,6 +411,8 @@ Sensible Konfigurationswerte werden über eine `.env`-Datei injiziert:
 
 - `DATABASE_URL` – MariaDB-Verbindungsstring
 - `JWT_SECRET` – Signaturschlüssel für JWT-Tokens
+- `ADMIN_EMAIL` – E-Mail-Adresse des initialen Admin-Nutzers (wird beim Serverstart zum Admin befördert, sofern der Account existiert)
+- `MEDIA_PATH` – Pfad zum Media-Volume für Cover-Bilder und Nutzer-Uploads (Standard: `/media`)
 - `OAUTH_GOOGLE_CLIENT_ID` / `SECRET`
 - `OAUTH_GITHUB_CLIENT_ID` / `SECRET`
 - `DOMAIN` – Öffentliche Domain für Caddy (Let's Encrypt)
@@ -367,9 +432,14 @@ Das Monorepo ist für folgende Zielstruktur geplant (noch nicht im Repository an
 
 ```
 lilly/
+├── Cargo.toml                # Workspace-Root (members: backend, importer, importer-core)
 ├── frontend/                 # SvelteKit PWA
 │   ├── src/
 │   │   ├── routes/           # SvelteKit File-Based Routing
+│   │   │   ├── admin/        # Admin-Bereich (eigener Routenpräfix)
+│   │   │   │   ├── series/   # Serien-Verwaltung
+│   │   │   │   └── import/   # Import starten & Prüfansicht
+│   │   │   └── series/       # Öffentliche Serien-Ansicht
 │   │   ├── lib/
 │   │   │   ├── components/   # Wiederverwendbare UI-Komponenten
 │   │   │   ├── stores/       # Svelte Stores (Sammlung, Auth)
@@ -381,21 +451,25 @@ lilly/
 ├── backend/                  # Rust / Axum API
 │   ├── src/
 │   │   ├── main.rs
-│   │   ├── routes/           # API-Endpunkte (auth, collection, trades)
+│   │   ├── routes/           # API-Endpunkte (auth, series, admin, health)
 │   │   ├── models/           # Datenstrukturen / DTOs
-│   │   ├── db/               # SQLx-Queries, Migrations
-│   │   ├── auth/             # JWT, OAuth, argon2
-│   │   └── services/         # Business-Logik (Matching etc.)
+│   │   ├── db/               # SQLx-Queries (users, series, issues, import_jobs)
+│   │   ├── auth/             # JWT, OAuth, argon2, AdminUser-Guard
+│   │   └── services/         # Business-Logik (Email, Import-Orchestrierung)
 │   ├── migrations/           # SQLx-Datenbankmigrationen
 │   └── Dockerfile
-├── importer/                 # Wiki-Datenimport CLI
+├── importer-core/            # Shared Library: WikiAdapter-Trait + Adapter-Implementierungen
+│   └── src/
+│       ├── lib.rs            # Öffentliche API
+│       ├── adapter.rs        # WikiAdapter-Trait + AdapterRegistry
+│       ├── types.rs          # SeriesData, IssueData, CoverData
+│       ├── progress.rs       # ProgressReporter-Trait
+│       └── adapters/
+│           ├── mod.rs        # Adapter-Registrierung
+│           └── maddrax.rs    # MaddraxAdapter v0.9
+├── importer/                 # Wiki-Datenimport CLI (nutzt importer-core)
 │   ├── src/
-│   │   ├── main.rs
-│   │   ├── adapters/         # WikiAdapter-Trait + Implementierungen
-│   │   │   ├── mod.rs
-│   │   │   ├── maddraxikon.rs
-│   │   │   └── gruselroman.rs
-│   │   └── db.rs             # Shared DB-Zugriff
+│   │   └── main.rs           # CLI-Wrapper
 │   └── Dockerfile
 ├── docker-compose.yml
 ├── Caddyfile

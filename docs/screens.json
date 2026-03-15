@@ -410,6 +410,100 @@
         "OAuth buttons: Google, GitHub",
         "Link: 'Bereits ein Konto? Anmelden'"
       ]
+    },
+
+    "series_overview": {
+      "route": "/series",
+      "file": "src/routes/series/+page.svelte",
+      "title": "Serien",
+      "auth_required": false,
+      "description": "Public overview of all active series. Shows series cards with cover, name, genre, issue count.",
+      "sections": [
+        {
+          "id": "series_grid",
+          "component": null,
+          "description": "Responsive grid of series cards. Each card shows the cover of issue #1, series name, genre badge, total issue count, and status badge (laufend/abgeschlossen).",
+          "data_source": "GET /api/v1/series",
+          "interactions": {
+            "tap_card": "Navigates to /series/{slug}"
+          }
+        }
+      ]
+    },
+
+    "admin_series": {
+      "route": "/admin/series",
+      "file": "src/routes/admin/series/+page.svelte",
+      "title": "Serien-Verwaltung",
+      "auth_required": true,
+      "admin_required": true,
+      "description": "Admin page to manage all series including inactive ones. Admins can activate/deactivate series after reviewing imported data.",
+      "sections": [
+        {
+          "id": "series_table",
+          "component": null,
+          "description": "Table of all series (including inactive). Columns: Name, Status (running/completed/cancelled), Active badge (yes/no), Issue count, Last import date. Each row has a toggle button for activation/deactivation.",
+          "data_source": "GET /api/v1/admin/series",
+          "interactions": {
+            "toggle_active": "POST /api/v1/admin/series/{slug}/activate or /deactivate. Updates badge immediately.",
+            "click_row": "Navigates to series detail or import history for that series"
+          }
+        }
+      ]
+    },
+
+    "admin_import": {
+      "route": "/admin/import",
+      "file": "src/routes/admin/import/+page.svelte",
+      "title": "Datenimport",
+      "auth_required": true,
+      "admin_required": true,
+      "description": "Admin page to start new imports and view import history. Admins select an available adapter and trigger the import.",
+      "sections": [
+        {
+          "id": "start_import",
+          "component": null,
+          "description": "Dropdown/select for choosing an available import adapter (fetched from GET /api/v1/admin/adapters, shows name + version). Button 'Import starten' to trigger POST /api/v1/admin/import.",
+          "data_source": "GET /api/v1/admin/adapters"
+        },
+        {
+          "id": "import_history",
+          "component": null,
+          "description": "Table of all past and current import jobs. Columns: Date, Adapter, Status badge (pending/running/completed/failed), Duration, Imported issues count, Started by (admin name). Click row navigates to /admin/import/{id}.",
+          "data_source": "GET /api/v1/admin/import/history"
+        }
+      ]
+    },
+
+    "admin_import_detail": {
+      "route": "/admin/import/[id]",
+      "file": "src/routes/admin/import/[id]/+page.svelte",
+      "title": "Import-Details",
+      "auth_required": true,
+      "admin_required": true,
+      "description": "Detailed view of a single import job. Shows progress during import, and a review/verification interface after completion.",
+      "sections": [
+        {
+          "id": "import_status",
+          "component": null,
+          "description": "Status badge, progress bar ('243 / 620 Hefte importiert'), duration, error message (if failed). Auto-polls every 3 seconds while status is 'running'.",
+          "data_source": "GET /api/v1/admin/import/{id}"
+        },
+        {
+          "id": "import_summary",
+          "component": null,
+          "description": "After completion: summary card with total issues imported, duration, number of errors. Button 'Serie aktivieren' if the series is still inactive.",
+          "interactions": {
+            "activate_series": "POST /api/v1/admin/series/{slug}/activate"
+          }
+        },
+        {
+          "id": "imported_issues_list",
+          "component": null,
+          "description": "Paginated table/list of imported issues for spot-checking. Columns: Issue number, Title, Author, Published date, Cover thumbnail. Click a row to open detail view with full metadata, cover preview, and link to wiki source article.",
+          "data_source": "GET /api/v1/admin/import/{id}/issues?page={n}"
+        }
+      ]
     }
   }
 }
