@@ -110,7 +110,7 @@ Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 | Container | Image | Port (intern) | Aufgabe |
 |---|---|---|---|
 | `caddy` | `caddy:2-alpine` | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, Static File Serving für /media |
-| `frontend` | `node:22-alpine` + Build | 3000 (intern) | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages |
+| `frontend` | `node:24-alpine` + Build | 3000 (intern) | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages |
 | `backend` | `rust:slim` + Build | 8080 (intern) | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung |
 | `db` | `mariadb:11` | 3306 (intern) | Persistente Datenhaltung, Volltextindex |
 | `importer` | Rust CLI (eigener Build) | – | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB |
