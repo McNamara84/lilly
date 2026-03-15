@@ -44,7 +44,11 @@
 	<title>Serien-Verwaltung – LILLY Admin</title>
 </svelte:head>
 
-<h1 class="text-2xl font-bold mb-6" style="color: var(--text-primary);" data-testid="admin-series-title">
+<h1
+	class="text-2xl font-bold mb-6"
+	style="color: var(--text-primary);"
+	data-testid="admin-series-title"
+>
 	Serien-Verwaltung
 </h1>
 
@@ -77,10 +81,7 @@
 			</thead>
 			<tbody>
 				{#each seriesList as series (series.id)}
-					<tr
-						style="border-bottom: 1px solid var(--border-default);"
-						data-testid="series-row"
-					>
+					<tr style="border-bottom: 1px solid var(--border-default);" data-testid="series-row">
 						<td class="py-3 px-2 font-medium" style="color: var(--text-primary);">
 							{series.name}
 						</td>

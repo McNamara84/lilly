@@ -54,10 +54,7 @@ export async function fetchSeries(): Promise<Series[]> {
 	return handleResponse<Series[]>(response);
 }
 
-export async function fetchSeriesIssues(
-	slug: string,
-	page: number = 1
-): Promise<PaginatedIssues> {
+export async function fetchSeriesIssues(slug: string, page: number = 1): Promise<PaginatedIssues> {
 	const response = await fetch(
 		`${API_BASE}/series/${encodeURIComponent(slug)}/issues?page=${page}`,
 		{

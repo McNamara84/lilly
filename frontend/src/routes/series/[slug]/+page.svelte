@@ -98,14 +98,17 @@
 				Noch keine Hefte verfügbar.
 			</p>
 		{:else}
-			<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4" data-testid="issues-grid">
+			<div
+				class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
+				data-testid="issues-grid"
+			>
 				{#each issues as issue (issue.id)}
-					<div
-						class="glass-elevated rounded-lg p-3 text-center"
-						data-testid="issue-card"
-					>
+					<div class="glass-elevated rounded-lg p-3 text-center" data-testid="issue-card">
 						{#if issue.cover_local_path}
-							<div class="aspect-[3/4] mb-2 rounded overflow-hidden" style="background-color: var(--surface-base);">
+							<div
+								class="aspect-[3/4] mb-2 rounded overflow-hidden"
+								style="background-color: var(--surface-base);"
+							>
 								<img
 									src={issue.cover_local_path}
 									alt="Cover von {issue.title}"
@@ -136,8 +139,12 @@
 
 			<!-- Pagination -->
 			{#if totalPages > 1}
-				<nav class="flex justify-center gap-2 mt-8" aria-label="Seiten-Navigation" data-testid="pagination">
-				{#each Array.from({ length: totalPages }, (_, i) => i + 1) as p (p)}
+				<nav
+					class="flex justify-center gap-2 mt-8"
+					aria-label="Seiten-Navigation"
+					data-testid="pagination"
+				>
+					{#each Array.from({ length: totalPages }, (_, i) => i + 1) as p (p)}
 						<button
 							onclick={() => goToPage(p)}
 							class="px-3 py-1.5 rounded text-sm cursor-pointer transition-colors"

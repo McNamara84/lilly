@@ -82,13 +82,10 @@ export async function activateSeries(slug: string): Promise<void> {
 }
 
 export async function deactivateSeries(slug: string): Promise<void> {
-	const response = await fetch(
-		`${API_BASE}/admin/series/${encodeURIComponent(slug)}/deactivate`,
-		{
-			method: 'POST',
-			credentials: 'same-origin'
-		}
-	);
+	const response = await fetch(`${API_BASE}/admin/series/${encodeURIComponent(slug)}/deactivate`, {
+		method: 'POST',
+		credentials: 'same-origin'
+	});
 	await handleResponse(response);
 }
 

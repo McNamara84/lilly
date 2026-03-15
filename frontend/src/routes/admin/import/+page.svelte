@@ -20,10 +20,7 @@
 		loading = true;
 		error = null;
 		try {
-			const [adapterList, historyList] = await Promise.all([
-				fetchAdapters(),
-				fetchImportHistory()
-			]);
+			const [adapterList, historyList] = await Promise.all([fetchAdapters(), fetchImportHistory()]);
 			adapters = adapterList;
 			history = historyList;
 			if (adapterList.length > 0 && !selectedAdapter) {
@@ -63,7 +60,11 @@
 	<title>Import – LILLY Admin</title>
 </svelte:head>
 
-<h1 class="text-2xl font-bold mb-6" style="color: var(--text-primary);" data-testid="admin-import-title">
+<h1
+	class="text-2xl font-bold mb-6"
+	style="color: var(--text-primary);"
+	data-testid="admin-import-title"
+>
 	Import
 </h1>
 
@@ -88,7 +89,11 @@
 		</h2>
 		<div class="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
 			<div class="flex-1">
-				<label for="adapter-select" class="block text-sm mb-1" style="color: var(--text-secondary);">
+				<label
+					for="adapter-select"
+					class="block text-sm mb-1"
+					style="color: var(--text-secondary);"
+				>
 					Adapter auswählen
 				</label>
 				<select
@@ -119,9 +124,7 @@
 
 	<!-- Import History -->
 	<section data-testid="import-history-section">
-		<h2 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">
-			Import-Historie
-		</h2>
+		<h2 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Import-Historie</h2>
 
 		{#if history.length === 0}
 			<p style="color: var(--text-secondary);" data-testid="empty-history">
@@ -134,7 +137,9 @@
 						<tr style="border-bottom: 1px solid var(--border-default);">
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Adapter</th>
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Status</th>
-							<th class="text-center py-3 px-2" style="color: var(--text-secondary);">Fortschritt</th>
+							<th class="text-center py-3 px-2" style="color: var(--text-secondary);"
+								>Fortschritt</th
+							>
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Gestartet</th>
 							<th class="text-right py-3 px-2" style="color: var(--text-secondary);">Details</th>
 						</tr>

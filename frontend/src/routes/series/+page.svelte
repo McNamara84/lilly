@@ -27,7 +27,11 @@
 </svelte:head>
 
 <div class="min-h-[calc(100vh-3.5rem)] px-4 py-8 sm:px-6 lg:px-8">
-	<h1 class="text-2xl font-bold mb-6" style="color: var(--text-primary);" data-testid="series-title">
+	<h1
+		class="text-2xl font-bold mb-6"
+		style="color: var(--text-primary);"
+		data-testid="series-title"
+	>
 		Serien
 	</h1>
 

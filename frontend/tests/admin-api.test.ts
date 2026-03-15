@@ -11,7 +11,7 @@ import {
 } from '../src/lib/api/admin';
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 function jsonResponse(data: unknown, status = 200) {
 	return {

@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { resolve } from '$app/paths';
-	import { fetchImportJob, fetchImportIssues, activateSeries, type ImportJob, type IssueAdmin } from '$lib/api/admin';
+	import {
+		fetchImportJob,
+		fetchImportIssues,
+		activateSeries,
+		type ImportJob,
+		type IssueAdmin
+	} from '$lib/api/admin';
 
 	let job = $state<ImportJob | null>(null);
 	let issues = $state<IssueAdmin[]>([]);
@@ -90,7 +96,9 @@
 </a>
 
 {#if loading}
-	<p style="color: var(--text-secondary);" data-testid="loading-indicator">Lade Import-Details...</p>
+	<p style="color: var(--text-secondary);" data-testid="loading-indicator">
+		Lade Import-Details...
+	</p>
 {:else if error}
 	<div
 		class="p-4 rounded-lg mb-4"
@@ -101,7 +109,11 @@
 		{error}
 	</div>
 {:else if job}
-	<h1 class="text-2xl font-bold mb-2" style="color: var(--text-primary);" data-testid="import-title">
+	<h1
+		class="text-2xl font-bold mb-2"
+		style="color: var(--text-primary);"
+		data-testid="import-title"
+	>
 		Import #{job.id}
 	</h1>
 	<p class="text-sm mb-6" style="color: var(--text-secondary);">
@@ -185,10 +197,15 @@
 						<tbody>
 							{#each issues as issue (issue.id)}
 								<tr style="border-bottom: 1px solid var(--border-default);" data-testid="issue-row">
-									<td class="py-3 px-2" style="color: var(--text-primary);">{issue.issue_number}</td>
+									<td class="py-3 px-2" style="color: var(--text-primary);">{issue.issue_number}</td
+									>
 									<td class="py-3 px-2" style="color: var(--text-primary);">{issue.title}</td>
-									<td class="py-3 px-2" style="color: var(--text-secondary);">{issue.author ?? '–'}</td>
-									<td class="py-3 px-2" style="color: var(--text-secondary);">{issue.published_at ?? '–'}</td>
+									<td class="py-3 px-2" style="color: var(--text-secondary);"
+										>{issue.author ?? '–'}</td
+									>
+									<td class="py-3 px-2" style="color: var(--text-secondary);"
+										>{issue.published_at ?? '–'}</td
+									>
 									<td class="py-3 px-2">
 										{#if issue.cover_local_path}
 											<span class="text-green-600 text-xs">&#10003;</span>
