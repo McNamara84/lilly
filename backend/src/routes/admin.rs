@@ -188,6 +188,7 @@ async fn start_import(
     )))
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run_import(
     state_inner: std::sync::Arc<super::AppStateInner>,
     pool: sqlx::MySqlPool,
@@ -207,7 +208,25 @@ async fn run_import(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to fetch issue list: {e}"))?;
 
-    let total = u32::try_from(issue_numbers.len()).unwrap_or(u32::MAX);
+    // Determine which issues are new (not yet imported)
+    let existing = issues::find_existing_issue_numbers(&pool, series_id).await?;
+    let new_issues: Vec<u32> = issue_numbers
+        .iter()
+        .copied()
+        .filter(|n| !existing.contains(n))
+        .collect();
+
+    if !existing.is_empty() {
+        tracing::info!(
+            job_id,
+            existing = existing.len(),
+            new = new_issues.len(),
+            "Incremental import: skipping {} existing issues",
+            existing.len()
+        );
+    }
+
+    let total = u32::try_from(new_issues.len()).unwrap_or(u32::MAX);
     import_jobs::update_import_progress(&pool, job_id, 0, total).await?;
 
     // Update series status to running
@@ -220,7 +239,7 @@ async fn run_import(
     tokio::fs::create_dir_all(&cover_dir).await?;
 
     let mut imported = 0u32;
-    for issue_number in &issue_numbers {
+    for issue_number in &new_issues {
         // Fetch issue details
         let details = match adapter.fetch_issue_details(*issue_number).await {
             Ok(d) => d,
@@ -255,7 +274,6 @@ async fn run_import(
             series_id,
             *issue_number,
             &details.title,
-            details.author.as_deref(),
             details.published_at,
             details.cycle.as_deref(),
             None, // cover_url from wiki not stored
@@ -268,14 +286,49 @@ async fn run_import(
             continue;
         }
 
+        // Look up the issue id for setting relations
+        let issue_id = match issues::find_issue_id(&pool, series_id, *issue_number).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::warn!(issue_number, "Issue upserted but not found for relations");
+                imported += 1;
+                import_jobs::update_import_progress(&pool, job_id, imported, total).await?;
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(issue_number, error = %e, "Failed to resolve issue id");
+                imported += 1;
+                import_jobs::update_import_progress(&pool, job_id, imported, total).await?;
+                continue;
+            }
+        };
+
+        // Set normalized relations
+        if let Err(e) = issues::set_issue_persons(&pool, issue_id, &details.authors, "author").await
+        {
+            tracing::warn!(issue_number, error = %e, "Failed to set authors");
+        }
+        if let Err(e) =
+            issues::set_issue_persons(&pool, issue_id, &details.cover_artists, "cover_artist").await
+        {
+            tracing::warn!(issue_number, error = %e, "Failed to set cover artists");
+        }
+        if let Err(e) = issues::set_issue_keywords(&pool, issue_id, &details.keywords).await {
+            tracing::warn!(issue_number, error = %e, "Failed to set keywords");
+        }
+        if let Err(e) = issues::set_issue_notes(&pool, issue_id, &details.notes).await {
+            tracing::warn!(issue_number, error = %e, "Failed to set notes");
+        }
+
         imported += 1;
         import_jobs::update_import_progress(&pool, job_id, imported, total).await?;
     }
 
     import_jobs::complete_import_job(&pool, job_id).await?;
 
-    // Update series: set total_issues from actual count and status to completed
-    series::update_series_import_status(&pool, series_id, imported, "completed").await?;
+    // Update series: set total_issues from actual count (existing + newly imported) and status to completed
+    let actual_count = issues::count_issues_by_series(&pool, series_id).await?;
+    series::update_series_import_status(&pool, series_id, actual_count, "completed").await?;
 
     tracing::info!(job_id, imported, total, "Import completed");
 
@@ -327,7 +380,7 @@ async fn get_import_issues(
     let total = issues::count_issues_by_series(&state.inner.pool, job.series_id).await?;
     let issue_list =
         issues::find_issues_by_series(&state.inner.pool, job.series_id, page, per_page).await?;
-    let data: Vec<IssueResponse> = issue_list.iter().map(IssueResponse::from).collect();
+    let data = issues::build_issue_responses(&state.inner.pool, &issue_list).await?;
 
     Ok(Json(PaginatedIssueResponse {
         data,

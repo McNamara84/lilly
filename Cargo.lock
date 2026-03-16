@@ -1415,6 +1415,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "regex",
  "reqwest",
  "scraper",
  "serde",

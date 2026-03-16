@@ -63,7 +63,7 @@ async fn list_series_issues(
 
     let total = issues::count_issues_by_series(&state.inner.pool, s.id).await?;
     let issue_list = issues::find_issues_by_series(&state.inner.pool, s.id, page, per_page).await?;
-    let data: Vec<IssueResponse> = issue_list.iter().map(IssueResponse::from).collect();
+    let data = issues::build_issue_responses(&state.inner.pool, &issue_list).await?;
 
     Ok(Json(PaginatedResponse {
         data,
@@ -81,7 +81,8 @@ async fn get_issue(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Issue {id} not found")))?;
 
-    Ok(Json(IssueResponse::from(&issue)))
+    let response = issues::build_issue_response(&state.inner.pool, &issue).await?;
+    Ok(Json(response))
 }
 
 #[cfg(test)]

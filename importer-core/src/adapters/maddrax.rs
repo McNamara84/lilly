@@ -16,6 +16,7 @@ const MAX_CONSECUTIVE_MISSING: u32 = 10;
 pub struct MaddraxAdapter {
     client: Client,
     pub(crate) delay: Duration,
+    cycle_names: std::sync::RwLock<std::collections::HashMap<u32, String>>,
 }
 
 impl MaddraxAdapter {
@@ -31,6 +32,7 @@ impl MaddraxAdapter {
                 .timeout(Duration::from_secs(30))
                 .build()?,
             delay: Duration::from_millis(DEFAULT_DELAY_MS),
+            cycle_names: std::sync::RwLock::new(std::collections::HashMap::new()),
         })
     }
 
@@ -76,6 +78,72 @@ impl MaddraxAdapter {
 
         found.sort_unstable();
         Ok(found)
+    }
+
+    /// Fetch cycle name mapping from the Zyklen page on `Maddraxikon`.
+    /// Returns a map of cycle number → cycle name (e.g. 5 → "Daa'muren").
+    async fn fetch_cycle_names(
+        &self,
+    ) -> Result<std::collections::HashMap<u32, String>, AdapterError> {
+        self.rate_limit().await;
+
+        let url = format!(
+            "{MADDRAXIKON_BASE}/api.php?action=parse&page=Zyklen&prop=wikitext&format=json"
+        );
+        let response = self.client.get(&url).send().await?;
+        let json: serde_json::Value = response.json().await?;
+
+        let wikitext = json["parse"]["wikitext"]["*"].as_str().unwrap_or("");
+
+        let mut cycles = std::collections::HashMap::new();
+
+        // Each table row has a Portal link with the number and a cycle name link.
+        // Portal link: [[Portal "Name" (Zyklus)|N.]]  → gives cycle number
+        // Name link:   [[Name (Zyklus)|Name]]          → gives cycle name
+        // We parse the number from the portal link and the name from the name link
+        // by processing each table row (delimited by |----).
+        let number_re = regex::Regex::new(r#"\[\[Portal\s+"[^"]+"\s*\(Zyklus\)\|(\d+)\.\]\]"#)
+            .map_err(|e| AdapterError::Parse(format!("Regex error: {e}")))?;
+        let name_re = regex::Regex::new(r"\[\[([^\]\|:]+)\s*\(Zyklus\)\|([^\]]+)\]\]")
+            .map_err(|e| AdapterError::Parse(format!("Regex error: {e}")))?;
+
+        for row in wikitext.split("|----") {
+            // Extract cycle number from Portal link
+            let num = number_re
+                .captures(row)
+                .and_then(|c| c.get(1))
+                .and_then(|m| m.as_str().parse::<u32>().ok());
+
+            // Extract cycle name from name link (not Portal, not Kategorie:)
+            let name = name_re.captures_iter(row).find_map(|c| {
+                let link_target = c.get(1)?.as_str().trim();
+                // Skip Portal links
+                if link_target.starts_with("Portal") {
+                    return None;
+                }
+                c.get(2).map(|m| m.as_str().to_string())
+            });
+
+            if let (Some(n), Some(name)) = (num, name) {
+                cycles.insert(n, name);
+            }
+        }
+
+        Ok(cycles)
+    }
+
+    /// Extract cycle number from the wikitext template name like `{{Roman Zyklus 05`.
+    fn extract_cycle_number(wikitext: &str) -> Option<u32> {
+        for line in wikitext.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("{{Roman Zyklus ") {
+                let rest = trimmed.strip_prefix("{{Roman Zyklus ")?;
+                // rest might be "05" or "05\n" or "05 |..."
+                let num_str = rest.split(|c: char| !c.is_ascii_digit()).next()?;
+                return num_str.parse::<u32>().ok();
+            }
+        }
+        None
     }
 
     /// Parse wikitext template parameters from the `{{Roman Zyklus ...}}` infobox.
@@ -156,6 +224,18 @@ impl WikiAdapter for MaddraxAdapter {
     }
 
     async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError> {
+        // Pre-load cycle name mapping from the Zyklen page
+        match self.fetch_cycle_names().await {
+            Ok(names) => {
+                if let Ok(mut lock) = self.cycle_names.write() {
+                    *lock = names;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch cycle names, cycles will use numbers: {e}");
+            }
+        }
+
         let mut all_issues = Vec::new();
         let mut consecutive_missing = 0u32;
         let mut current = 1u32;
@@ -231,7 +311,59 @@ impl WikiAdapter for MaddraxAdapter {
 
         let author = fields.get("Autor").map(|s| Self::strip_wiki_markup(s));
 
-        let cycle = fields.get("Zyklus").map(|s| Self::strip_wiki_markup(s));
+        // Split comma-separated authors
+        let authors: Vec<String> = author
+            .map(|a| {
+                a.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Resolve cycle name from template header (e.g. "Roman Zyklus 05" → "Daa'muren")
+        let cycle = Self::extract_cycle_number(wikitext).and_then(|num| {
+            self.cycle_names
+                .read()
+                .ok()
+                .and_then(|names| names.get(&num).cloned())
+        });
+
+        // Split comma-separated cover artists
+        let cover_artists: Vec<String> = fields
+            .get("Titelbildzeichner")
+            .map(|s| Self::strip_wiki_markup(s))
+            .map(|a| {
+                a.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Split comma-separated keywords
+        let keywords: Vec<String> = fields
+            .get("Schlagworte")
+            .map(|s| Self::strip_wiki_markup(s))
+            .map(|a| {
+                a.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Split comma-separated notes
+        let notes: Vec<String> = fields
+            .get("Besonderes")
+            .map(|s| Self::strip_wiki_markup(s))
+            .map(|a| {
+                a.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let published_at = fields
             .get("Erscheinungsdatum")
@@ -245,9 +377,12 @@ impl WikiAdapter for MaddraxAdapter {
         Ok(IssueData {
             issue_number,
             title,
-            author,
+            authors,
             published_at,
             cycle,
+            cover_artists,
+            keywords,
+            notes,
             source_wiki_url: Some(source_wiki_url),
         })
     }
@@ -512,5 +647,47 @@ mod tests {
         let html = r"<div><p>No images here</p></div>";
         let result = extract_cover_url(html);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_cycle_number() {
+        assert_eq!(
+            MaddraxAdapter::extract_cycle_number("{{Roman Zyklus 01\n|Nummer = 1"),
+            Some(1)
+        );
+        assert_eq!(
+            MaddraxAdapter::extract_cycle_number("{{Roman Zyklus 05\n|Nummer = 100"),
+            Some(5)
+        );
+        assert_eq!(
+            MaddraxAdapter::extract_cycle_number("{{Roman Zyklus 19\n|Nummer = 680"),
+            Some(19)
+        );
+    }
+
+    #[test]
+    fn test_extract_cycle_number_none() {
+        assert_eq!(MaddraxAdapter::extract_cycle_number("No template"), None);
+        assert_eq!(MaddraxAdapter::extract_cycle_number("{{Template}}"), None);
+    }
+
+    #[test]
+    fn test_parse_wikitext_infobox_with_extra_fields() {
+        let wikitext = "{{Roman Zyklus 01\n\
+            |Nummer = 1\n\
+            |Titel = Der Gott aus dem Eis\n\
+            |Autor = Jo Zybell\n\
+            |Titelbildzeichner = Koveck\n\
+            |Schlagworte = Kometeneinschlag, Taratzen, Feuervogel\n\
+            |Besonderes = Teil 1 von 2\n\
+            |Erscheinungsdatum = 08.02.2000\n\
+            }}";
+        let fields = MaddraxAdapter::parse_wikitext_infobox(wikitext);
+        assert_eq!(fields.get("Titelbildzeichner").unwrap(), "Koveck");
+        assert_eq!(
+            fields.get("Schlagworte").unwrap(),
+            "Kometeneinschlag, Taratzen, Feuervogel"
+        );
+        assert_eq!(fields.get("Besonderes").unwrap(), "Teil 1 von 2");
     }
 }

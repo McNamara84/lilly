@@ -97,7 +97,7 @@ describe('Series API', () => {
 				series_id: 1,
 				issue_number: 42,
 				title: 'Test Issue',
-				author: 'Author'
+				authors: ['Author']
 			};
 			mockFetch.mockResolvedValue(jsonResponse(issue));
 

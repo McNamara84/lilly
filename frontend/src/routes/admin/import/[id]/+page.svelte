@@ -195,7 +195,9 @@
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Nr.</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Titel</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Autor</th>
+								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Zyklus</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Datum</th>
+								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Zeichner</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Cover</th>
 							</tr>
 						</thead>
@@ -206,10 +208,16 @@
 									>
 									<td class="py-3 px-2" style="color: var(--text-primary);">{issue.title}</td>
 									<td class="py-3 px-2" style="color: var(--text-secondary);"
-										>{issue.author ?? '–'}</td
+										>{issue.authors.length > 0 ? issue.authors.join(', ') : '–'}</td
+									>
+									<td class="py-3 px-2" style="color: var(--text-secondary);"
+										>{issue.cycle ?? '–'}</td
 									>
 									<td class="py-3 px-2" style="color: var(--text-secondary);"
 										>{issue.published_at ?? '–'}</td
+									>
+									<td class="py-3 px-2" style="color: var(--text-secondary);"
+										>{issue.cover_artists.length > 0 ? issue.cover_artists.join(', ') : '–'}</td
 									>
 									<td class="py-3 px-2">
 										{#if issue.cover_local_path}

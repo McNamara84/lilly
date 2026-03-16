@@ -18,9 +18,12 @@ export interface Issue {
 	series_id: number;
 	issue_number: number;
 	title: string;
-	author: string | null;
+	authors: string[];
 	published_at: string | null;
 	cycle: string | null;
+	cover_artists: string[];
+	keywords: string[];
+	notes: string[];
 	cover_url: string | null;
 	cover_local_path: string | null;
 	source_wiki_url: string | null;

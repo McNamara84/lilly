@@ -40,7 +40,6 @@ pub struct Issue {
     #[allow(clippy::struct_field_names)]
     pub issue_number: u32,
     pub title: String,
-    pub author: Option<String>,
     pub published_at: Option<chrono::NaiveDate>,
     pub cycle: Option<String>,
     pub cover_url: Option<String>,
@@ -57,9 +56,12 @@ pub struct IssueResponse {
     #[allow(clippy::struct_field_names)]
     pub issue_number: u32,
     pub title: String,
-    pub author: Option<String>,
+    pub authors: Vec<String>,
     pub published_at: Option<chrono::NaiveDate>,
     pub cycle: Option<String>,
+    pub cover_artists: Vec<String>,
+    pub keywords: Vec<String>,
+    pub notes: Vec<String>,
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub source_wiki_url: Option<String>,
@@ -114,16 +116,26 @@ impl From<&Series> for SeriesResponse {
     }
 }
 
-impl From<&Issue> for IssueResponse {
-    fn from(i: &Issue) -> Self {
+impl IssueResponse {
+    /// Build an `IssueResponse` from an `Issue` row plus its related data.
+    pub fn from_issue_with_relations(
+        i: &Issue,
+        authors: Vec<String>,
+        cover_artists: Vec<String>,
+        keywords: Vec<String>,
+        notes: Vec<String>,
+    ) -> Self {
         Self {
             id: i.id,
             series_id: i.series_id,
             issue_number: i.issue_number,
             title: i.title.clone(),
-            author: i.author.clone(),
+            authors,
             published_at: i.published_at,
             cycle: i.cycle.clone(),
+            cover_artists,
+            keywords,
+            notes,
             cover_url: i.cover_url.clone(),
             cover_local_path: i.cover_local_path.clone(),
             source_wiki_url: i.source_wiki_url.clone(),
@@ -183,7 +195,6 @@ mod tests {
             series_id: 1,
             issue_number: 42,
             title: "Die Welt bricht auseinander".to_string(),
-            author: Some("Jo Zybell".to_string()),
             published_at: None,
             cycle: Some("Zyklus 3".to_string()),
             cover_url: None,
@@ -191,9 +202,19 @@ mod tests {
             source_wiki_url: None,
             created_at: chrono::NaiveDateTime::default(),
         };
-        let resp = IssueResponse::from(&issue);
+        let resp = IssueResponse::from_issue_with_relations(
+            &issue,
+            vec!["Jo Zybell".to_string()],
+            vec!["Koveck".to_string()],
+            vec!["Erde".to_string(), "Parallelwelt".to_string()],
+            vec!["Jubiläumsausgabe".to_string()],
+        );
         assert_eq!(resp.issue_number, 42);
         assert_eq!(resp.title, "Die Welt bricht auseinander");
+        assert_eq!(resp.authors, vec!["Jo Zybell"]);
+        assert_eq!(resp.cover_artists, vec!["Koveck"]);
+        assert_eq!(resp.keywords, vec!["Erde", "Parallelwelt"]);
+        assert_eq!(resp.notes, vec!["Jubiläumsausgabe"]);
     }
 
     #[test]

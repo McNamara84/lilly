@@ -35,9 +35,12 @@ pub struct SeriesData {
 pub struct IssueData {
     pub issue_number: u32,
     pub title: String,
-    pub author: Option<String>,
+    pub authors: Vec<String>,
     pub published_at: Option<chrono::NaiveDate>,
     pub cycle: Option<String>,
+    pub cover_artists: Vec<String>,
+    pub keywords: Vec<String>,
+    pub notes: Vec<String>,
     pub source_wiki_url: Option<String>,
 }
 
@@ -85,13 +88,18 @@ mod tests {
         let data = IssueData {
             issue_number: 1,
             title: "Dunkle Zukunft".to_string(),
-            author: Some("Jo Zybell".to_string()),
+            authors: vec!["Jo Zybell".to_string()],
             published_at: None,
-            cycle: Some("Zyklus 1".to_string()),
+            cycle: Some("Euree".to_string()),
+            cover_artists: vec!["Koveck".to_string()],
+            keywords: vec!["Kometeneinschlag".to_string(), "Taratzen".to_string()],
+            notes: vec![],
             source_wiki_url: None,
         };
         assert_eq!(data.issue_number, 1);
         assert_eq!(data.title, "Dunkle Zukunft");
+        assert_eq!(data.cover_artists[0], "Koveck");
+        assert_eq!(data.keywords.len(), 2);
     }
 
     #[test]
