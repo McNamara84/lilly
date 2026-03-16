@@ -210,6 +210,9 @@ async fn run_import(
     let total = u32::try_from(issue_numbers.len()).unwrap_or(u32::MAX);
     import_jobs::update_import_progress(&pool, job_id, 0, total).await?;
 
+    // Update series status to running
+    series::update_series_import_status(&pool, series_id, total, "running").await?;
+
     // Create covers directory
     let cover_dir = media_path
         .join("covers")
@@ -270,6 +273,10 @@ async fn run_import(
     }
 
     import_jobs::complete_import_job(&pool, job_id).await?;
+
+    // Update series: set total_issues from actual count and status to completed
+    series::update_series_import_status(&pool, series_id, imported, "completed").await?;
+
     tracing::info!(job_id, imported, total, "Import completed");
 
     Ok(())
