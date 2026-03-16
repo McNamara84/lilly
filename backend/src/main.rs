@@ -42,11 +42,6 @@ async fn main() {
 
     tracing::info!("Migrations applied");
 
-    // Promote admin user if ADMIN_EMAIL is configured
-    if let Some(ref admin_email) = config.admin_email {
-        db::users::ensure_admin_role(&pool, admin_email).await;
-    }
-
     // Seed demo user only if explicitly enabled (dev/test only)
     if std::env::var("ENABLE_DEMO_SEED")
         .unwrap_or_default()
@@ -55,6 +50,11 @@ async fn main() {
         if let Err(e) = db::users::seed_demo_user(&pool).await {
             tracing::error!("Failed to seed demo user: {e}");
         }
+    }
+
+    // Promote admin user if ADMIN_EMAIL is configured
+    if let Some(ref admin_email) = config.admin_email {
+        db::users::ensure_admin_role(&pool, admin_email).await;
     }
 
     let email_service = services::email::EmailService::from_config(&config);
