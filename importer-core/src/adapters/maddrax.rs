@@ -8,10 +8,14 @@ use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus};
 
 const MADDRAXIKON_BASE: &str = "https://de.maddraxikon.com";
 const DEFAULT_DELAY_MS: u64 = 500;
+/// `MediaWiki` API allows up to 50 titles per query request
+const BATCH_SIZE: u32 = 50;
+/// Stop scanning after this many consecutive missing issue numbers
+const MAX_CONSECUTIVE_MISSING: u32 = 10;
 
 pub struct MaddraxAdapter {
     client: Client,
-    delay: Duration,
+    pub(crate) delay: Duration,
 }
 
 impl MaddraxAdapter {
@@ -40,32 +44,81 @@ impl MaddraxAdapter {
         tokio::time::sleep(self.delay).await;
     }
 
-    fn parse_issue_list_from_html(html: &str) -> Result<Vec<u32>, AdapterError> {
-        let document = Html::parse_document(html);
-        let row_selector = Selector::parse("table.wikitable tr")
-            .map_err(|e| AdapterError::Parse(format!("Failed to parse row selector: {e}")))?;
-        let cell_selector = Selector::parse("td")
-            .map_err(|e| AdapterError::Parse(format!("Failed to parse cell selector: {e}")))?;
+    /// Probe `Quelle:MX{start}..Quelle:MX{start+BATCH_SIZE-1}` via `MediaWiki` Query API.
+    /// Returns the set of issue numbers that have valid redirects.
+    async fn probe_issue_batch(&self, start: u32, end: u32) -> Result<Vec<u32>, AdapterError> {
+        let titles: Vec<String> = (start..=end).map(|n| format!("Quelle:MX{n}")).collect();
+        let titles_param = titles.join("|");
 
-        let mut issue_numbers = Vec::new();
+        let url = format!(
+            "{MADDRAXIKON_BASE}/api.php?action=query&titles={}&redirects=1&format=json",
+            urlencoding::encode(&titles_param)
+        );
 
-        for row in document.select(&row_selector) {
-            let cells: Vec<_> = row.select(&cell_selector).collect();
-            if let Some(first_cell) = cells.first() {
-                let text = first_cell.text().collect::<String>().trim().to_string();
-                if let Ok(num) = text.parse::<u32>() {
-                    issue_numbers.push(num);
+        let response = self.client.get(&url).send().await?;
+        let json: serde_json::Value = response.json().await?;
+
+        let mut found = Vec::new();
+
+        // Each redirect entry means the Quelle:MX{n} page exists
+        if let Some(redirects) = json["query"]["redirects"].as_array() {
+            for redirect in redirects {
+                if let Some(from) = redirect["from"].as_str() {
+                    // Extract number from "Quelle:MX123"
+                    if let Some(num_str) = from.strip_prefix("Quelle:MX") {
+                        if let Ok(num) = num_str.parse::<u32>() {
+                            found.push(num);
+                        }
+                    }
                 }
             }
         }
 
-        if issue_numbers.is_empty() {
-            return Err(AdapterError::Parse(
-                "No issue numbers found in wiki table".to_string(),
-            ));
+        found.sort_unstable();
+        Ok(found)
+    }
+
+    /// Parse wikitext template parameters from the `{{Roman Zyklus ...}}` infobox.
+    /// Returns a map of `field_name` → value.
+    fn parse_wikitext_infobox(wikitext: &str) -> std::collections::HashMap<String, String> {
+        let mut fields = std::collections::HashMap::new();
+
+        for line in wikitext.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix('|') {
+                if let Some((key, value)) = rest.split_once('=') {
+                    let key = key.trim().to_string();
+                    let value = value.trim().to_string();
+                    if !key.is_empty() && !value.is_empty() {
+                        fields.insert(key, value);
+                    }
+                }
+            }
         }
 
-        Ok(issue_numbers)
+        fields
+    }
+
+    /// Strip `MediaWiki` markup (links, bold, etc.) from a value string.
+    fn strip_wiki_markup(s: &str) -> String {
+        let mut result = s.to_string();
+        // Remove [[Target|Display]] → Display, [[Target]] → Target
+        while let Some(start) = result.find("[[") {
+            if let Some(end) = result[start..].find("]]") {
+                let inner = &result[start + 2..start + end];
+                let display = inner.split('|').next_back().unwrap_or(inner);
+                let display = display.to_string();
+                result = format!(
+                    "{}{}{}",
+                    &result[..start],
+                    display,
+                    &result[start + end + 2..]
+                );
+            } else {
+                break;
+            }
+        }
+        result.replace("'''", "").replace("''", "")
     }
 }
 
@@ -103,59 +156,90 @@ impl WikiAdapter for MaddraxAdapter {
     }
 
     async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError> {
-        self.rate_limit().await;
+        let mut all_issues = Vec::new();
+        let mut consecutive_missing = 0u32;
+        let mut current = 1u32;
 
-        let url = format!(
-            "{MADDRAXIKON_BASE}/w/index.php?action=parse&page=Romane&prop=text&formatversion=2&format=json"
-        );
+        loop {
+            self.rate_limit().await;
 
-        let response = self.client.get(&url).send().await?;
-        let json: serde_json::Value = response.json().await?;
+            let batch_end = current + BATCH_SIZE - 1;
+            let found = self.probe_issue_batch(current, batch_end).await?;
 
-        let html = json["parse"]["text"]
-            .as_str()
-            .ok_or_else(|| AdapterError::Parse("Missing parse.text in API response".to_string()))?;
+            if found.is_empty() {
+                consecutive_missing += BATCH_SIZE;
+            } else {
+                // Count consecutive missing from the end of this batch
+                let max_found = found.iter().copied().max().unwrap_or(current);
+                consecutive_missing = batch_end - max_found;
+                all_issues.extend(found);
+            }
 
-        Self::parse_issue_list_from_html(html)
+            if consecutive_missing >= MAX_CONSECUTIVE_MISSING {
+                break;
+            }
+
+            current = batch_end + 1;
+        }
+
+        if all_issues.is_empty() {
+            return Err(AdapterError::Parse(
+                "No issue numbers found via Quelle:MX redirects".to_string(),
+            ));
+        }
+
+        all_issues.sort_unstable();
+        all_issues.dedup();
+        Ok(all_issues)
     }
 
     async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError> {
         self.rate_limit().await;
 
-        let page_title = format!("Maddrax {issue_number}");
         let url = format!(
-            "{MADDRAXIKON_BASE}/w/index.php?action=parse&page={}&prop=text&formatversion=2&format=json",
-            urlencoding::encode(&page_title)
+            "{MADDRAXIKON_BASE}/api.php?action=parse&page={}&prop=wikitext&redirects=1&format=json",
+            urlencoding::encode(&format!("Quelle:MX{issue_number}"))
         );
 
         let response = self.client.get(&url).send().await?;
+        let json: serde_json::Value = response.json().await?;
 
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
+        if json.get("error").is_some() {
             return Err(AdapterError::NotFound(format!(
                 "Issue {issue_number} not found"
             )));
         }
 
-        let json: serde_json::Value = response.json().await?;
-        let html = json["parse"]["text"]
+        let wiki_title = json["parse"]["title"].as_str().unwrap_or("").to_string();
+
+        let wikitext = json["parse"]["wikitext"]["*"]
             .as_str()
-            .ok_or_else(|| AdapterError::Parse("Missing parse.text in API response".to_string()))?;
+            .ok_or_else(|| AdapterError::Parse("Missing wikitext in API response".to_string()))?;
 
-        let document = Html::parse_document(html);
+        let fields = Self::parse_wikitext_infobox(wikitext);
 
-        // Extract title from infobox or first heading
-        let title = extract_infobox_field(&document, "Titel")
-            .unwrap_or_else(|| format!("Maddrax {issue_number}"));
+        let title = fields.get("Titel").map_or_else(
+            || {
+                if wiki_title.is_empty() {
+                    format!("Maddrax {issue_number}")
+                } else {
+                    wiki_title.clone()
+                }
+            },
+            |s| Self::strip_wiki_markup(s),
+        );
 
-        let author = extract_infobox_field(&document, "Autor");
-        let cycle = extract_infobox_field(&document, "Zyklus");
+        let author = fields.get("Autor").map(|s| Self::strip_wiki_markup(s));
 
-        let published_at =
-            extract_infobox_field(&document, "Ersterscheinung").and_then(|s| parse_german_date(&s));
+        let cycle = fields.get("Zyklus").map(|s| Self::strip_wiki_markup(s));
+
+        let published_at = fields
+            .get("Erscheinungsdatum")
+            .and_then(|s| parse_german_date(s));
 
         let source_wiki_url = format!(
             "{MADDRAXIKON_BASE}/wiki/{}",
-            urlencoding::encode(&page_title)
+            urlencoding::encode(&wiki_title)
         );
 
         Ok(IssueData {
@@ -171,17 +255,17 @@ impl WikiAdapter for MaddraxAdapter {
     async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
         self.rate_limit().await;
 
-        let page_title = format!("Maddrax {issue_number}");
         let url = format!(
-            "{MADDRAXIKON_BASE}/w/index.php?action=parse&page={}&prop=text&formatversion=2&format=json",
-            urlencoding::encode(&page_title)
+            "{MADDRAXIKON_BASE}/api.php?action=parse&page={}&prop=text&redirects=1&format=json",
+            urlencoding::encode(&format!("Quelle:MX{issue_number}"))
         );
 
         let response = self.client.get(&url).send().await?;
         let json: serde_json::Value = response.json().await?;
-        let html = json["parse"]["text"]
+
+        let html = json["parse"]["text"]["*"]
             .as_str()
-            .ok_or_else(|| AdapterError::Parse("Missing parse.text".to_string()))?;
+            .ok_or_else(|| AdapterError::Parse("Missing parse.text in API response".to_string()))?;
 
         // Extract image URL synchronously to avoid holding Html across await
         let img_url = extract_cover_url(html);
@@ -207,31 +291,14 @@ impl WikiAdapter for MaddraxAdapter {
     }
 }
 
-fn extract_infobox_field(document: &Html, field_name: &str) -> Option<String> {
-    let row_sel = Selector::parse("tr").ok()?;
-    let header_sel = Selector::parse("th").ok()?;
-    let data_sel = Selector::parse("td").ok()?;
-
-    for row in document.select(&row_sel) {
-        let header = row.select(&header_sel).next();
-        if let Some(header) = header {
-            let text = header.text().collect::<String>();
-            if text.trim().eq_ignore_ascii_case(field_name) {
-                if let Some(data_cell) = row.select(&data_sel).next() {
-                    let value = data_cell.text().collect::<String>().trim().to_string();
-                    if !value.is_empty() {
-                        return Some(value);
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
 fn extract_cover_url(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
-    let selectors = ["img.thumbimage", ".infobox img", "table.wikitable img"];
+    let selectors = [
+        "img.mw-file-element",
+        "img.thumbimage",
+        ".infobox img",
+        "table.wikitable img",
+    ];
 
     for sel_str in &selectors {
         if let Ok(sel) = Selector::parse(sel_str) {
@@ -321,24 +388,51 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_issue_list_from_html() {
-        let html = r#"
-            <table class="wikitable">
-                <tr><th>Nr.</th><th>Titel</th></tr>
-                <tr><td>1</td><td>Dunkle Zukunft</td></tr>
-                <tr><td>2</td><td>Die Flucht</td></tr>
-                <tr><td>3</td><td>Apocalypse</td></tr>
-            </table>
-        "#;
-        let issues = MaddraxAdapter::parse_issue_list_from_html(html).unwrap();
-        assert_eq!(issues, vec![1, 2, 3]);
+    fn test_parse_wikitext_infobox() {
+        let wikitext = r"{{Roman Zyklus 01
+|NummerVor = &nbsp;
+|Nummer = 1
+|NummerNach = 2
+|Titel = Der Gott aus dem Eis
+|Autor = Jo Zybell
+|Erscheinungsdatum = 08.02.2000
+|Titelbildzeichner = Koveck
+}}Some text after";
+        let fields = MaddraxAdapter::parse_wikitext_infobox(wikitext);
+        assert_eq!(fields.get("Titel").unwrap(), "Der Gott aus dem Eis");
+        assert_eq!(fields.get("Autor").unwrap(), "Jo Zybell");
+        assert_eq!(fields.get("Nummer").unwrap(), "1");
+        assert_eq!(fields.get("Erscheinungsdatum").unwrap(), "08.02.2000");
     }
 
     #[test]
-    fn test_parse_issue_list_empty_table() {
-        let html = r#"<table class="wikitable"><tr><th>Nr.</th></tr></table>"#;
-        let result = MaddraxAdapter::parse_issue_list_from_html(html);
-        assert!(result.is_err());
+    fn test_parse_wikitext_infobox_empty() {
+        let fields = MaddraxAdapter::parse_wikitext_infobox("No template here");
+        assert!(fields.is_empty());
+    }
+
+    #[test]
+    fn test_strip_wiki_markup_link_with_display() {
+        let result = MaddraxAdapter::strip_wiki_markup("[[Maddrax-Taschenbücher|Taschenbuch]]");
+        assert_eq!(result, "Taschenbuch");
+    }
+
+    #[test]
+    fn test_strip_wiki_markup_plain_link() {
+        let result = MaddraxAdapter::strip_wiki_markup("[[Jo Zybell]]");
+        assert_eq!(result, "Jo Zybell");
+    }
+
+    #[test]
+    fn test_strip_wiki_markup_bold() {
+        let result = MaddraxAdapter::strip_wiki_markup("'''bold text'''");
+        assert_eq!(result, "bold text");
+    }
+
+    #[test]
+    fn test_strip_wiki_markup_no_markup() {
+        let result = MaddraxAdapter::strip_wiki_markup("plain text");
+        assert_eq!(result, "plain text");
     }
 
     #[test]
@@ -388,19 +482,15 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_infobox_field_from_html() {
-        let html = r"<table><tr><th>Titel</th><td>Dunkle Zukunft</td></tr></table>";
-        let document = Html::parse_document(html);
-        let result = extract_infobox_field(&document, "Titel");
-        assert_eq!(result, Some("Dunkle Zukunft".to_string()));
-    }
-
-    #[test]
-    fn test_extract_infobox_field_missing() {
-        let html = r"<table><tr><th>Autor</th><td>Test</td></tr></table>";
-        let document = Html::parse_document(html);
-        let result = extract_infobox_field(&document, "Titel");
-        assert!(result.is_none());
+    fn test_extract_cover_url_mw_file_element() {
+        let html = r#"<td><a href="/index.php?title=Datei:001tibi.jpg" class="mw-file-description"><img src="/images/thumb/1/10/001tibi.jpg/200px-001tibi.jpg" class="mw-file-element" /></a></td>"#;
+        let result = extract_cover_url(html);
+        assert_eq!(
+            result,
+            Some(format!(
+                "{MADDRAXIKON_BASE}/images/thumb/1/10/001tibi.jpg/200px-001tibi.jpg"
+            ))
+        );
     }
 
     #[test]

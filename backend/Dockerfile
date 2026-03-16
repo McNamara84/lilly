@@ -37,6 +37,9 @@ RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib
 
 RUN groupadd --system appuser && useradd --system --gid appuser --no-create-home appuser
 
+# Create media directory writable by appuser (Docker volume mounts over this)
+RUN mkdir -p /media && chown appuser:appuser /media
+
 WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/target/release/lilly-backend ./
 COPY --from=builder --chown=appuser:appuser /app/backend/migrations ./migrations
