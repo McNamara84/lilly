@@ -26,9 +26,10 @@ test.describe('Admin Import Flow', () => {
 	test('start import creates job and shows progress', async ({ page }) => {
 		await page.goto('/admin/import');
 
-		// Select the maddrax adapter
+		// Wait for adapters to load, then select the first one
 		const select = page.getByTestId('adapter-select');
-		await select.selectOption({ index: 1 });
+		await expect(select.locator('option')).not.toHaveCount(0);
+		await select.selectOption({ index: 0 });
 
 		// Start import
 		const startButton = page.getByTestId('start-import-button');
@@ -55,7 +56,8 @@ test.describe('Admin Import Flow', () => {
 		await page.goto('/admin/import');
 
 		const select = page.getByTestId('adapter-select');
-		await select.selectOption({ index: 1 });
+		await expect(select.locator('option')).not.toHaveCount(0);
+		await select.selectOption({ index: 0 });
 
 		await page.getByTestId('start-import-button').click();
 		await expect(page).toHaveURL(/\/admin\/import\/\d+/, { timeout: 15000 });
@@ -71,7 +73,8 @@ test.describe('Admin Import Flow', () => {
 		await page.goto('/admin/import');
 
 		const select = page.getByTestId('adapter-select');
-		await select.selectOption({ index: 1 });
+		await expect(select.locator('option')).not.toHaveCount(0);
+		await select.selectOption({ index: 0 });
 
 		await page.getByTestId('start-import-button').click();
 		await expect(page).toHaveURL(/\/admin\/import\/\d+/, { timeout: 15000 });
