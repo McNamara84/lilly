@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Admin Import Flow', () => {
+test.describe.serial('Admin Import Flow', () => {
 	test.beforeEach(async ({ page }) => {
 		// Login as admin
 		await page.goto('/login');
@@ -55,11 +55,10 @@ test.describe('Admin Import Flow', () => {
 	test('import detail page shows progress count', async ({ page }) => {
 		await page.goto('/admin/import');
 
-		const select = page.getByTestId('adapter-select');
-		await expect(select.locator('option')).not.toHaveCount(0);
-		await select.selectOption({ index: 0 });
-
-		await page.getByTestId('start-import-button').click();
+		// Navigate to the existing import via history (previous test created one)
+		const detailsLink = page.getByTestId('view-details-link').first();
+		await expect(detailsLink).toBeVisible({ timeout: 10000 });
+		await detailsLink.click();
 		await expect(page).toHaveURL(/\/admin\/import\/\d+/, { timeout: 15000 });
 
 		// Progress count should be visible
@@ -72,11 +71,10 @@ test.describe('Admin Import Flow', () => {
 	test('back link navigates to import overview', async ({ page }) => {
 		await page.goto('/admin/import');
 
-		const select = page.getByTestId('adapter-select');
-		await expect(select.locator('option')).not.toHaveCount(0);
-		await select.selectOption({ index: 0 });
-
-		await page.getByTestId('start-import-button').click();
+		// Navigate to the existing import via history
+		const detailsLink = page.getByTestId('view-details-link').first();
+		await expect(detailsLink).toBeVisible({ timeout: 10000 });
+		await detailsLink.click();
 		await expect(page).toHaveURL(/\/admin\/import\/\d+/, { timeout: 15000 });
 
 		// Click back link
