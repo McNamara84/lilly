@@ -355,7 +355,7 @@ importer-core/
 2. **Asynchrone Ausführung:** Ein `tokio::spawn`-Task führt den Import im Hintergrund aus. Der Fortschritt (importierte Hefte / Gesamtanzahl) wird laufend in der `import_jobs`-Tabelle aktualisiert.
 3. **Serien-Erstellung:** Der Adapter ruft `fetch_series_metadata()` auf und erstellt/aktualisiert den `series`-Eintrag mit `active = false` (für Nutzer noch nicht sichtbar).
 4. **Heft-Import:** Für jede Heftnummer: `fetch_issue_details()` + `fetch_cover()` → Heft-Upsert in `issues` + Cover lokal speichern.
-5. **Cover-Download:** Cover-Bilder werden lokal im `/media/covers/{series_slug}/{number}.jpg`-Format gespeichert.
+5. **Cover-Download:** Cover-Bilder werden lokal im `/media/covers/series-{series_id}/{number}.{ext}`-Format gespeichert (ext = jpg, png oder webp je nach Content-Type).
 6. **Fortschritts-Polling:** Admin pollt `GET /api/v1/admin/import/{id}` für den aktuellen Status.
 7. **Prüfung & Aktivierung:** Nach Abschluss prüft der Admin stichprobenartig die importierten Daten und aktiviert die Serie über `POST /api/v1/admin/series/{slug}/activate`.
 8. **Inkrementeller Sync (Follow-up):** Wöchentlicher Cronjob prüft auf neue Hefte und importiert nur die Differenz. Wird erst nach stabilem Erstimport implementiert.

@@ -42,6 +42,13 @@ async fn main() {
 
     tracing::info!("Migrations applied");
 
+    // Reconcile any import jobs orphaned by a previous server shutdown
+    match db::import_jobs::reconcile_orphaned_jobs(&pool).await {
+        Ok(0) => {}
+        Ok(n) => tracing::warn!(count = n, "Marked orphaned import jobs as failed"),
+        Err(e) => tracing::error!(error = %e, "Failed to reconcile orphaned import jobs"),
+    }
+
     // Seed demo user only if explicitly enabled (dev/test only)
     if std::env::var("ENABLE_DEMO_SEED")
         .unwrap_or_default()
@@ -75,6 +82,7 @@ async fn main() {
             cookie_secure: config.cookie_secure,
             adapter_registry,
             media_path: PathBuf::from(config.media_path),
+            media_url_prefix: config.media_url_prefix,
         }),
     };
 

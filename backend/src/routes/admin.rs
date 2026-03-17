@@ -271,6 +271,8 @@ async fn run_import(
         if let Ok(Some(cover_data)) = adapter.fetch_cover(*issue_number).await {
             let ext = if cover_data.content_type.contains("png") {
                 "png"
+            } else if cover_data.content_type.contains("webp") {
+                "webp"
             } else {
                 "jpg"
             };
@@ -279,8 +281,9 @@ async fn run_import(
                 .await
                 .is_ok()
             {
+                let url_prefix = &state_inner.media_url_prefix;
                 cover_local = Some(format!(
-                    "/media/covers/series-{series_id}/{issue_number}.{ext}"
+                    "{url_prefix}/covers/series-{series_id}/{issue_number}.{ext}"
                 ));
             }
         }

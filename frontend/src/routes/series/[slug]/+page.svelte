@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { page } from '$app/stores';
 	import { fetchSeriesIssues, fetchSeries, type Series, type Issue } from '$lib/api/series';
 
@@ -20,7 +21,6 @@
 		loading = true;
 		error = null;
 		try {
-			// Fetch series info from the list
 			const allSeries = await fetchSeries();
 			series = allSeries.find((s) => s.slug === slug) ?? null;
 
@@ -30,9 +30,10 @@
 				return;
 			}
 
-			const result = await fetchSeriesIssues(slug, currentPage);
+			const result = await fetchSeriesIssues(slug, 1);
 			issues = result.data;
 			total = result.total;
+			currentPage = 1;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load series';
 		} finally {
@@ -54,7 +55,11 @@
 	const totalPages = $derived(Math.ceil(total / 50));
 
 	$effect(() => {
-		loadData();
+		// Only re-run when slug changes; pagination is handled by goToPage()
+		void slug;
+		untrack(() => {
+			loadData();
+		});
 	});
 </script>
 
@@ -124,6 +129,7 @@
 							<div
 								class="aspect-[3/4] mb-2 rounded flex items-center justify-center"
 								style="background-color: var(--surface-base);"
+								role="img"
 								aria-label="Kein Cover verfügbar"
 							>
 								<span class="text-2xl font-bold" style="color: var(--text-tertiary);">

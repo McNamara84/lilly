@@ -25,4 +25,5 @@ pub struct AppStateInner {
     pub cookie_secure: bool,
     pub adapter_registry: AdapterRegistry,
     pub media_path: PathBuf,
+    pub media_url_prefix: String,
 }

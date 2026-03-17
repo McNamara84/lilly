@@ -109,3 +109,18 @@ pub async fn find_import_job_by_id(
     .fetch_optional(pool)
     .await
 }
+
+/// Marks any import jobs left in 'pending' or 'running' status as 'failed'.
+/// Should be called at server startup to reconcile orphaned jobs from previous runs.
+pub async fn reconcile_orphaned_jobs(pool: &MySqlPool) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE import_jobs SET status = 'failed', \
+         error_message = 'Server restarted during import', \
+         completed_at = CURRENT_TIMESTAMP \
+         WHERE status IN ('pending', 'running')",
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}

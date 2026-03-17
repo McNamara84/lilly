@@ -165,6 +165,7 @@ mod tests {
             cookie_secure: false,
             admin_email: None,
             media_path: "/media".to_string(),
+            media_url_prefix: "/media".to_string(),
         };
 
         let service = EmailService::from_config(&config);
