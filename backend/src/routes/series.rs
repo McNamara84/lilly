@@ -81,6 +81,14 @@ async fn get_issue(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Issue {id} not found")))?;
 
+    // Only return issues from active series
+    let s = series::find_series_by_id(&state.inner.pool, issue.series_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Issue {id} not found")))?;
+    if !s.active {
+        return Err(AppError::NotFound(format!("Issue {id} not found")));
+    }
+
     let response = issues::build_issue_response(&state.inner.pool, &issue).await?;
     Ok(Json(response))
 }

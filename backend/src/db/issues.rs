@@ -297,14 +297,94 @@ pub async fn build_issue_response(
     ))
 }
 
-/// Build `IssueResponse` items for a list of issues.
+/// Build `IssueResponse` items for a list of issues using batched queries.
+/// Uses 4 queries total (instead of 4 per issue) to load all relations.
 pub async fn build_issue_responses(
     pool: &MySqlPool,
     issues: &[Issue],
 ) -> Result<Vec<IssueResponse>, sqlx::Error> {
-    let mut result = Vec::with_capacity(issues.len());
-    for issue in issues {
-        result.push(build_issue_response(pool, issue).await?);
+    if issues.is_empty() {
+        return Ok(Vec::new());
     }
+
+    let ids: Vec<u32> = issues.iter().map(|i| i.id).collect();
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+
+    // Batch-load persons (authors + cover_artists)
+    let persons_query = format!(
+        "SELECT ip.issue_id, p.name, ip.role FROM persons p \
+         JOIN issue_persons ip ON ip.person_id = p.id \
+         WHERE ip.issue_id IN ({placeholders}) ORDER BY ip.issue_id, p.name"
+    );
+    let mut q = sqlx::query_as::<_, (u32, String, String)>(&persons_query);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let person_rows = q.fetch_all(pool).await?;
+
+    // Batch-load keywords
+    let keywords_query = format!(
+        "SELECT ik.issue_id, k.name FROM keywords k \
+         JOIN issue_keywords ik ON ik.keyword_id = k.id \
+         WHERE ik.issue_id IN ({placeholders}) ORDER BY ik.issue_id, k.name"
+    );
+    let mut q = sqlx::query_as::<_, (u32, String)>(&keywords_query);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let keyword_rows = q.fetch_all(pool).await?;
+
+    // Batch-load notes
+    let notes_query = format!(
+        "SELECT ino.issue_id, n.text FROM notes n \
+         JOIN issue_notes ino ON ino.note_id = n.id \
+         WHERE ino.issue_id IN ({placeholders}) ORDER BY ino.issue_id, n.text"
+    );
+    let mut q = sqlx::query_as::<_, (u32, String)>(&notes_query);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let note_rows = q.fetch_all(pool).await?;
+
+    // Group by issue_id
+    let mut authors_map: std::collections::HashMap<u32, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut cover_artists_map: std::collections::HashMap<u32, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut keywords_map: std::collections::HashMap<u32, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut notes_map: std::collections::HashMap<u32, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for (issue_id, name, role) in &person_rows {
+        if role == "author" {
+            authors_map.entry(*issue_id).or_default().push(name.clone());
+        } else {
+            cover_artists_map
+                .entry(*issue_id)
+                .or_default()
+                .push(name.clone());
+        }
+    }
+    for (issue_id, name) in keyword_rows {
+        keywords_map.entry(issue_id).or_default().push(name);
+    }
+    for (issue_id, text) in note_rows {
+        notes_map.entry(issue_id).or_default().push(text);
+    }
+
+    let result = issues
+        .iter()
+        .map(|issue| {
+            IssueResponse::from_issue_with_relations(
+                issue,
+                authors_map.remove(&issue.id).unwrap_or_default(),
+                cover_artists_map.remove(&issue.id).unwrap_or_default(),
+                keywords_map.remove(&issue.id).unwrap_or_default(),
+                notes_map.remove(&issue.id).unwrap_or_default(),
+            )
+        })
+        .collect();
+
     Ok(result)
 }

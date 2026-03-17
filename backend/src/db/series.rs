@@ -85,15 +85,13 @@ pub async fn create_series(
     Ok(result.last_insert_id() as u32)
 }
 
-pub async fn update_series_import_status(
+pub async fn update_series_total_issues(
     pool: &MySqlPool,
     series_id: u32,
     total_issues: u32,
-    status: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE series SET total_issues = ?, status = ? WHERE id = ?")
+    sqlx::query("UPDATE series SET total_issues = ? WHERE id = ?")
         .bind(total_issues)
-        .bind(status)
         .bind(series_id)
         .execute(pool)
         .await?;

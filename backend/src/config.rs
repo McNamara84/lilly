@@ -74,6 +74,7 @@ mod tests {
         std::env::remove_var("APP_BASE_URL");
         std::env::remove_var("COOKIE_SECURE");
         std::env::remove_var("ADMIN_EMAIL");
+        std::env::remove_var("MEDIA_PATH");
 
         let config = AppConfig::from_env();
         assert_eq!(config.jwt_access_token_expiry, 900);

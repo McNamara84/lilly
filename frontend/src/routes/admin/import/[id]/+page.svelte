@@ -3,7 +3,7 @@
 	import { resolve } from '$app/paths';
 	import {
 		fetchImportJob,
-		fetchImportIssues,
+		fetchImportSeriesIssues,
 		activateSeries,
 		type ImportJob,
 		type IssueAdmin
@@ -45,7 +45,7 @@
 
 	async function loadIssues() {
 		try {
-			const result = await fetchImportIssues(jobId, issuesPage);
+			const result = await fetchImportSeriesIssues(jobId, issuesPage);
 			issues = result.data;
 			issuesTotal = result.total;
 		} catch (e) {
@@ -80,6 +80,12 @@
 	}
 
 	$effect(() => {
+		if (invalidJobId) {
+			error = 'Invalid import job ID';
+			loading = false;
+			return;
+		}
+
 		loadJob();
 		startPolling();
 

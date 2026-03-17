@@ -49,9 +49,6 @@ CREATE TABLE IF NOT EXISTS issue_notes (
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Remove the old denormalized columns from issues
+-- Remove the old denormalized author column from issues
 ALTER TABLE `issues`
-    DROP COLUMN `author`,
-    DROP COLUMN `cover_artist`,
-    DROP COLUMN `keywords`,
-    DROP COLUMN `notes`;
+    DROP COLUMN `author`;

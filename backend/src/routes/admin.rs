@@ -24,7 +24,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/admin/import", post(start_import))
         .route("/api/v1/admin/import/history", get(import_history))
         .route("/api/v1/admin/import/{id}", get(get_import_job))
-        .route("/api/v1/admin/import/{id}/issues", get(get_import_issues))
+        .route(
+            "/api/v1/admin/import/{id}/series-issues",
+            get(get_import_series_issues),
+        )
 }
 
 async fn list_all_series(
@@ -95,6 +98,23 @@ async fn list_adapters(
 #[derive(Debug, Deserialize)]
 struct StartImportRequest {
     adapter: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ImportJobWithSlug {
+    id: u32,
+    series_id: u32,
+    series_slug: String,
+    adapter_name: String,
+    status: String,
+    total_issues: u32,
+    imported_issues: u32,
+    error_message: Option<String>,
+    started_by: u32,
+    started_at: Option<chrono::NaiveDateTime>,
+    completed_at: Option<chrono::NaiveDateTime>,
+    #[allow(dead_code)]
+    created_at: chrono::NaiveDateTime,
 }
 
 async fn start_import(
@@ -229,9 +249,6 @@ async fn run_import(
     let total = u32::try_from(new_issues.len()).unwrap_or(u32::MAX);
     import_jobs::update_import_progress(&pool, job_id, 0, total).await?;
 
-    // Update series status to running
-    series::update_series_import_status(&pool, series_id, total, "running").await?;
-
     // Create covers directory
     let cover_dir = media_path
         .join("covers")
@@ -326,9 +343,9 @@ async fn run_import(
 
     import_jobs::complete_import_job(&pool, job_id).await?;
 
-    // Update series: set total_issues from actual count (existing + newly imported) and status to completed
+    // Update series total_issues from actual count (existing + newly imported)
     let actual_count = issues::count_issues_by_series(&pool, series_id).await?;
-    series::update_series_import_status(&pool, series_id, actual_count, "completed").await?;
+    series::update_series_total_issues(&pool, series_id, actual_count).await?;
 
     tracing::info!(job_id, imported, total, "Import completed");
 
@@ -364,7 +381,8 @@ const fn default_per_page() -> u32 {
     50
 }
 
-async fn get_import_issues(
+/// Returns all issues for the series associated with this import job (not just issues from this specific import run).
+async fn get_import_series_issues(
     _admin: AdminUser,
     State(state): State<AppState>,
     Path(id): Path<u32>,
@@ -402,21 +420,33 @@ async fn import_history(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ImportJobResponse>>, AppError> {
-    let jobs = sqlx::query_as::<_, crate::models::series::ImportJob>(
-        "SELECT id, series_id, adapter_name, status, total_issues, imported_issues, \
-         error_message, started_by, started_at, completed_at, created_at \
-         FROM import_jobs ORDER BY created_at DESC",
+    let rows: Vec<ImportJobWithSlug> = sqlx::query_as(
+        "SELECT j.id, j.series_id, s.slug AS series_slug, j.adapter_name, j.status, \
+         j.total_issues, j.imported_issues, j.error_message, j.started_by, \
+         j.started_at, j.completed_at, j.created_at \
+         FROM import_jobs j \
+         JOIN series s ON s.id = j.series_id \
+         ORDER BY j.created_at DESC",
     )
     .fetch_all(&state.inner.pool)
     .await?;
 
-    let mut response = Vec::with_capacity(jobs.len());
-    for job in &jobs {
-        let slug = resolve_series_slug(&state.inner.pool, job.series_id)
-            .await
-            .unwrap_or_default();
-        response.push(ImportJobResponse::from_job_with_slug(job, slug));
-    }
+    let response = rows
+        .iter()
+        .map(|r| ImportJobResponse {
+            id: r.id,
+            series_id: r.series_id,
+            series_slug: r.series_slug.clone(),
+            adapter_name: r.adapter_name.clone(),
+            status: r.status.clone(),
+            total_issues: r.total_issues,
+            imported_issues: r.imported_issues,
+            error_message: r.error_message.clone(),
+            started_by: r.started_by,
+            started_at: r.started_at,
+            completed_at: r.completed_at,
+        })
+        .collect();
     Ok(Json(response))
 }
 

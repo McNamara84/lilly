@@ -6,7 +6,7 @@ import {
 	fetchAdapters,
 	startImport,
 	fetchImportJob,
-	fetchImportIssues,
+	fetchImportSeriesIssues,
 	fetchImportHistory
 } from '../src/lib/api/admin';
 
@@ -140,14 +140,14 @@ describe('Admin API', () => {
 		});
 	});
 
-	describe('fetchImportIssues', () => {
-		it('fetches paginated issues for import job', async () => {
+	describe('fetchImportSeriesIssues', () => {
+		it('fetches paginated series issues for import job', async () => {
 			const data = { data: [], page: 1, per_page: 50, total: 0 };
 			mockFetch.mockResolvedValue(jsonResponse(data));
 
-			const result = await fetchImportIssues(5);
+			const result = await fetchImportSeriesIssues(5);
 
-			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/issues?page=1', {
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/series-issues?page=1', {
 				credentials: 'same-origin'
 			});
 			expect(result).toEqual(data);
@@ -157,9 +157,9 @@ describe('Admin API', () => {
 			const data = { data: [], page: 3, per_page: 50, total: 100 };
 			mockFetch.mockResolvedValue(jsonResponse(data));
 
-			await fetchImportIssues(5, 3);
+			await fetchImportSeriesIssues(5, 3);
 
-			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/issues?page=3', {
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/series-issues?page=3', {
 				credentials: 'same-origin'
 			});
 		});

@@ -117,8 +117,11 @@ export async function fetchImportJob(id: number): Promise<ImportJob> {
 	return handleResponse<ImportJob>(response);
 }
 
-export async function fetchImportIssues(id: number, page: number = 1): Promise<PaginatedIssues> {
-	const response = await fetch(`${API_BASE}/admin/import/${id}/issues?page=${page}`, {
+export async function fetchImportSeriesIssues(
+	id: number,
+	page: number = 1
+): Promise<PaginatedIssues> {
+	const response = await fetch(`${API_BASE}/admin/import/${id}/series-issues?page=${page}`, {
 		credentials: 'same-origin'
 	});
 	return handleResponse<PaginatedIssues>(response);
