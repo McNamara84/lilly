@@ -44,8 +44,8 @@ test.describe('Login Page', () => {
 	});
 
 	test('page is accessible with correct labels', async ({ page }) => {
-		const emailInput = page.getByTestId('email-input');
-		const passwordInput = page.getByTestId('password-input');
+		const emailInput = page.getByLabel(/e-mail/i);
+		const passwordInput = page.getByLabel(/passwort/i);
 
 		await expect(emailInput).toHaveAttribute('type', 'email');
 		await expect(passwordInput).toHaveAttribute('type', 'password');

@@ -154,21 +154,17 @@ async fn start_import(
         }
     };
 
-    // Guard: prevent concurrent imports for the same series
-    if import_jobs::has_active_import_for_series(&state.inner.pool, series_id).await? {
-        return Err(AppError::BadRequest(
-            "An import is already running for this series".to_string(),
-        ));
-    }
-
-    // Create import job
-    let job_id = import_jobs::create_import_job(
+    // Atomically check for active imports and create job (prevents race condition)
+    let job_id = import_jobs::create_import_job_if_idle(
         &state.inner.pool,
         series_id,
         &request.adapter,
         admin.0.user_id,
     )
-    .await?;
+    .await?
+    .ok_or_else(|| {
+        AppError::BadRequest("An import is already running for this series".to_string())
+    })?;
 
     // Spawn background import task
     let pool = state.inner.pool.clone();
@@ -262,6 +258,8 @@ async fn run_import(
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!(issue_number, error = %e, "Failed to fetch issue details, skipping");
+                imported += 1;
+                import_jobs::update_import_progress(&pool, job_id, imported, total).await?;
                 continue;
             }
         };
@@ -277,14 +275,21 @@ async fn run_import(
                 "jpg"
             };
             let cover_path = cover_dir.join(format!("{issue_number}.{ext}"));
-            if tokio::fs::write(&cover_path, &cover_data.bytes)
-                .await
-                .is_ok()
-            {
-                let url_prefix = &state_inner.media_url_prefix;
-                cover_local = Some(format!(
-                    "{url_prefix}/covers/series-{series_id}/{issue_number}.{ext}"
-                ));
+            match tokio::fs::write(&cover_path, &cover_data.bytes).await {
+                Ok(()) => {
+                    let url_prefix = &state_inner.media_url_prefix;
+                    cover_local = Some(format!(
+                        "{url_prefix}/covers/series-{series_id}/{issue_number}.{ext}"
+                    ));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        issue_number,
+                        path = %cover_path.display(),
+                        error = %e,
+                        "Failed to write cover file"
+                    );
+                }
             }
         }
 
