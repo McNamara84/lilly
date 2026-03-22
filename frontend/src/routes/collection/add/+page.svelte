@@ -23,6 +23,15 @@
 	let toast = $state<string | null>(null);
 	let toastTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
+	// Clean up toast timer on component destroy
+	$effect(() => {
+		return () => {
+			if (toastTimeoutId !== null) {
+				clearTimeout(toastTimeoutId);
+			}
+		};
+	});
+
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
 			goto(resolve('/login'));

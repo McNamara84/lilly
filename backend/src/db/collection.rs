@@ -21,8 +21,10 @@ macro_rules! bind_filters {
             }
         }
         if let Some(ref search) = $params.q {
-            q = q.bind(search.as_str());
-            q = q.bind(search.as_str());
+            if !search.trim().is_empty() {
+                q = q.bind(search.as_str());
+                q = q.bind(search.as_str());
+            }
         }
         q
     }};
@@ -202,7 +204,9 @@ pub async fn find_collection_entries(
 ) -> Result<Vec<CollectionEntryRow>, sqlx::Error> {
     let per_page = params.per_page.clamp(1, 100);
     let page = params.page.max(1);
-    let offset = (page - 1) * per_page;
+    let offset = u64::from(page.saturating_sub(1))
+        .saturating_mul(u64::from(per_page))
+        .min(1_000_000);
 
     let (where_clause, order_clause) = build_filter_clauses(params);
 
@@ -214,7 +218,7 @@ pub async fn find_collection_entries(
          FROM collection_entries ce
          JOIN issues i ON ce.issue_id = i.id
          JOIN series s ON i.series_id = s.id
-         WHERE ce.user_id = ? {where_clause}
+         WHERE ce.user_id = ? AND s.active = TRUE {where_clause}
          ORDER BY {order_clause}
          LIMIT ? OFFSET ?"
     );
@@ -236,7 +240,7 @@ pub async fn count_collection_entries(
          FROM collection_entries ce
          JOIN issues i ON ce.issue_id = i.id
          JOIN series s ON i.series_id = s.id
-         WHERE ce.user_id = ? {where_clause}"
+         WHERE ce.user_id = ? AND s.active = TRUE {where_clause}"
     );
 
     let query = sqlx::query_scalar::<_, i64>(&sql).bind(user_id);
@@ -259,7 +263,9 @@ pub async fn find_missing_issues(
 ) -> Result<Vec<MissingIssueRow>, sqlx::Error> {
     let per_page = per_page.clamp(1, 100);
     let page = page.max(1);
-    let offset = (page - 1) * per_page;
+    let offset = u64::from(page.saturating_sub(1))
+        .saturating_mul(u64::from(per_page))
+        .min(1_000_000);
 
     sqlx::query_as::<_, MissingIssueRow>(
         "SELECT i.id AS issue_id, i.issue_number, i.title, i.cover_url, i.cover_local_path,
@@ -381,7 +387,6 @@ pub async fn get_series_stats(
 // Check if issue belongs to an active series
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
 pub async fn is_issue_in_active_series(
     pool: &MySqlPool,
     issue_id: u32,
@@ -398,6 +403,7 @@ pub async fn is_issue_in_active_series(
     Ok(count > 0)
 }
 
+#[allow(dead_code)]
 pub async fn issue_exists(pool: &MySqlPool, issue_id: u32) -> Result<bool, sqlx::Error> {
     let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM issues WHERE id = ?")
         .bind(issue_id)
@@ -432,7 +438,7 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
         );
     }
 
-    if params.q.is_some() {
+    if params.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
         where_parts.push(
             "AND (i.title LIKE CONCAT('%', ?, '%') \
              OR EXISTS (SELECT 1 FROM issue_persons ip JOIN persons p ON ip.person_id = p.id \

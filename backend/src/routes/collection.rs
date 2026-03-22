@@ -144,8 +144,8 @@ async fn add_to_collection(
         ));
     }
 
-    // Verify issue exists
-    if !collection::issue_exists(&state.inner.pool, body.issue_id).await? {
+    // Ensure the issue exists and belongs to an active series
+    if !collection::is_issue_in_active_series(&state.inner.pool, body.issue_id).await? {
         return Err(AppError::NotFound(format!(
             "Issue {} not found",
             body.issue_id
@@ -163,9 +163,13 @@ async fn add_to_collection(
     )
     .await
     .map_err(|e| {
-        // Detect duplicate key violation
+        // Detect duplicate key violation (MariaDB/MySQL errno 1062)
         if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.code().as_deref() == Some("23000") {
+            if db_err.code().as_deref() == Some("23000")
+                || db_err
+                    .kind()
+                    == sqlx::error::ErrorKind::UniqueViolation
+            {
                 return AppError::BadRequest(
                     "Duplicate entry: this issue with the same copy number already exists in your collection".to_string(),
                 );
