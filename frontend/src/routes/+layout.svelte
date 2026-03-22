@@ -50,6 +50,14 @@
 		</a>
 		<div class="flex items-center gap-3">
 			{#if auth.isAuthenticated && auth.user}
+				<a
+					href={resolve('/collection')}
+					class="text-sm px-2 py-1 rounded"
+					style="color: var(--text-secondary);"
+					data-testid="collection-link"
+				>
+					Sammlung
+				</a>
 				{#if auth.isAdmin}
 					<a
 						href={resolve('/admin')}

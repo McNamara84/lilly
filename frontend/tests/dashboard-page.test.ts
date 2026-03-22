@@ -1,14 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import DashboardPage from '../src/routes/+page.svelte';
 
 const mockGetAuthState = vi.fn();
 const mockPerformLogout = vi.fn();
+const mockFetchCollectionStats = vi.fn();
 
 vi.mock('$lib/stores/auth.svelte', () => ({
 	getAuthState: () => mockGetAuthState(),
 	performLogout: () => mockPerformLogout()
+}));
+
+vi.mock('$lib/api/collection', () => ({
+	fetchCollectionStats: () => mockFetchCollectionStats()
 }));
 
 vi.mock('$app/navigation', () => ({
@@ -23,6 +28,14 @@ describe('Dashboard Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockPerformLogout.mockResolvedValue(undefined);
+		mockFetchCollectionStats.mockResolvedValue({
+			total_owned: 0,
+			total_duplicate: 0,
+			total_wanted: 0,
+			unique_series: 0,
+			overall_progress_percent: 0,
+			series_stats: []
+		});
 	});
 
 	it('renders welcome header with user display name', () => {
@@ -66,7 +79,7 @@ describe('Dashboard Page', () => {
 		expect(screen.getByText(/Gesucht/i)).toBeInTheDocument();
 	});
 
-	it('renders empty state message', () => {
+	it('renders empty state message', async () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
 			user: {
@@ -81,7 +94,9 @@ describe('Dashboard Page', () => {
 
 		render(DashboardPage);
 
-		expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+		await waitFor(() => {
+			expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+		});
 		expect(screen.getByText(/Deine Sammlung ist noch leer/i)).toBeInTheDocument();
 	});
 
