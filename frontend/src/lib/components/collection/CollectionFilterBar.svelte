@@ -20,6 +20,12 @@
 	let searchQuery = $state('');
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+	$effect(() => {
+		return () => {
+			if (debounceTimer) clearTimeout(debounceTimer);
+		};
+	});
+
 	function debouncedEmitChange() {
 		if (debounceTimer) clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => emitChange(), 300);

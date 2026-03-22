@@ -77,8 +77,8 @@
 			const issue = await fetchIssue(entry.issue_id);
 			selectedIssue = issue;
 			selectedEntry = entry.id > 0 ? entry : null;
-		} catch {
-			// Could not load issue details
+		} catch (e) {
+			sheetError = e instanceof Error ? e.message : 'Heftdetails konnten nicht geladen werden';
 		}
 	}
 

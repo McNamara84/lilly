@@ -37,12 +37,15 @@
 
 	async function loadIssue() {
 		if (!issueId || isNaN(issueId)) {
+			issue = null;
+			entry = null;
 			error = 'Ungültige Heft-ID';
 			loading = false;
 			return;
 		}
 		loading = true;
 		error = null;
+		issue = null;
 		// Reset collection state before lookup to avoid stale data
 		entry = null;
 		conditionGrade = 'Z2';
