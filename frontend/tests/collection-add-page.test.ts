@@ -10,19 +10,19 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 }));
 
 const mockFetchSeries = vi.fn();
-const mockFetchSeriesIssues = vi.fn();
+const mockFetchAllSeriesIssues = vi.fn();
 
 vi.mock('$lib/api/series', () => ({
 	fetchSeries: () => mockFetchSeries(),
-	fetchSeriesIssues: (...args: unknown[]) => mockFetchSeriesIssues(...args)
+	fetchAllSeriesIssues: (...args: unknown[]) => mockFetchAllSeriesIssues(...args)
 }));
 
-const mockFetchCollection = vi.fn();
+const mockFetchAllCollectionEntries = vi.fn();
 const mockAddToCollection = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
 vi.mock('$lib/api/collection', () => ({
-	fetchCollection: (...args: unknown[]) => mockFetchCollection(...args),
+	fetchAllCollectionEntries: (...args: unknown[]) => mockFetchAllCollectionEntries(...args),
 	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
 	deleteCollectionEntry: (...args: unknown[]) => mockDeleteCollectionEntry(...args)
 }));
@@ -62,33 +62,28 @@ const mockSeries = [
 	}
 ];
 
-const mockIssues = {
-	data: [
-		{
-			id: 100,
-			issue_number: 1,
-			title: 'Dunkle Zukunft',
-			cover_url: null,
-			cover_local_path: null,
-			source_wiki_url: null,
-			authors: [],
-			cycle: null
-		},
-		{
-			id: 101,
-			issue_number: 2,
-			title: 'Der Gott der Lava',
-			cover_url: null,
-			cover_local_path: null,
-			source_wiki_url: null,
-			authors: [],
-			cycle: null
-		}
-	],
-	page: 1,
-	per_page: 50,
-	total: 2
-};
+const mockIssues = [
+	{
+		id: 100,
+		issue_number: 1,
+		title: 'Dunkle Zukunft',
+		cover_url: null,
+		cover_local_path: null,
+		source_wiki_url: null,
+		authors: [],
+		cycle: null
+	},
+	{
+		id: 101,
+		issue_number: 2,
+		title: 'Der Gott der Lava',
+		cover_url: null,
+		cover_local_path: null,
+		source_wiki_url: null,
+		authors: [],
+		cycle: null
+	}
+];
 
 function authedState() {
 	return {
@@ -108,8 +103,8 @@ describe('Collection Add Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockFetchSeries.mockResolvedValue(mockSeries);
-		mockFetchSeriesIssues.mockResolvedValue(mockIssues);
-		mockFetchCollection.mockResolvedValue({ data: [], page: 1, per_page: 100, total: 0 });
+		mockFetchAllSeriesIssues.mockResolvedValue(mockIssues);
+		mockFetchAllCollectionEntries.mockResolvedValue([]);
 	});
 
 	it('sets the page title', () => {
@@ -297,12 +292,7 @@ describe('Collection Add Page', () => {
 			created_at: '2026-03-22T10:00:00Z',
 			updated_at: '2026-03-22T10:00:00Z'
 		};
-		mockFetchCollection.mockResolvedValue({
-			data: [existingEntry],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchAllCollectionEntries.mockResolvedValue([existingEntry]);
 		mockDeleteCollectionEntry.mockResolvedValue(undefined);
 		render(AddPage);
 		const user = userEvent.setup();
@@ -348,30 +338,25 @@ describe('Collection Add Page', () => {
 
 	it('shows error toast when remove fails', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
-		mockFetchCollection.mockResolvedValue({
-			data: [
-				{
-					id: 10,
-					issue_id: 100,
-					issue_number: 1,
-					title: 'Dunkle Zukunft',
-					series_id: 1,
-					series_name: 'Maddrax',
-					series_slug: 'maddrax',
-					cover_url: null,
-					cover_local_path: null,
-					copy_number: 1,
-					condition_grade: 'Z2',
-					status: 'owned',
-					notes: null,
-					created_at: '2026-03-22T10:00:00Z',
-					updated_at: '2026-03-22T10:00:00Z'
-				}
-			],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchAllCollectionEntries.mockResolvedValue([
+			{
+				id: 10,
+				issue_id: 100,
+				issue_number: 1,
+				title: 'Dunkle Zukunft',
+				series_id: 1,
+				series_name: 'Maddrax',
+				series_slug: 'maddrax',
+				cover_url: null,
+				cover_local_path: null,
+				copy_number: 1,
+				condition_grade: 'Z2',
+				status: 'owned',
+				notes: null,
+				created_at: '2026-03-22T10:00:00Z',
+				updated_at: '2026-03-22T10:00:00Z'
+			}
+		]);
 		mockDeleteCollectionEntry.mockRejectedValue(new Error('Server error'));
 		render(AddPage);
 		const user = userEvent.setup();
@@ -416,7 +401,7 @@ describe('Collection Add Page', () => {
 
 	it('shows error when issue loading fails', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
-		mockFetchSeriesIssues.mockRejectedValue(new Error('Failed to load issues'));
+		mockFetchAllSeriesIssues.mockRejectedValue(new Error('Failed to load issues'));
 		render(AddPage);
 		const user = userEvent.setup();
 
@@ -432,7 +417,7 @@ describe('Collection Add Page', () => {
 
 	it('shows empty state when series has no issues', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
-		mockFetchSeriesIssues.mockResolvedValue({ data: [], page: 1, per_page: 50, total: 0 });
+		mockFetchAllSeriesIssues.mockResolvedValue([]);
 		render(AddPage);
 		const user = userEvent.setup();
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
 	fetchCollection,
+	fetchAllCollectionEntries,
 	addToCollection,
 	updateCollectionEntry,
 	deleteCollectionEntry,
@@ -303,6 +304,49 @@ describe('Collection API', () => {
 			mockFetch.mockResolvedValue(jsonResponse({ error: 'Unauthorized' }, 401));
 
 			await expect(fetchCollectionEntryByIssue(42)).rejects.toThrow('Unauthorized');
+		});
+	});
+
+	describe('fetchAllCollectionEntries', () => {
+		it('fetches all pages until complete', async () => {
+			const page1 = {
+				data: Array.from({ length: 100 }, (_, i) => ({ ...sampleEntry, id: i + 1 })),
+				page: 1,
+				per_page: 100,
+				total: 150
+			};
+			const page2 = {
+				data: Array.from({ length: 50 }, (_, i) => ({ ...sampleEntry, id: i + 101 })),
+				page: 2,
+				per_page: 100,
+				total: 150
+			};
+			mockFetch
+				.mockResolvedValueOnce(jsonResponse(page1))
+				.mockResolvedValueOnce(jsonResponse(page2));
+
+			const result = await fetchAllCollectionEntries('maddrax');
+
+			expect(result).toHaveLength(150);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
+		});
+
+		it('returns entries from single page', async () => {
+			const data = { data: [sampleEntry], page: 1, per_page: 100, total: 1 };
+			mockFetch.mockResolvedValue(jsonResponse(data));
+
+			const result = await fetchAllCollectionEntries('maddrax');
+
+			expect(result).toHaveLength(1);
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+		});
+
+		it('returns empty array for no entries', async () => {
+			mockFetch.mockResolvedValue(jsonResponse({ data: [], page: 1, per_page: 100, total: 0 }));
+
+			const result = await fetchAllCollectionEntries('empty-series');
+
+			expect(result).toHaveLength(0);
 		});
 	});
 

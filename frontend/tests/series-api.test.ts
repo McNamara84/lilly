@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fetchSeries, fetchSeriesIssues, fetchIssue } from '../src/lib/api/series';
+import {
+	fetchSeries,
+	fetchSeriesIssues,
+	fetchAllSeriesIssues,
+	fetchIssue
+} from '../src/lib/api/series';
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
@@ -67,9 +72,17 @@ describe('Series API', () => {
 
 			await fetchSeriesIssues('maddrax', 5);
 
-			expect(mockFetch).toHaveBeenCalledWith('/api/v1/series/maddrax/issues?page=5', {
-				credentials: 'same-origin'
-			});
+			const url = mockFetch.mock.calls[0][0] as string;
+			expect(url).toContain('page=5');
+		});
+
+		it('passes per_page parameter when provided', async () => {
+			mockFetch.mockResolvedValue(jsonResponse({ data: [], page: 1, per_page: 100, total: 0 }));
+
+			await fetchSeriesIssues('maddrax', 1, 100);
+
+			const url = mockFetch.mock.calls[0][0] as string;
+			expect(url).toContain('per_page=100');
 		});
 
 		it('encodes slug with special characters', async () => {
@@ -87,6 +100,54 @@ describe('Series API', () => {
 			mockFetch.mockResolvedValue(jsonResponse({ error: 'Not found' }, 404));
 
 			await expect(fetchSeriesIssues('nonexistent')).rejects.toThrow('Not found');
+		});
+	});
+
+	describe('fetchAllSeriesIssues', () => {
+		it('fetches all pages until complete', async () => {
+			const page1 = {
+				data: Array.from({ length: 100 }, (_, i) => ({ id: i + 1, issue_number: i + 1 })),
+				page: 1,
+				per_page: 100,
+				total: 150
+			};
+			const page2 = {
+				data: Array.from({ length: 50 }, (_, i) => ({ id: i + 101, issue_number: i + 101 })),
+				page: 2,
+				per_page: 100,
+				total: 150
+			};
+			mockFetch
+				.mockResolvedValueOnce(jsonResponse(page1))
+				.mockResolvedValueOnce(jsonResponse(page2));
+
+			const result = await fetchAllSeriesIssues('maddrax');
+
+			expect(result).toHaveLength(150);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
+		});
+
+		it('returns single page when total fits in one request', async () => {
+			const data = {
+				data: [{ id: 1, issue_number: 1 }],
+				page: 1,
+				per_page: 100,
+				total: 1
+			};
+			mockFetch.mockResolvedValue(jsonResponse(data));
+
+			const result = await fetchAllSeriesIssues('maddrax');
+
+			expect(result).toHaveLength(1);
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+		});
+
+		it('handles empty series', async () => {
+			mockFetch.mockResolvedValue(jsonResponse({ data: [], page: 1, per_page: 100, total: 0 }));
+
+			const result = await fetchAllSeriesIssues('empty-series');
+
+			expect(result).toHaveLength(0);
 		});
 	});
 

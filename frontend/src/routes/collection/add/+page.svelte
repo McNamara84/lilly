@@ -2,9 +2,9 @@
 	import { getAuthState } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { fetchSeries, fetchSeriesIssues, type Series, type Issue } from '$lib/api/series';
+	import { fetchSeries, fetchAllSeriesIssues, type Series, type Issue } from '$lib/api/series';
 	import {
-		fetchCollection,
+		fetchAllCollectionEntries,
 		addToCollection,
 		deleteCollectionEntry,
 		type CollectionEntry
@@ -52,13 +52,13 @@
 		error = null;
 		try {
 			// Load all issues and the user's collection for this series
-			const [issuesResult, collectionResult] = await Promise.all([
-				fetchSeriesIssues(series.slug, 1),
-				fetchCollection({ series_slug: series.slug, per_page: 100 })
+			const [allIssues, collectionResult] = await Promise.all([
+				fetchAllSeriesIssues(series.slug),
+				fetchAllCollectionEntries(series.slug)
 			]);
-			issues = issuesResult.data;
+			issues = allIssues;
 			collectionEntries.clear();
-			for (const entry of collectionResult.data) {
+			for (const entry of collectionResult) {
 				collectionEntries.set(entry.issue_id, entry);
 			}
 		} catch (e) {

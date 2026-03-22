@@ -119,6 +119,22 @@ export async function fetchCollection(
 	return handleResponse<PaginatedCollection>(response);
 }
 
+export async function fetchAllCollectionEntries(seriesSlug: string): Promise<CollectionEntry[]> {
+	const allEntries: CollectionEntry[] = [];
+	let page = 1;
+	let total = Infinity;
+
+	while (allEntries.length < total) {
+		const result = await fetchCollection({ series_slug: seriesSlug, per_page: 100, page });
+		allEntries.push(...result.data);
+		total = result.total;
+		if (result.data.length === 0) break;
+		page++;
+	}
+
+	return allEntries;
+}
+
 export async function addToCollection(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
 	const response = await fetch(`${API_BASE}/me/collection`, {
 		method: 'POST',

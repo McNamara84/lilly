@@ -57,14 +57,36 @@ export async function fetchSeries(): Promise<Series[]> {
 	return handleResponse<Series[]>(response);
 }
 
-export async function fetchSeriesIssues(slug: string, page: number = 1): Promise<PaginatedIssues> {
+export async function fetchSeriesIssues(
+	slug: string,
+	page: number = 1,
+	per_page?: number
+): Promise<PaginatedIssues> {
+	const params = new URLSearchParams({ page: String(page) });
+	if (per_page !== undefined) params.set('per_page', String(per_page));
 	const response = await fetch(
-		`${API_BASE}/series/${encodeURIComponent(slug)}/issues?page=${page}`,
+		`${API_BASE}/series/${encodeURIComponent(slug)}/issues?${params.toString()}`,
 		{
 			credentials: 'same-origin'
 		}
 	);
 	return handleResponse<PaginatedIssues>(response);
+}
+
+export async function fetchAllSeriesIssues(slug: string): Promise<Issue[]> {
+	const allIssues: Issue[] = [];
+	let page = 1;
+	let total = Infinity;
+
+	while (allIssues.length < total) {
+		const result = await fetchSeriesIssues(slug, page, 100);
+		allIssues.push(...result.data);
+		total = result.total;
+		if (result.data.length === 0) break;
+		page++;
+	}
+
+	return allIssues;
 }
 
 export async function fetchIssue(id: number): Promise<Issue> {
