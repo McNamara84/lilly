@@ -172,4 +172,155 @@ describe('Dashboard Page', () => {
 
 		expect(document.title).toBeDefined();
 	});
+
+	it('renders stats with non-zero values', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchCollectionStats.mockResolvedValue({
+			total_owned: 42,
+			total_duplicate: 5,
+			total_wanted: 3,
+			unique_series: 2,
+			overall_progress_percent: 65.5,
+			series_stats: []
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(screen.getByText('42')).toBeInTheDocument();
+		});
+		expect(screen.getByText('65.5%')).toBeInTheDocument();
+		expect(screen.getByText('5')).toBeInTheDocument();
+		expect(screen.getByText('3')).toBeInTheDocument();
+	});
+
+	it('hides empty state when collection has entries', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchCollectionStats.mockResolvedValue({
+			total_owned: 10,
+			total_duplicate: 0,
+			total_wanted: 0,
+			unique_series: 1,
+			overall_progress_percent: 5.0,
+			series_stats: []
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(screen.getByText('10')).toBeInTheDocument();
+		});
+		expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+	});
+
+	it('renders series progress bars when present', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchCollectionStats.mockResolvedValue({
+			total_owned: 42,
+			total_duplicate: 0,
+			total_wanted: 0,
+			unique_series: 1,
+			overall_progress_percent: 10.0,
+			series_stats: [
+				{
+					series_id: 1,
+					series_name: 'Maddrax',
+					owned_count: 42,
+					duplicate_count: 0,
+					total_in_series: 620
+				}
+			]
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('series-progress-section')).toBeInTheDocument();
+		});
+		expect(screen.getByText('Maddrax')).toBeInTheDocument();
+	});
+
+	it('renders quick links', () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+
+		render(DashboardPage);
+
+		expect(screen.getByTestId('quick-links')).toBeInTheDocument();
+		expect(screen.getByText('Zur Sammlung')).toBeInTheDocument();
+		expect(screen.getByText('Hefte hinzufügen')).toBeInTheDocument();
+	});
+
+	it('renders trade and activity placeholders', () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+
+		render(DashboardPage);
+
+		expect(screen.getByTestId('trade-placeholder')).toBeInTheDocument();
+		expect(screen.getByTestId('activity-placeholder')).toBeInTheDocument();
+	});
+
+	it('redirects unauthenticated users to login', async () => {
+		const { goto } = await import('$app/navigation');
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: false,
+			user: null,
+			isLoading: false
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(goto).toHaveBeenCalledWith('/login');
+		});
+	});
 });

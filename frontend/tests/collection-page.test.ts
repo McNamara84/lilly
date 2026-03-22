@@ -66,6 +66,22 @@ const sampleEntry = {
 	updated_at: '2026-03-22T10:00:00Z'
 };
 
+const sampleIssue = {
+	id: 42,
+	series_id: 1,
+	issue_number: 42,
+	title: 'Dunkle Zukunft',
+	cover_url: null,
+	cover_local_path: null,
+	source_wiki_url: null,
+	authors: [],
+	cycle: null,
+	published_at: null,
+	keywords: [],
+	cover_artists: [],
+	notes: []
+};
+
 describe('Collection Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -166,6 +182,132 @@ describe('Collection Page', () => {
 
 		await waitFor(() => {
 			expect(goto).toHaveBeenCalledWith('/login');
+		});
+	});
+
+	it('opens detail sheet when a card is selected', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({
+			data: [sampleEntry],
+			page: 1,
+			per_page: 20,
+			total: 1
+		});
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		render(CollectionPage);
+
+		await waitFor(() => {
+			expect(screen.getAllByTestId('cover-card')).toHaveLength(1);
+		});
+
+		// Click the cover card to trigger handleSelect
+		const card = screen.getByTestId('cover-card');
+		await card.click();
+
+		await waitFor(() => {
+			expect(mockFetchIssue).toHaveBeenCalledWith(42);
+		});
+
+		// The detail sheet should appear
+		await waitFor(() => {
+			expect(screen.getByTestId('issue-detail-sheet')).toBeInTheDocument();
+		});
+	});
+
+	it('calls updateCollectionEntry on save from detail sheet', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({
+			data: [sampleEntry],
+			page: 1,
+			per_page: 20,
+			total: 1
+		});
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockUpdateCollectionEntry.mockResolvedValue(sampleEntry);
+		render(CollectionPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('cover-card')).toBeInTheDocument();
+		});
+
+		await screen.getByTestId('cover-card').click();
+
+		await waitFor(() => {
+			expect(screen.getByTestId('issue-detail-sheet')).toBeInTheDocument();
+		});
+
+		// Click save button in the sheet
+		await screen.getByTestId('save-button').click();
+
+		await waitFor(() => {
+			expect(mockUpdateCollectionEntry).toHaveBeenCalledOnce();
+		});
+	});
+
+	it('calls deleteCollectionEntry on delete from detail sheet', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({
+			data: [sampleEntry],
+			page: 1,
+			per_page: 20,
+			total: 1
+		});
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockDeleteCollectionEntry.mockResolvedValue(undefined);
+		render(CollectionPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('cover-card')).toBeInTheDocument();
+		});
+
+		await screen.getByTestId('cover-card').click();
+
+		await waitFor(() => {
+			expect(screen.getByTestId('issue-detail-sheet')).toBeInTheDocument();
+		});
+
+		// Click delete button in the sheet
+		await screen.getByTestId('delete-button').click();
+
+		await waitFor(() => {
+			expect(mockDeleteCollectionEntry).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it('closes detail sheet when backdrop is clicked', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({
+			data: [sampleEntry],
+			page: 1,
+			per_page: 20,
+			total: 1
+		});
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		render(CollectionPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('cover-card')).toBeInTheDocument();
+		});
+
+		await screen.getByTestId('cover-card').click();
+
+		await waitFor(() => {
+			expect(screen.getByTestId('detail-sheet-backdrop')).toBeInTheDocument();
+		});
+
+		await screen.getByTestId('detail-sheet-backdrop').click();
+
+		await waitFor(() => {
+			expect(screen.queryByTestId('issue-detail-sheet')).not.toBeInTheDocument();
+		});
+	});
+
+	it('renders filter bar', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		render(CollectionPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('collection-filter-bar')).toBeInTheDocument();
 		});
 	});
 });

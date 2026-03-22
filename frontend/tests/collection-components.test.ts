@@ -72,7 +72,7 @@ describe('StatsCard', () => {
 // ConditionChips
 // ---------------------------------------------------------------------------
 describe('ConditionChips', () => {
-	let onchange: ReturnType<typeof vi.fn>;
+	let onchange: (grade: string) => void;
 
 	beforeEach(() => {
 		onchange = vi.fn();
@@ -300,6 +300,68 @@ describe('CoverCard', () => {
 
 		const card = screen.getByTestId('cover-card');
 		expect(card.classList.contains('w-36')).toBe(true);
+	});
+
+	it('applies small size class', () => {
+		render(CoverCard, { props: { entry: makeEntry(), size: 'sm' } });
+
+		const card = screen.getByTestId('cover-card');
+		expect(card.classList.contains('w-24')).toBe(true);
+	});
+
+	it('applies large size class', () => {
+		render(CoverCard, { props: { entry: makeEntry(), size: 'lg' } });
+
+		const card = screen.getByTestId('cover-card');
+		expect(card.classList.contains('w-48')).toBe(true);
+	});
+
+	it('renders wanted status with pulse indicator', () => {
+		render(CoverCard, { props: { entry: makeEntry({ status: 'wanted' }) } });
+
+		const card = screen.getByTestId('cover-card');
+		const pulse = card.querySelector('.animate-pulse');
+		expect(pulse).not.toBeNull();
+	});
+
+	it('renders owned status bottom bar', () => {
+		render(CoverCard, { props: { entry: makeEntry({ status: 'owned' }) } });
+
+		const card = screen.getByTestId('cover-card');
+		// Owned status has a 0.5h bar at the bottom
+		const bar = card.querySelector('.h-0\\.5');
+		expect(bar).not.toBeNull();
+	});
+
+	it('triggers onclick on keyboard Enter', async () => {
+		const handleClick = vi.fn();
+		render(CoverCard, { props: { entry: makeEntry(), onclick: handleClick } });
+		const user = userEvent.setup();
+
+		const card = screen.getByTestId('cover-card');
+		card.focus();
+		await user.keyboard('{Enter}');
+
+		expect(handleClick).toHaveBeenCalledOnce();
+	});
+
+	it('triggers onclick on keyboard Space', async () => {
+		const handleClick = vi.fn();
+		render(CoverCard, { props: { entry: makeEntry(), onclick: handleClick } });
+		const user = userEvent.setup();
+
+		const card = screen.getByTestId('cover-card');
+		card.focus();
+		await user.keyboard(' ');
+
+		expect(handleClick).toHaveBeenCalledOnce();
+	});
+
+	it('displays aria-label with fehlend for missing entries', () => {
+		render(CoverCard, { props: { entry: makeEntry({ status: 'missing' }) } });
+
+		const card = screen.getByTestId('cover-card');
+		expect(card.getAttribute('aria-label')).toContain('fehlend');
 	});
 });
 

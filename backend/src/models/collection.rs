@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_default_query_params() {
-        let params: CollectionQueryParams = serde_json::from_str(r#"{}"#).unwrap();
+        let params: CollectionQueryParams = serde_json::from_str(r"{}").unwrap();
         assert_eq!(params.page, 1);
         assert_eq!(params.per_page, 50);
         assert!(params.series_slug.is_none());
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_update_request_all_none() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let req: UpdateCollectionEntryRequest = serde_json::from_str(json).unwrap();
         assert!(req.condition_grade.is_none());
         assert!(req.status.is_none());
