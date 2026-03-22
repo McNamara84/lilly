@@ -9,11 +9,13 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 }));
 
 const mockFetchCollection = vi.fn();
+const mockAddToCollection = vi.fn();
 const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
 vi.mock('$lib/api/collection', () => ({
 	fetchCollection: (...args: unknown[]) => mockFetchCollection(...args),
+	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
 	updateCollectionEntry: (...args: unknown[]) => mockUpdateCollectionEntry(...args),
 	deleteCollectionEntry: (...args: unknown[]) => mockDeleteCollectionEntry(...args)
 }));
@@ -241,6 +243,45 @@ describe('Collection Page', () => {
 
 		await waitFor(() => {
 			expect(mockUpdateCollectionEntry).toHaveBeenCalledOnce();
+		});
+	});
+
+	it('calls addToCollection on save when entry is missing', async () => {
+		const missingEntry = {
+			...sampleEntry,
+			id: 0,
+			status: 'missing',
+			copy_number: null,
+			condition_grade: null,
+			created_at: null,
+			updated_at: null
+		};
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({
+			data: [missingEntry],
+			page: 1,
+			per_page: 20,
+			total: 1
+		});
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockAddToCollection.mockResolvedValue(sampleEntry);
+		render(CollectionPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('cover-card')).toBeInTheDocument();
+		});
+
+		await screen.getByTestId('cover-card').click();
+
+		await waitFor(() => {
+			expect(screen.getByTestId('issue-detail-sheet')).toBeInTheDocument();
+		});
+
+		await screen.getByTestId('save-button').click();
+
+		await waitFor(() => {
+			expect(mockAddToCollection).toHaveBeenCalledOnce();
+			expect(mockUpdateCollectionEntry).not.toHaveBeenCalled();
 		});
 	});
 

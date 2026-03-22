@@ -53,7 +53,7 @@
 					const found = allEntries.data.find((e) => e.issue_id === issueId);
 					if (found) {
 						entry = found;
-						conditionGrade = found.condition_grade;
+						conditionGrade = found.condition_grade ?? 'Z2';
 						status = found.status;
 						notes = found.notes ?? '';
 					}

@@ -265,7 +265,7 @@ test.describe('Collection End-to-End Workflow', () => {
 	test('collection page shows cover cards when entries exist', async ({ page }) => {
 		await page.goto('/collection');
 		// Wait for loading to finish
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		// Either cover cards are shown or the grid is empty
 		const coverCards = page.getByTestId('cover-card');
@@ -278,7 +278,7 @@ test.describe('Collection End-to-End Workflow', () => {
 
 	test('clicking a cover card opens the detail sheet', async ({ page }) => {
 		await page.goto('/collection');
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {
@@ -298,7 +298,7 @@ test.describe('Collection End-to-End Workflow', () => {
 
 	test('detail sheet can be closed via backdrop', async ({ page }) => {
 		await page.goto('/collection');
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {
@@ -316,7 +316,7 @@ test.describe('Collection End-to-End Workflow', () => {
 
 	test('detail sheet shows status radio buttons', async ({ page }) => {
 		await page.goto('/collection');
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {
@@ -334,7 +334,7 @@ test.describe('Collection End-to-End Workflow', () => {
 
 	test('detail sheet has notes textarea', async ({ page }) => {
 		await page.goto('/collection');
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {

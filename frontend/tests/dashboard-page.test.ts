@@ -233,6 +233,35 @@ describe('Dashboard Page', () => {
 		expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
 	});
 
+	it('does not show empty state when user has only wanted entries', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchCollectionStats.mockResolvedValue({
+			total_owned: 0,
+			total_duplicate: 0,
+			total_wanted: 3,
+			unique_series: 1,
+			overall_progress_percent: 0,
+			series_stats: []
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(screen.getByText('3')).toBeInTheDocument();
+		});
+		expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+	});
+
 	it('renders series progress bars when present', async () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,

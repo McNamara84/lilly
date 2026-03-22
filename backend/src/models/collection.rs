@@ -76,12 +76,12 @@ pub struct CollectionEntryResponse {
     pub series_slug: String,
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
-    pub copy_number: u8,
-    pub condition_grade: String,
+    pub copy_number: Option<u8>,
+    pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
+    pub created_at: Option<chrono::NaiveDateTime>,
+    pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize)]
@@ -151,12 +151,12 @@ impl From<&CollectionEntryRow> for CollectionEntryResponse {
             series_slug: r.series_slug.clone(),
             cover_url: r.cover_url.clone(),
             cover_local_path: r.cover_local_path.clone(),
-            copy_number: r.copy_number,
-            condition_grade: r.condition_grade.clone(),
+            copy_number: Some(r.copy_number),
+            condition_grade: Some(r.condition_grade.clone()),
             status: r.status.clone(),
             notes: r.notes.clone(),
-            created_at: r.created_at,
-            updated_at: r.updated_at,
+            created_at: Some(r.created_at),
+            updated_at: Some(r.updated_at),
         }
     }
 }
@@ -248,10 +248,13 @@ mod tests {
         let response = CollectionEntryResponse::from(&row);
         assert_eq!(response.id, 1);
         assert_eq!(response.issue_number, 42);
-        assert_eq!(response.condition_grade, "Z2");
+        assert_eq!(response.condition_grade, Some("Z2".to_string()));
         assert_eq!(response.status, "owned");
         assert_eq!(response.series_slug, "test-series");
         assert_eq!(response.notes, Some("Nice copy".to_string()));
+        assert_eq!(response.copy_number, Some(1));
+        assert!(response.created_at.is_some());
+        assert!(response.updated_at.is_some());
     }
 
     #[test]

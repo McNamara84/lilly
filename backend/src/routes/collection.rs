@@ -87,12 +87,12 @@ async fn list_collection(
                 series_slug: m.series_slug.clone(),
                 cover_url: m.cover_url.clone(),
                 cover_local_path: m.cover_local_path.clone(),
-                copy_number: 0,
-                condition_grade: String::new(),
+                copy_number: None,
+                condition_grade: None,
                 status: "missing".to_string(),
                 notes: None,
-                created_at: chrono::NaiveDateTime::default(),
-                updated_at: chrono::NaiveDateTime::default(),
+                created_at: None,
+                updated_at: None,
             })
             .collect();
 

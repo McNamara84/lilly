@@ -14,12 +14,12 @@ export interface CollectionEntry {
 	series_slug: string;
 	cover_url: string | null;
 	cover_local_path: string | null;
-	copy_number: number;
-	condition_grade: string;
+	copy_number: number | null;
+	condition_grade: string | null;
 	status: string;
 	notes: string | null;
-	created_at: string;
-	updated_at: string;
+	created_at: string | null;
+	updated_at: string | null;
 }
 
 export interface PaginatedCollection {

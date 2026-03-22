@@ -4,6 +4,7 @@
 	import { resolve } from '$app/paths';
 	import {
 		fetchCollection,
+		addToCollection,
 		updateCollectionEntry,
 		deleteCollectionEntry,
 		type CollectionEntry,
@@ -95,6 +96,13 @@
 		try {
 			if (selectedEntry && selectedEntry.id > 0) {
 				await updateCollectionEntry(selectedEntry.id, {
+					condition_grade: data.condition_grade,
+					status: data.status,
+					notes: data.notes
+				});
+			} else {
+				await addToCollection({
+					issue_id: data.issue_id,
 					condition_grade: data.condition_grade,
 					status: data.status,
 					notes: data.notes

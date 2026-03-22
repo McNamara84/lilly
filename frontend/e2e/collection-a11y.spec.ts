@@ -176,7 +176,7 @@ test.describe('Detail Sheet Accessibility', () => {
 	});
 
 	test('detail sheet uses dialog role with aria-modal', async ({ page }) => {
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {
@@ -193,7 +193,7 @@ test.describe('Detail Sheet Accessibility', () => {
 	});
 
 	test('detail sheet has descriptive aria-label', async ({ page }) => {
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {
@@ -210,7 +210,7 @@ test.describe('Detail Sheet Accessibility', () => {
 	});
 
 	test('detail sheet status buttons use radiogroup pattern', async ({ page }) => {
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {
@@ -229,7 +229,7 @@ test.describe('Detail Sheet Accessibility', () => {
 	});
 
 	test('Escape key closes detail sheet', async ({ page }) => {
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {
@@ -245,7 +245,7 @@ test.describe('Detail Sheet Accessibility', () => {
 	});
 
 	test('backdrop is presentational (not a button)', async ({ page }) => {
-		await page.waitForTimeout(2000);
+		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
 		if ((await firstCard.count()) === 0) {

@@ -41,7 +41,9 @@
 		await goto(resolve('/login'));
 	}
 
-	const hasCollection = $derived(stats !== null && stats.total_owned > 0);
+	const hasCollection = $derived(
+		stats !== null && (stats.total_owned > 0 || stats.total_duplicate > 0 || stats.total_wanted > 0)
+	);
 	const showEmptyState = $derived(!hasCollection && !statsLoading && !statsError);
 </script>
 
