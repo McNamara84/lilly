@@ -14,9 +14,10 @@
 			notes?: string;
 		}) => void;
 		ondelete?: () => void;
+		error?: string | null;
 	}
 
-	let { issue, collection_entry, onclose, onsave, ondelete }: Props = $props();
+	let { issue, collection_entry, onclose, onsave, ondelete, error = null }: Props = $props();
 
 	let conditionGrade = $state('Z2');
 	let status = $state('owned');
@@ -53,9 +54,7 @@
 		class="fixed inset-0 z-50 bg-black/50"
 		onclick={onclose}
 		onkeydown={handleKeydown}
-		role="button"
-		tabindex="-1"
-		aria-label="Sheet schließen"
+		role="none"
 		data-testid="detail-sheet-backdrop"
 	></div>
 
@@ -159,6 +158,18 @@
 					data-testid="notes-textarea"
 				></textarea>
 			</section>
+
+			<!-- Error message -->
+			{#if error}
+				<div
+					class="rounded-lg p-3 mb-3 text-sm"
+					role="alert"
+					style="border: 1px solid var(--color-error); color: var(--color-error);"
+					data-testid="sheet-error"
+				>
+					{error}
+				</div>
+			{/if}
 
 			<!-- Actions -->
 			<div class="flex gap-3">

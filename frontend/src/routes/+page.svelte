@@ -10,6 +10,7 @@
 
 	let stats = $state<CollectionStats | null>(null);
 	let statsLoading = $state(true);
+	let statsError = $state(false);
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -25,10 +26,11 @@
 
 	async function loadStats() {
 		statsLoading = true;
+		statsError = false;
 		try {
 			stats = await fetchCollectionStats();
 		} catch {
-			// Stats load failure is non-critical
+			statsError = true;
 		} finally {
 			statsLoading = false;
 		}
@@ -40,6 +42,7 @@
 	}
 
 	const hasCollection = $derived(stats !== null && stats.total_owned > 0);
+	const showEmptyState = $derived(!hasCollection && !statsLoading && !statsError);
 </script>
 
 <svelte:head>
@@ -93,7 +96,13 @@
 		{/if}
 
 		<!-- Empty state or quick links -->
-		{#if !hasCollection && !statsLoading}
+		{#if statsError && !statsLoading}
+			<div class="glass-elevated p-8 rounded-lg text-center" data-testid="stats-error">
+				<p class="text-sm" style="color: var(--text-secondary);">
+					Statistiken konnten nicht geladen werden.
+				</p>
+			</div>
+		{:else if showEmptyState}
 			<div class="glass-elevated p-8 rounded-lg text-center" data-testid="empty-state">
 				<p class="text-lg font-medium mb-2" style="color: var(--text-primary);">
 					Deine Sammlung ist noch leer

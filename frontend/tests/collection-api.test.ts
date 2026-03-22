@@ -29,7 +29,7 @@ const sampleEntry = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 1,
-	condition_grade: 'good',
+	condition_grade: 'Z2',
 	status: 'owned',
 	notes: null,
 	created_at: '2026-03-22T10:00:00Z',
@@ -104,11 +104,11 @@ describe('Collection API', () => {
 			const data = { data: [], page: 1, per_page: 20, total: 0 };
 			mockFetch.mockResolvedValue(jsonResponse(data));
 
-			await fetchCollection({ condition_min: 'good', condition_max: 'mint' });
+			await fetchCollection({ condition_min: 'Z1', condition_max: 'Z3' });
 
 			const url = mockFetch.mock.calls[0][0] as string;
-			expect(url).toContain('condition_min=good');
-			expect(url).toContain('condition_max=mint');
+			expect(url).toContain('condition_min=Z1');
+			expect(url).toContain('condition_max=Z3');
 		});
 
 		it('throws on server error', async () => {
@@ -133,7 +133,7 @@ describe('Collection API', () => {
 
 			const result = await addToCollection({
 				issue_id: 42,
-				condition_grade: 'good',
+				condition_grade: 'Z2',
 				status: 'owned'
 			});
 
@@ -141,7 +141,7 @@ describe('Collection API', () => {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'same-origin',
-				body: JSON.stringify({ issue_id: 42, condition_grade: 'good', status: 'owned' })
+				body: JSON.stringify({ issue_id: 42, condition_grade: 'Z2', status: 'owned' })
 			});
 			expect(result).toEqual(sampleEntry);
 		});
@@ -151,7 +151,7 @@ describe('Collection API', () => {
 
 			await addToCollection({
 				issue_id: 42,
-				condition_grade: 'mint',
+				condition_grade: 'Z0',
 				notes: 'First edition',
 				copy_number: 2
 			});
@@ -172,18 +172,18 @@ describe('Collection API', () => {
 
 	describe('updateCollectionEntry', () => {
 		it('patches an existing entry with partial data', async () => {
-			const updated = { ...sampleEntry, condition_grade: 'mint' };
+			const updated = { ...sampleEntry, condition_grade: 'Z0' };
 			mockFetch.mockResolvedValue(jsonResponse(updated));
 
-			const result = await updateCollectionEntry(1, { condition_grade: 'mint' });
+			const result = await updateCollectionEntry(1, { condition_grade: 'Z0' });
 
 			expect(mockFetch).toHaveBeenCalledWith('/api/v1/me/collection/1', {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'same-origin',
-				body: JSON.stringify({ condition_grade: 'mint' })
+				body: JSON.stringify({ condition_grade: 'Z0' })
 			});
-			expect(result.condition_grade).toBe('mint');
+			expect(result.condition_grade).toBe('Z0');
 		});
 
 		it('updates status and notes together', async () => {

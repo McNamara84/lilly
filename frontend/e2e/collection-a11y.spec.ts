@@ -244,7 +244,7 @@ test.describe('Detail Sheet Accessibility', () => {
 		await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 3000 });
 	});
 
-	test('backdrop has accessible close label', async ({ page }) => {
+	test('backdrop is presentational (not a button)', async ({ page }) => {
 		await page.waitForTimeout(2000);
 
 		const firstCard = page.getByTestId('cover-card').first();
@@ -257,7 +257,7 @@ test.describe('Detail Sheet Accessibility', () => {
 		const backdrop = page.getByTestId('detail-sheet-backdrop');
 		await expect(backdrop).toBeVisible({ timeout: 5000 });
 
-		const label = await backdrop.getAttribute('aria-label');
-		expect(label).toMatch(/schließen/i);
+		const role = await backdrop.getAttribute('role');
+		expect(role).toBe('none');
 	});
 });

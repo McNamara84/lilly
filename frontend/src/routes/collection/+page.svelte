@@ -21,6 +21,7 @@
 	let total = $state(0);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let sheetError = $state<string | null>(null);
 	let seriesOptions = $state<{ slug: string; name: string }[]>([]);
 	let currentParams = $state<CollectionQueryParams>({});
 
@@ -90,6 +91,7 @@
 		status?: string;
 		notes?: string;
 	}) {
+		sheetError = null;
 		try {
 			if (selectedEntry && selectedEntry.id > 0) {
 				await updateCollectionEntry(selectedEntry.id, {
@@ -100,19 +102,20 @@
 			}
 			closeSheet();
 			loadCollection(currentParams);
-		} catch {
-			// Error handling could be improved with toast
+		} catch (e) {
+			sheetError = e instanceof Error ? e.message : 'Fehler beim Speichern';
 		}
 	}
 
 	async function handleDelete() {
 		if (!selectedEntry || selectedEntry.id <= 0) return;
+		sheetError = null;
 		try {
 			await deleteCollectionEntry(selectedEntry.id);
 			closeSheet();
 			loadCollection(currentParams);
-		} catch {
-			// Error handling could be improved with toast
+		} catch (e) {
+			sheetError = e instanceof Error ? e.message : 'Fehler beim Entfernen';
 		}
 	}
 </script>
@@ -172,4 +175,5 @@
 	onclose={closeSheet}
 	onsave={handleSave}
 	ondelete={handleDelete}
+	error={sheetError}
 />

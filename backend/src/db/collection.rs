@@ -310,9 +310,9 @@ pub async fn get_collection_stats(
     sqlx::query_as::<_, CollectionStatsRow>(
         "SELECT
             COUNT(*) AS total_entries,
-            SUM(CASE WHEN status IN ('owned', 'duplicate') THEN 1 ELSE 0 END) AS total_owned,
-            SUM(CASE WHEN status = 'duplicate' THEN 1 ELSE 0 END) AS total_duplicate,
-            SUM(CASE WHEN status = 'wanted' THEN 1 ELSE 0 END) AS total_wanted
+            COUNT(DISTINCT CASE WHEN status IN ('owned', 'duplicate') THEN issue_id END) AS total_owned,
+            COUNT(DISTINCT CASE WHEN status = 'duplicate' THEN issue_id END) AS total_duplicate,
+            COUNT(DISTINCT CASE WHEN status = 'wanted' THEN issue_id END) AS total_wanted
          FROM collection_entries
          WHERE user_id = ?",
     )
@@ -343,8 +343,9 @@ pub async fn get_series_stats(
             COUNT(DISTINCT CASE WHEN ce.status IN ('owned', 'duplicate') THEN ce.issue_id END) AS owned_count,
             COUNT(DISTINCT CASE WHEN ce.status = 'duplicate' THEN ce.issue_id END) AS duplicate_count,
             COUNT(DISTINCT CASE WHEN ce.status = 'wanted' THEN ce.issue_id END) AS wanted_count
-         FROM series s
-         JOIN collection_entries ce ON ce.issue_id IN (SELECT id FROM issues WHERE series_id = s.id)
+         FROM collection_entries ce
+         JOIN issues i ON ce.issue_id = i.id
+         JOIN series s ON i.series_id = s.id
          WHERE ce.user_id = ? AND s.active = TRUE
          GROUP BY s.id, s.name, s.slug
          ORDER BY owned_count DESC",

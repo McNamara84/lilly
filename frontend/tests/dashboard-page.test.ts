@@ -323,4 +323,26 @@ describe('Dashboard Page', () => {
 			expect(goto).toHaveBeenCalledWith('/login');
 		});
 	});
+
+	it('shows stats error instead of empty state when stats fetch fails', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchCollectionStats.mockRejectedValue(new Error('Network error'));
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('stats-error')).toBeInTheDocument();
+		});
+		expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+	});
 });

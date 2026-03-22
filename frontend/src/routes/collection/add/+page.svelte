@@ -21,6 +21,7 @@
 	let gridLoading = $state(false);
 	let error = $state<string | null>(null);
 	let toast = $state<string | null>(null);
+	let toastTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -68,8 +69,14 @@
 	}
 
 	function showToast(msg: string) {
+		if (toastTimeoutId !== null) {
+			clearTimeout(toastTimeoutId);
+		}
 		toast = msg;
-		setTimeout(() => (toast = null), 2500);
+		toastTimeoutId = setTimeout(() => {
+			toast = null;
+			toastTimeoutId = null;
+		}, 2500);
 	}
 
 	async function toggleIssue(issue: Issue) {

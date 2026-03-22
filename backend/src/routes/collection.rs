@@ -1,4 +1,5 @@
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 
@@ -43,6 +44,12 @@ async fn list_collection(
     }
     if let Some(ref g) = params.condition_max {
         validate_condition_grade(g).map_err(AppError::BadRequest)?;
+    }
+    // Both condition bounds must be provided together or not at all
+    if params.condition_min.is_some() != params.condition_max.is_some() {
+        return Err(AppError::BadRequest(
+            "condition_min and condition_max must be provided together".to_string(),
+        ));
     }
 
     // Handle the virtual "missing" status via a separate query path
@@ -121,12 +128,17 @@ async fn add_to_collection(
     State(state): State<AppState>,
     auth: AuthUser,
     Json(body): Json<AddCollectionEntryRequest>,
-) -> Result<Json<CollectionEntryResponse>, AppError> {
+) -> Result<(StatusCode, Json<CollectionEntryResponse>), AppError> {
     // Validate fields
     validate_condition_grade(&body.condition_grade).map_err(AppError::BadRequest)?;
     let status = body.status.as_deref().unwrap_or("owned");
     validate_status(status).map_err(AppError::BadRequest)?;
     let copy_number = body.copy_number.unwrap_or(1);
+    if copy_number < 1 {
+        return Err(AppError::BadRequest(
+            "copy_number must be at least 1".to_string(),
+        ));
+    }
 
     // Verify issue exists
     if !collection::issue_exists(&state.inner.pool, body.issue_id).await? {
@@ -164,7 +176,7 @@ async fn add_to_collection(
             AppError::InternalError(anyhow::anyhow!("Failed to retrieve newly created entry"))
         })?;
 
-    Ok(Json(CollectionEntryResponse::from(&row)))
+    Ok((StatusCode::CREATED, Json(CollectionEntryResponse::from(&row))))
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +236,7 @@ async fn delete_entry(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(entry_id): Path<u32>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<StatusCode, AppError> {
     let deleted = collection::delete_entry(&state.inner.pool, entry_id, auth.user_id).await?;
 
     if !deleted {
@@ -233,7 +245,7 @@ async fn delete_entry(
         )));
     }
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ---------------------------------------------------------------------------
