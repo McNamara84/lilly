@@ -90,6 +90,7 @@ async fn main() {
         .merge(routes::health::router())
         .merge(routes::auth::router())
         .merge(routes::series::router())
+        .merge(routes::collection::router())
         .merge(routes::admin::router())
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())
