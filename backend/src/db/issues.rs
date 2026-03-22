@@ -9,7 +9,9 @@ pub async fn find_issues_by_series(
     page: u32,
     per_page: u32,
 ) -> Result<Vec<Issue>, sqlx::Error> {
-    let offset = (page.saturating_sub(1)) * per_page;
+    let offset = u64::from(page.saturating_sub(1))
+        .saturating_mul(u64::from(per_page))
+        .min(1_000_000);
 
     sqlx::query_as::<_, Issue>(
         "SELECT id, series_id, issue_number, title, published_at, cycle, \

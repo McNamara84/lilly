@@ -4,9 +4,9 @@ test.describe.serial('Admin Import Flow', () => {
 	test.beforeEach(async ({ page }) => {
 		// Login as admin
 		await page.goto('/login');
-		await page.getByLabel(/e-mail/i).fill('demo@lilly.app');
-		await page.getByLabel(/passwort/i).fill('demo1234');
-		await page.getByRole('button', { name: /anmelden/i }).click();
+		await page.getByTestId('email-input').fill('demo@lilly.app');
+		await page.getByTestId('password-input').fill('demo1234');
+		await page.getByTestId('submit-button').click();
 		await expect(page).toHaveURL('/', { timeout: 15000 });
 	});
 

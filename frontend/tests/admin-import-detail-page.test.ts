@@ -1,10 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
-import { writable } from 'svelte/store';
 import ImportDetailPage from '../src/routes/admin/import/[id]/+page.svelte';
 
-const mockPage = writable({ params: { id: '5' } });
+function createMockStore<T>(initial: T) {
+	let value = initial;
+	const subs = new Set<(v: T) => void>();
+	return {
+		subscribe(fn: (v: T) => void) {
+			subs.add(fn);
+			fn(value);
+			return () => subs.delete(fn);
+		},
+		set(v: T) {
+			value = v;
+			subs.forEach((fn) => fn(v));
+		}
+	};
+}
+
+const mockPage = createMockStore({ params: { id: '5' } });
 
 vi.mock('$app/stores', () => ({
 	page: {
