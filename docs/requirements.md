@@ -90,6 +90,11 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 | DI-004 | Cover-Bilder der Hefte werden aus den Wiki-Quellen als Referenzbilder importiert, sofern lizenzrechtlich zulässig. | SOLL | DI |
 | DI-005 | Das Datenimport-System muss modular aufgebaut sein, sodass weitere Heftroman-Serien und Datenquellen mit vertretbarem Aufwand hinzugefügt werden können (z. B. Perry Rhodan via Perrypedia). | MUSS | DI |
 | DI-006 | Zu jeder Serie werden Metadaten gespeichert: Serienname, Verlag, Genre, Erscheinungsrhythmus, Gesamtzahl der Hefte (soweit bekannt), Status (laufend/abgeschlossen). | SOLL | DI |
+| DI-007 | Der Datenimport kann ausschließlich von Admins über die WebUI gestartet und verwaltet werden. Normale Nutzer haben keinen Zugriff auf Import-Funktionen. | MUSS | DI |
+| DI-008 | Imports laufen asynchron im Hintergrund. Der Admin kann den Fortschritt in Echtzeit verfolgen (importierte Hefte / Gesamtanzahl). Der Import-Fortschritt wird in der Datenbank persistiert und überlebt Server-Neustarts. | MUSS | DI |
+| DI-009 | Importierte Seriendaten sind für normale Nutzer zunächst nicht sichtbar. Admins müssen eine importierte Serie nach Prüfung der Daten explizit aktivieren, bevor sie für alle Nutzer zugänglich wird. | MUSS | DI |
+| DI-010 | Admins können nach einem Import die importierten Daten in einer Prüfansicht stichprobenartig kontrollieren, inklusive Cover-Vorschau, Metadaten und Link zum Wiki-Quelleneintrag. | MUSS | DI |
+| DI-011 | Die Modularität des Importers wird durch ein Trait-basiertes Adapter-System (`WikiAdapter`-Trait) in einer Shared Rust Library (`importer-core`) realisiert. Neue Adapter können durch Implementierung des Traits hinzugefügt werden, ohne Kern- oder Backend-Code zu ändern. | MUSS | DI |
 
 ### 3.3 Tausch-System
 
@@ -113,6 +118,8 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 | BN-004 | Nutzer können wählen, ob ihr Profil und ihre Sammlung öffentlich oder privat sind. | MUSS | BN |
 | BN-005 | Passwort-Reset per E-Mail muss implementiert sein. | MUSS | BN |
 | BN-006 | Zwei-Faktor-Authentifizierung (2FA) als optionale Sicherheitserweiterung. | KANN | BN |
+| BN-008 | Es existiert ein Rollensystem mit den Rollen „User" (Standard) und „Admin". Admins haben erweiterte Rechte für Datenimport und Serienverwaltung. | MUSS | BN |
+| BN-009 | Der erste Admin wird über eine Environment-Variable (`ADMIN_EMAIL`) beim Serverstart befördert. Weitere Admins können per CLI-Befehl befördert werden. | MUSS | BN |
 | BN-007 | Nutzer können ihren Account und alle zugeordneten Daten vollständig löschen (Recht auf Löschung gemäß DSGVO). | MUSS | BN |
 
 ### 3.5 Foto- und Medienverwaltung

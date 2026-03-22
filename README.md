@@ -144,14 +144,14 @@ The following scale is the established standard in the German *Heftroman* collec
 │  │   Proxy)   │    │   SSR/PWA) │────│  REST API    │        │
 │  └────────────┘    └────────────┘    └──────┬───────┘        │
 │       │                                     │                │
-│       │  Static Files          ┌────────────┘                │
+│       │  Static Files          ┌────────────┘─┐              │
 │       └────────────────────────┤   MariaDB    │              │
 │  ┌────────────┐                │   11.x       │              │
 │  │   /media   │                └──────────────┘              │
 │  │  (Volume)  │                                              │
 │  └────────────┘  ┌────────────────────────┐                  │
-│                  │   Wiki-Importer (Cron)  │                 │
-│                  │   Rust CLI → MariaDB    │                 │
+│                  │   Wiki-Importer (Cron) │                  │
+│                  │   Rust CLI → MariaDB   │                  │
 │                  └────────────────────────┘                  │
 └──────────────────────────────────────────────────────────────┘
 ```

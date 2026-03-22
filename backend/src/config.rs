@@ -11,6 +11,9 @@ pub struct AppConfig {
     pub smtp_from: String,
     pub app_base_url: String,
     pub cookie_secure: bool,
+    pub admin_email: Option<String>,
+    pub media_path: String,
+    pub media_url_prefix: String,
 }
 
 impl AppConfig {
@@ -47,6 +50,10 @@ impl AppConfig {
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()
                 .unwrap_or(false),
+            admin_email: std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty()),
+            media_path: std::env::var("MEDIA_PATH").unwrap_or_else(|_| "/media".to_string()),
+            media_url_prefix: std::env::var("MEDIA_URL_PREFIX")
+                .unwrap_or_else(|_| "/media".to_string()),
         }
     }
 }
@@ -69,6 +76,9 @@ mod tests {
         std::env::remove_var("SMTP_FROM");
         std::env::remove_var("APP_BASE_URL");
         std::env::remove_var("COOKIE_SECURE");
+        std::env::remove_var("ADMIN_EMAIL");
+        std::env::remove_var("MEDIA_PATH");
+        std::env::remove_var("MEDIA_URL_PREFIX");
 
         let config = AppConfig::from_env();
         assert_eq!(config.jwt_access_token_expiry, 900);
@@ -81,5 +91,8 @@ mod tests {
         assert_eq!(config.smtp_from, "noreply@lilly.app");
         assert_eq!(config.app_base_url, "http://localhost");
         assert!(!config.cookie_secure);
+        assert!(config.admin_email.is_none());
+        assert_eq!(config.media_path, "/media");
+        assert_eq!(config.media_url_prefix, "/media");
     }
 }

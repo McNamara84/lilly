@@ -16,7 +16,8 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
@@ -25,6 +26,10 @@ services:
       RUST_LOG: ${RUST_LOG}
       BACKEND_PORT: ${BACKEND_PORT}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      MEDIA_PATH: /media
+    volumes:
+      - media_data:/media
     depends_on:
       db:
         condition: service_healthy
@@ -55,6 +60,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
+      - media_data:/srv/media:ro
     depends_on:
       frontend:
         condition: service_healthy
@@ -70,3 +76,4 @@ services:
 volumes:
   db_data:
   caddy_data:
+  media_data:

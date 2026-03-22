@@ -24,6 +24,7 @@ export interface MeResponse {
 	email: string;
 	display_name: string;
 	email_verified: boolean;
+	role: 'user' | 'admin';
 }
 
 export interface ApiError {

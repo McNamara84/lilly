@@ -7,7 +7,7 @@ pub async fn find_user_by_email(
     email: &str,
 ) -> Result<Option<User>, sqlx::Error> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, email, password_hash, display_name, email_verified FROM users WHERE email = ?",
+        "SELECT id, email, password_hash, display_name, role, email_verified FROM users WHERE email = ?",
     )
     .bind(email)
     .fetch_optional(pool)
@@ -48,7 +48,7 @@ pub async fn find_user_by_verification_token(
     token: &str,
 ) -> Result<Option<User>, sqlx::Error> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, email, password_hash, display_name, email_verified \
+        "SELECT id, email, password_hash, display_name, role, email_verified \
          FROM users WHERE verification_token = ?",
     )
     .bind(token)
@@ -103,13 +103,43 @@ pub async fn update_verification_token(
 
 pub async fn find_user_by_id(pool: &MySqlPool, user_id: u32) -> Result<Option<User>, sqlx::Error> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, email, password_hash, display_name, email_verified FROM users WHERE id = ?",
+        "SELECT id, email, password_hash, display_name, role, email_verified FROM users WHERE id = ?",
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await?;
 
     Ok(user)
+}
+
+pub async fn ensure_admin_role(pool: &MySqlPool, email: &str) {
+    match sqlx::query("UPDATE users SET role = 'admin' WHERE email = ? AND role != 'admin'")
+        .bind(email)
+        .execute(pool)
+        .await
+    {
+        Ok(result) if result.rows_affected() > 0 => {
+            tracing::info!("Promoted user {email} to admin via ADMIN_EMAIL");
+        }
+        Ok(_) => {
+            tracing::debug!(
+                "ADMIN_EMAIL={email} — user not found or already admin, skipping promotion"
+            );
+        }
+        Err(e) => {
+            tracing::error!("Failed to promote {email} to admin: {e}");
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub async fn promote_user_to_admin(pool: &MySqlPool, email: &str) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("UPDATE users SET role = 'admin' WHERE email = ?")
+        .bind(email)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn seed_demo_user(pool: &MySqlPool) -> Result<(), anyhow::Error> {
@@ -122,8 +152,8 @@ pub async fn seed_demo_user(pool: &MySqlPool) -> Result<(), anyhow::Error> {
             crate::auth::password::hash_password("demo1234").map_err(|e| anyhow::anyhow!("{e}"))?;
 
         sqlx::query(
-            "INSERT INTO users (email, password_hash, display_name, email_verified) \
-             VALUES (?, ?, ?, TRUE)",
+            "INSERT INTO users (email, password_hash, display_name, role, email_verified) \
+             VALUES (?, ?, ?, 'admin', TRUE)",
         )
         .bind("demo@lilly.app")
         .bind(&password_hash)

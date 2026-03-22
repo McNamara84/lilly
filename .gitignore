@@ -4,8 +4,7 @@ node_modules/
 # Build outputs
 frontend/build/
 frontend/.svelte-kit/
-backend/target/
-importer/target/
+target/
 
 # Environment
 .env

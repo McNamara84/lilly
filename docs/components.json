@@ -325,6 +325,43 @@
         "icon_size": "64px, brand primary at 30% opacity",
         "layout": "Centered vertically and horizontally, max-width 400px"
       }
+    },
+
+    "ImportProgressBar": {
+      "description": "Progress bar component for import jobs. Shows imported/total count with percentage and animated fill. Used in admin import detail view.",
+      "file": "src/lib/components/admin/ImportProgressBar.svelte",
+      "props": {
+        "imported": { "type": "number", "required": true, "description": "Number of issues imported so far" },
+        "total": { "type": "number", "required": true, "description": "Total number of issues to import" },
+        "status": { "type": "'pending' | 'running' | 'completed' | 'failed'", "required": true }
+      },
+      "visual": {
+        "bar_height": "12px",
+        "bar_color_running": "brand.primary gradient (cyan-to-blue)",
+        "bar_color_completed": "semantic.success",
+        "bar_color_failed": "semantic.error",
+        "text_below": "'243 von 620 Heften importiert — 39,2 %' in body-small"
+      },
+      "behavior": "Animates fill on each progress update (spring easing, 300ms). Shows pulsing animation when status is 'running'. Static when completed/failed."
+    },
+
+    "AdminSeriesTable": {
+      "description": "Table component for the admin series management view. Displays all series with activation toggle.",
+      "file": "src/lib/components/admin/AdminSeriesTable.svelte",
+      "props": {
+        "series": { "type": "AdminSeries[]", "required": true }
+      },
+      "columns": [
+        { "key": "name", "label": "Serie", "sortable": true },
+        { "key": "status", "label": "Status", "display": "Badge (running=cyan, completed=green, cancelled=gray)" },
+        { "key": "active", "label": "Aktiv", "display": "Toggle switch" },
+        { "key": "issue_count", "label": "Hefte", "sortable": true },
+        { "key": "last_import", "label": "Letzter Import", "display": "Relative time" }
+      ],
+      "interactions": {
+        "toggle_active": "Fires activate/deactivate API call, updates row immediately",
+        "click_row": "Navigates to import detail"
+      }
     }
   }
 }

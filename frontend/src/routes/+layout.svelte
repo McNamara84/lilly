@@ -50,6 +50,16 @@
 		</a>
 		<div class="flex items-center gap-3">
 			{#if auth.isAuthenticated && auth.user}
+				{#if auth.isAdmin}
+					<a
+						href={resolve('/admin')}
+						class="text-sm px-2 py-1 rounded"
+						style="color: var(--text-secondary);"
+						data-testid="admin-link"
+					>
+						Admin
+					</a>
+				{/if}
 				<span
 					class="text-sm hidden sm:inline"
 					style="color: var(--text-secondary);"

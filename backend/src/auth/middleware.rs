@@ -11,6 +11,8 @@ pub struct AuthUser {
     pub user_id: u32,
     #[allow(dead_code)]
     pub display_name: String,
+    #[allow(dead_code)]
+    pub role: String,
 }
 
 impl FromRequestParts<AppState> for AuthUser {
@@ -35,7 +37,32 @@ impl FromRequestParts<AppState> for AuthUser {
         Ok(Self {
             user_id: claims.sub,
             display_name: claims.name,
+            role: claims.role,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct AdminUser(pub AuthUser);
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let auth_user = AuthUser::from_request_parts(parts, state).await?;
+
+        if auth_user.role != "admin" {
+            return Err(AppError::Forbidden {
+                message: "Admin access required".to_string(),
+                code: Some("ADMIN_REQUIRED".to_string()),
+            });
+        }
+
+        Ok(Self(auth_user))
     }
 }
 
@@ -48,8 +75,22 @@ mod tests {
         let user = AuthUser {
             user_id: 1,
             display_name: "Test".to_string(),
+            role: "user".to_string(),
         };
         assert_eq!(user.user_id, 1);
         assert_eq!(user.display_name, "Test");
+        assert_eq!(user.role, "user");
+    }
+
+    #[test]
+    fn test_admin_user_wraps_auth_user() {
+        let auth_user = AuthUser {
+            user_id: 42,
+            display_name: "Admin".to_string(),
+            role: "admin".to_string(),
+        };
+        let admin = AdminUser(auth_user);
+        assert_eq!(admin.0.user_id, 42);
+        assert_eq!(admin.0.role, "admin");
     }
 }

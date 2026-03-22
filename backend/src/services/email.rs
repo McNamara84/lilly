@@ -163,6 +163,9 @@ mod tests {
             smtp_from: "test@lilly.app".to_string(),
             app_base_url: "http://localhost".to_string(),
             cookie_secure: false,
+            admin_email: None,
+            media_path: "/media".to_string(),
+            media_url_prefix: "/media".to_string(),
         };
 
         let service = EmailService::from_config(&config);

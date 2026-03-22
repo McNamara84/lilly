@@ -149,6 +149,8 @@ Die fünf primären Navigationsziele sind in Sidebar und BottomNav identisch:
 
 Die Sidebar enthält zusätzlich den sekundären Eintrag **Entdecken** (`/explore`, Icon: Search), der unterhalb der fünf Haupteinträge platziert ist. In der BottomNav ist Entdecken nicht enthalten – der Bereich ist mobil über die globale Suche (Command Palette) erreichbar.
 
+Für Nutzer mit der Rolle `admin` wird unterhalb der sekundären Einträge ein weiterer Abschnitt **Admin** angezeigt (Icon: Shield, Route: `/admin`). Dieser Eintrag ist für normale Nutzer nicht sichtbar. In der BottomNav wird der Admin-Bereich nicht angezeigt — auf Mobilgeräten ist er über die Sidebar oder einen Admin-Link im Profil-Menü erreichbar.
+
 ### 4.3 Globale Suche (Command Palette)
 
 Über `Cmd+K` / `Ctrl+K` oder das Suchsymbol in der TopBar öffnet sich eine zentrierte, glassmorphe Suchbox, die serienübergreifend nach Heften, Serien und Sammlern suchen kann. Das Konzept folgt dem etablierten Command-Palette-Pattern (bekannt aus VS Code, GitHub, Linear).
@@ -201,7 +203,8 @@ Alle Screens sind in `screens.json` vollständig spezifiziert. Hier eine Übersi
 /                         Dashboard (auth)
 /collection               Sammlung mit CoverGrid (auth)
 /collection/add           Hefte schnell hinzufügen (auth)
-/series/[slug]            Seriendetail (public)
+/series                   Serienübersicht – alle aktiven Serien (public)
+/series/[slug]            Seriendetail mit Heft-Grid (public)
 /issues/[id]              Heftdetail (public)
 /trades                   Tausch-Hub: Matches + Aktive (auth)
 /trades/[id]              Einzelner Tausch (auth)
@@ -210,8 +213,13 @@ Alle Screens sind in `screens.json` vollständig spezifiziert. Hier eine Übersi
 /explore                  Entdecken: Serien, Stats, Sammler (public)
 /users/[name]             Öffentliches Sammlerprofil (public)
 /profile                  Eigenes Profil + Settings (auth)
+/admin                    Admin-Bereich Einstieg (admin, redirect zu /admin/series)
+/admin/series             Serien-Verwaltung: alle Serien inkl. inaktive (admin)
+/admin/import             Import starten + Import-Historie (admin)
+/admin/import/[id]        Import-Detail: Fortschritt + Prüfansicht (admin)
 /login                    Anmeldung
 /register                 Registrierung
+/privacy                  Datenschutzerklärung
 ```
 
 ### 6.2 Schlüssel-Screens im Detail
@@ -225,6 +233,22 @@ Alle Screens sind in `screens.json` vollständig spezifiziert. Hier eine Übersi
 **Tausch (`/trades`):** Zwei-Tab-Ansicht mit "Vorschläge" (TradeMatchCards) und "Aktive Tausche". Semi-automatisches Matching wird visuell durch Match-Score-Ringe dargestellt.
 
 **Anmelden (`/login`):** Zentrierte Glassmorphism-Karte auf animiertem Gradient-Mesh-Hintergrund. E-Mail/Passwort-Formular + OAuth-Buttons (Google, GitHub).
+
+**Serien-Übersicht (`/series`):** Cards pro aktive Serie mit Cover des ersten Hefts, Name, Genre, Heftanzahl und Status-Badge. Öffentlich zugänglich, keine Auth nötig.
+
+**Serien-Detail (`/series/[slug]`):** Header mit Serien-Metadaten (Name, Verlag, Genre, Frequency, Status). Darunter paginiertes CoverGrid aller Hefte der Serie.
+
+### 6.3 Admin-Screens
+
+Der Admin-Bereich ist unter `/admin/` als eigener Routenpräfix vom Nutzer-Bereich getrennt. Zugang nur für authentifizierte Nutzer mit Rolle `admin`. Das Layout enthält eine dedizierte Admin-Navigation (Sidebar-Eintrag oder TopBar-Link, nur für Admins sichtbar).
+
+**Serien-Verwaltung (`/admin/series`):** Tabelle aller Serien (inkl. inaktive) mit Spalten: Name, Status (running/completed/cancelled), Aktiv-Badge (ja/nein), Anzahl importierte Hefte, letzter Import. Pro Serie: Toggle-Button zum Aktivieren/Deaktivieren.
+
+**Import starten (`/admin/import`):** Dropdown zur Auswahl des Import-Adapters (aus API: Name + Version). Button „Import starten". Darunter: Import-Historie als Tabelle (Datum, Adapter, Status, Dauer, importierte Hefte, gestartet von).
+
+**Import-Detail & Prüfansicht (`/admin/import/[id]`):**
+- *Während Import läuft:* Fortschrittsbalken mit „243 / 620 Hefte importiert", Status-Badge (pending → running → completed/failed). Automatisches Polling alle 3 Sekunden.
+- *Nach Abschluss:* Zusammenfassung (Gesamtzahl, Dauer, Fehler). Paginierte Liste der importierten Hefte (Nummer, Titel, Autor, Datum). Klick auf ein Heft öffnet Detail mit Cover-Vorschau, allen Metadaten und Link zum Wiki-Quelleneintrag. Button „Serie aktivieren" (wenn Serie noch inaktiv).
 
 ---
 
