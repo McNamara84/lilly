@@ -10,13 +10,14 @@ const MADDRAXIKON_BASE: &str = "https://de.maddraxikon.com";
 const DEFAULT_DELAY_MS: u64 = 500;
 /// `MediaWiki` API allows up to 50 titles per query request
 const BATCH_SIZE: u32 = 50;
-/// Stop scanning after this many consecutive missing issue numbers
-const MAX_CONSECUTIVE_MISSING: u32 = 10;
+/// Stop scanning after this many consecutive missing issue numbers.
+/// Must be >= `BATCH_SIZE` since gap detection has batch-level resolution.
+const MAX_CONSECUTIVE_MISSING: u32 = BATCH_SIZE;
 
 pub struct MaddraxAdapter {
     client: Client,
     pub(crate) delay: Duration,
-    cycle_names: std::sync::RwLock<std::collections::HashMap<u32, String>>,
+    cycle_names: tokio::sync::RwLock<std::collections::HashMap<u32, String>>,
 }
 
 impl MaddraxAdapter {
@@ -32,7 +33,7 @@ impl MaddraxAdapter {
                 .timeout(Duration::from_secs(30))
                 .build()?,
             delay: Duration::from_millis(DEFAULT_DELAY_MS),
-            cycle_names: std::sync::RwLock::new(std::collections::HashMap::new()),
+            cycle_names: tokio::sync::RwLock::new(std::collections::HashMap::new()),
         })
     }
 
@@ -152,9 +153,10 @@ impl MaddraxAdapter {
         let mut fields = std::collections::HashMap::new();
 
         for line in wikitext.lines() {
-            let trimmed = line.trim();
-            if let Some(rest) = trimmed.strip_prefix('|') {
-                if let Some((key, value)) = rest.split_once('=') {
+            let original = line.trim();
+            let stripped = original.trim_start_matches('|');
+            if !stripped.is_empty() && stripped.len() < original.len() {
+                if let Some((key, value)) = stripped.split_once('=') {
                     let key = key.trim().to_string();
                     let value = value.trim().to_string();
                     if !key.is_empty() && !value.is_empty() {
@@ -227,9 +229,8 @@ impl WikiAdapter for MaddraxAdapter {
         // Pre-load cycle name mapping from the Zyklen page
         match self.fetch_cycle_names().await {
             Ok(names) => {
-                if let Ok(mut lock) = self.cycle_names.write() {
-                    *lock = names;
-                }
+                let mut lock = self.cycle_names.write().await;
+                *lock = names;
             }
             Err(e) => {
                 tracing::warn!("Failed to fetch cycle names, cycles will use numbers: {e}");
@@ -322,12 +323,10 @@ impl WikiAdapter for MaddraxAdapter {
             .unwrap_or_default();
 
         // Resolve cycle name from template header (e.g. "Roman Zyklus 05" → "Daa'muren")
-        let cycle = Self::extract_cycle_number(wikitext).and_then(|num| {
-            self.cycle_names
-                .read()
-                .ok()
-                .and_then(|names| names.get(&num).cloned())
-        });
+        let cycle = match Self::extract_cycle_number(wikitext) {
+            Some(num) => self.cycle_names.read().await.get(&num).cloned(),
+            None => None,
+        };
 
         // Split comma-separated cover artists
         let cover_artists: Vec<String> = fields

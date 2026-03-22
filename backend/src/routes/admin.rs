@@ -308,6 +308,8 @@ async fn run_import(
         .await
         {
             tracing::warn!(issue_number, error = %e, "Failed to upsert issue");
+            imported += 1;
+            import_jobs::update_import_progress(&pool, job_id, imported, total).await?;
             continue;
         }
 

@@ -15,7 +15,8 @@
 	let issuesPage = $state(1);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	let pollInterval = $state<ReturnType<typeof setInterval> | null>(null);
+	let polling = false;
+	let pollTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	const jobId = $derived(Number($page.params.id));
 	const invalidJobId = $derived(!Number.isFinite(jobId) || jobId < 1);
@@ -54,13 +55,23 @@
 	}
 
 	function startPolling() {
-		pollInterval = setInterval(loadJob, 3000);
+		polling = true;
+		scheduleNextPoll();
+	}
+
+	function scheduleNextPoll() {
+		if (!polling) return;
+		pollTimeout = setTimeout(async () => {
+			await loadJob();
+			scheduleNextPoll();
+		}, 3000);
 	}
 
 	function stopPolling() {
-		if (pollInterval) {
-			clearInterval(pollInterval);
-			pollInterval = null;
+		polling = false;
+		if (pollTimeout) {
+			clearTimeout(pollTimeout);
+			pollTimeout = null;
 		}
 	}
 
