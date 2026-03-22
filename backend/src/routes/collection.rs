@@ -176,7 +176,10 @@ async fn add_to_collection(
             AppError::InternalError(anyhow::anyhow!("Failed to retrieve newly created entry"))
         })?;
 
-    Ok((StatusCode::CREATED, Json(CollectionEntryResponse::from(&row))))
+    Ok((
+        StatusCode::CREATED,
+        Json(CollectionEntryResponse::from(&row)),
+    ))
 }
 
 // ---------------------------------------------------------------------------
