@@ -35,6 +35,10 @@
 	];
 
 	function emitChange() {
+		// Reset "missing" filter when no series is selected (backend requires series_slug)
+		if (selectedStatus === 'missing' && !selectedSeries) {
+			selectedStatus = '';
+		}
 		const params: CollectionQueryParams = {
 			page: 1
 		};
@@ -70,15 +74,20 @@
 	<div class="flex gap-1" role="radiogroup" aria-label="Status-Filter">
 		{#each STATUS_OPTIONS as opt (opt.value)}
 			{@const active = selectedStatus === opt.value}
+			{@const disabled = opt.value === 'missing' && !selectedSeries}
 			<button
 				type="button"
 				class="px-2.5 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer"
+				class:opacity-40={disabled}
+				class:cursor-not-allowed={disabled}
 				style={active
 					? `background: var(--color-brand-500); color: #000;`
 					: `background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-secondary);`}
 				role="radio"
 				aria-checked={active}
+				aria-disabled={disabled}
 				onclick={() => {
+					if (disabled) return;
 					selectedStatus = opt.value;
 					emitChange();
 				}}

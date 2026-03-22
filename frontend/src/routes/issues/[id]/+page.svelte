@@ -4,7 +4,7 @@
 	import { getAuthState } from '$lib/stores/auth.svelte';
 	import { fetchIssue, type Issue } from '$lib/api/series';
 	import {
-		fetchCollection,
+		fetchCollectionEntryByIssue,
 		addToCollection,
 		updateCollectionEntry,
 		deleteCollectionEntry,
@@ -43,14 +43,18 @@
 		}
 		loading = true;
 		error = null;
+		// Reset collection state before lookup to avoid stale data
+		entry = null;
+		conditionGrade = 'Z2';
+		status = 'owned';
+		notes = '';
 		try {
 			issue = await fetchIssue(issueId);
 
 			// Try to load collection entry for this issue (if authenticated)
 			if (auth.isAuthenticated) {
 				try {
-					const allEntries = await fetchCollection({ per_page: 100 });
-					const found = allEntries.data.find((e) => e.issue_id === issueId);
+					const found = await fetchCollectionEntryByIssue(issueId);
 					if (found) {
 						entry = found;
 						conditionGrade = found.condition_grade ?? 'Z2';

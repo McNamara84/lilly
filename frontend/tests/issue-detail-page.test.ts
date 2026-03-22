@@ -15,13 +15,13 @@ vi.mock('$lib/api/series', () => ({
 	fetchIssue: (...args: unknown[]) => mockFetchIssue(...args)
 }));
 
-const mockFetchCollection = vi.fn();
+const mockFetchCollectionEntryByIssue = vi.fn();
 const mockAddToCollection = vi.fn();
 const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
 vi.mock('$lib/api/collection', () => ({
-	fetchCollection: (...args: unknown[]) => mockFetchCollection(...args),
+	fetchCollectionEntryByIssue: (...args: unknown[]) => mockFetchCollectionEntryByIssue(...args),
 	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
 	updateCollectionEntry: (...args: unknown[]) => mockUpdateCollectionEntry(...args),
 	deleteCollectionEntry: (...args: unknown[]) => mockDeleteCollectionEntry(...args)
@@ -116,7 +116,7 @@ function unauthState() {
 describe('Issue Detail Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockFetchCollection.mockResolvedValue({ data: [], page: 1, per_page: 100, total: 0 });
+		mockFetchCollectionEntryByIssue.mockResolvedValue(null);
 	});
 
 	it('shows loading state initially', () => {
@@ -249,12 +249,7 @@ describe('Issue Detail Page', () => {
 	it('shows "In deiner Sammlung" when entry exists', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
-		mockFetchCollection.mockResolvedValue({
-			data: [sampleEntry],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
 		render(IssueDetailPage);
 
 		await waitFor(() => {
@@ -285,12 +280,7 @@ describe('Issue Detail Page', () => {
 	it('calls updateCollectionEntry when save button is clicked', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
-		mockFetchCollection.mockResolvedValue({
-			data: [sampleEntry],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
 		mockUpdateCollectionEntry.mockResolvedValue(sampleEntry);
 		render(IssueDetailPage);
 		const user = userEvent.setup();
@@ -309,12 +299,7 @@ describe('Issue Detail Page', () => {
 	it('calls deleteCollectionEntry when remove button is clicked', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
-		mockFetchCollection.mockResolvedValue({
-			data: [sampleEntry],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
 		mockDeleteCollectionEntry.mockResolvedValue(undefined);
 		render(IssueDetailPage);
 		const user = userEvent.setup();
@@ -351,12 +336,7 @@ describe('Issue Detail Page', () => {
 	it('shows error when update fails', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
-		mockFetchCollection.mockResolvedValue({
-			data: [sampleEntry],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
 		mockUpdateCollectionEntry.mockRejectedValue(new Error('Update failed'));
 		render(IssueDetailPage);
 		const user = userEvent.setup();
@@ -375,12 +355,7 @@ describe('Issue Detail Page', () => {
 	it('shows error when delete fails', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
-		mockFetchCollection.mockResolvedValue({
-			data: [sampleEntry],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
 		mockDeleteCollectionEntry.mockRejectedValue(new Error('Delete failed'));
 		render(IssueDetailPage);
 		const user = userEvent.setup();
@@ -452,11 +427,10 @@ describe('Issue Detail Page', () => {
 	it('pre-fills condition grade from existing entry', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
-		mockFetchCollection.mockResolvedValue({
-			data: [{ ...sampleEntry, condition_grade: 'Z3', notes: 'My notes' }],
-			page: 1,
-			per_page: 100,
-			total: 1
+		mockFetchCollectionEntryByIssue.mockResolvedValue({
+			...sampleEntry,
+			condition_grade: 'Z3',
+			notes: 'My notes'
 		});
 		render(IssueDetailPage);
 
@@ -470,12 +444,7 @@ describe('Issue Detail Page', () => {
 	it('resets fields after successful delete', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
-		mockFetchCollection.mockResolvedValue({
-			data: [sampleEntry],
-			page: 1,
-			per_page: 100,
-			total: 1
-		});
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
 		mockDeleteCollectionEntry.mockResolvedValue(undefined);
 		render(IssueDetailPage);
 		const user = userEvent.setup();

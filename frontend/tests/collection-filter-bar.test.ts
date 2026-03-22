@@ -203,4 +203,58 @@ describe('CollectionFilterBar', () => {
 		expect(screen.getByLabelText(/Aufsteigend/)).toBeInTheDocument();
 		expect(screen.getByLabelText('Suche')).toBeInTheDocument();
 	});
+
+	it('disables "Fehlend" chip when no series is selected', () => {
+		render(CollectionFilterBar, {
+			props: { series_options: seriesOptions, onfilterchange }
+		});
+
+		const missingChip = screen.getByTestId('status-filter-missing');
+		expect(missingChip).toHaveAttribute('aria-disabled', 'true');
+	});
+
+	it('enables "Fehlend" chip when a series is selected', async () => {
+		render(CollectionFilterBar, {
+			props: { series_options: seriesOptions, onfilterchange }
+		});
+
+		const select = screen.getByLabelText('Serie') as HTMLSelectElement;
+		await fireEvent.change(select, { target: { value: 'maddrax' } });
+
+		const missingChip = screen.getByTestId('status-filter-missing');
+		expect(missingChip).toHaveAttribute('aria-disabled', 'false');
+	});
+
+	it('does not fire onfilterchange when disabled "Fehlend" chip is clicked', async () => {
+		render(CollectionFilterBar, {
+			props: { series_options: seriesOptions, onfilterchange }
+		});
+		const user = userEvent.setup();
+
+		await user.click(screen.getByTestId('status-filter-missing'));
+
+		// Should not have been called because no series is selected
+		expect(onfilterchange).not.toHaveBeenCalled();
+	});
+
+	it('resets status to "Alle" when series is deselected while "Fehlend" is active', async () => {
+		render(CollectionFilterBar, {
+			props: { series_options: seriesOptions, onfilterchange }
+		});
+
+		const select = screen.getByLabelText('Serie') as HTMLSelectElement;
+		// Select a series first
+		await fireEvent.change(select, { target: { value: 'maddrax' } });
+		const user = userEvent.setup();
+
+		// Click Fehlend
+		await user.click(screen.getByTestId('status-filter-missing'));
+
+		// Deselect series
+		await fireEvent.change(select, { target: { value: '' } });
+
+		// "Alle" should be active again
+		expect(screen.getByTestId('status-filter-all')).toHaveAttribute('aria-checked', 'true');
+		expect(screen.getByTestId('status-filter-missing')).toHaveAttribute('aria-checked', 'false');
+	});
 });

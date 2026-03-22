@@ -165,3 +165,12 @@ export async function fetchCollectionStats(): Promise<CollectionStats> {
 	});
 	return handleResponse<CollectionStats>(response);
 }
+
+export async function fetchCollectionEntryByIssue(
+	issueId: number
+): Promise<CollectionEntry | null> {
+	const response = await fetch(`${API_BASE}/me/collection/by-issue/${issueId}`, {
+		credentials: 'same-origin'
+	});
+	return handleResponse<CollectionEntry | null>(response);
+}

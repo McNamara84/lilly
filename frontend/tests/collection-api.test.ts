@@ -4,7 +4,8 @@ import {
 	addToCollection,
 	updateCollectionEntry,
 	deleteCollectionEntry,
-	fetchCollectionStats
+	fetchCollectionStats,
+	fetchCollectionEntryByIssue
 } from '../src/lib/api/collection';
 
 const mockFetch = vi.fn();
@@ -275,6 +276,33 @@ describe('Collection API', () => {
 			mockFetch.mockResolvedValue(jsonResponse({ error: 'Internal error' }, 500));
 
 			await expect(fetchCollectionStats()).rejects.toThrow('Internal error');
+		});
+	});
+
+	describe('fetchCollectionEntryByIssue', () => {
+		it('fetches a single entry by issue id', async () => {
+			mockFetch.mockResolvedValue(jsonResponse(sampleEntry));
+
+			const result = await fetchCollectionEntryByIssue(42);
+
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/me/collection/by-issue/42', {
+				credentials: 'same-origin'
+			});
+			expect(result).toEqual(sampleEntry);
+		});
+
+		it('returns null when no entry exists', async () => {
+			mockFetch.mockResolvedValue(jsonResponse(null));
+
+			const result = await fetchCollectionEntryByIssue(999);
+
+			expect(result).toBeNull();
+		});
+
+		it('throws on server error', async () => {
+			mockFetch.mockResolvedValue(jsonResponse({ error: 'Unauthorized' }, 401));
+
+			await expect(fetchCollectionEntryByIssue(42)).rejects.toThrow('Unauthorized');
 		});
 	});
 

@@ -19,6 +19,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/me/collection", post(add_to_collection))
         .route("/api/v1/me/collection/{id}", patch(update_entry))
         .route("/api/v1/me/collection/{id}", delete(delete_entry))
+        .route(
+            "/api/v1/me/collection/by-issue/{issue_id}",
+            get(get_entry_by_issue),
+        )
         .route("/api/v1/me/collection/stats", get(collection_stats))
 }
 
@@ -200,6 +204,13 @@ async fn update_entry(
         validate_status(s).map_err(AppError::BadRequest)?;
     }
 
+    // Reject empty updates — at least one field must be provided
+    if body.condition_grade.is_none() && body.status.is_none() && body.notes.is_none() {
+        return Err(AppError::BadRequest(
+            "At least one field (condition_grade, status, or notes) must be provided".to_string(),
+        ));
+    }
+
     // Ensure the entry exists and belongs to the user
     collection::find_entry_by_id_and_user(&state.inner.pool, entry_id, auth.user_id)
         .await?
@@ -249,6 +260,21 @@ async fn delete_entry(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/me/collection/by-issue/:issue_id
+// ---------------------------------------------------------------------------
+
+async fn get_entry_by_issue(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(issue_id): Path<u32>,
+) -> Result<Json<Option<CollectionEntryResponse>>, AppError> {
+    let row =
+        collection::find_entry_row_by_issue_and_user(&state.inner.pool, issue_id, auth.user_id)
+            .await?;
+    Ok(Json(row.as_ref().map(CollectionEntryResponse::from)))
 }
 
 // ---------------------------------------------------------------------------

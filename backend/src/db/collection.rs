@@ -108,6 +108,28 @@ pub async fn find_entry_row_by_id_and_user(
     .await
 }
 
+pub async fn find_entry_row_by_issue_and_user(
+    pool: &MySqlPool,
+    issue_id: u32,
+    user_id: u32,
+) -> Result<Option<CollectionEntryRow>, sqlx::Error> {
+    sqlx::query_as::<_, CollectionEntryRow>(
+        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.condition_grade,
+                ce.status, ce.notes, ce.created_at, ce.updated_at,
+                i.issue_number, i.title, i.cover_url, i.cover_local_path,
+                s.id AS series_id, s.name AS series_name, s.slug AS series_slug
+         FROM collection_entries ce
+         JOIN issues i ON ce.issue_id = i.id
+         JOIN series s ON i.series_id = s.id
+         WHERE ce.issue_id = ? AND ce.user_id = ?
+         LIMIT 1",
+    )
+    .bind(issue_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+}
+
 #[allow(clippy::option_option)]
 pub async fn update_entry(
     pool: &MySqlPool,
