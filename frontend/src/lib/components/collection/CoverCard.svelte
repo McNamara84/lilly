@@ -35,9 +35,9 @@
 				}
 			}
 		: undefined}
-	aria-label="{entry.title} — #{entry.issue_number}{entry.status !== 'missing'
-		? `, ${entry.status}, ${entry.condition_grade}`
-		: ', fehlend'}"
+	aria-label="{entry.title} — #{entry.issue_number}{entry.status === 'missing'
+		? ', fehlend'
+		: `, ${entry.status === 'owned' ? 'Vorhanden' : entry.status === 'duplicate' ? 'Doppelt' : entry.status === 'wanted' ? 'Gesucht' : entry.status}${entry.condition_grade ? `, ${entry.condition_grade}` : ''}`}"
 	data-testid="cover-card"
 >
 	<!-- Cover image -->

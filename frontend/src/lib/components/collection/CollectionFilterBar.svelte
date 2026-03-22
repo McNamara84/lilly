@@ -18,6 +18,12 @@
 	let selectedSort = $state('issue_number');
 	let selectedSortDir = $state('asc');
 	let searchQuery = $state('');
+	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function debouncedEmitChange() {
+		if (debounceTimer) clearTimeout(debounceTimer);
+		debounceTimer = setTimeout(() => emitChange(), 300);
+	}
 
 	const STATUS_OPTIONS = [
 		{ value: '', label: 'Alle' },
@@ -135,7 +141,7 @@
 		type="search"
 		placeholder="Suchen..."
 		bind:value={searchQuery}
-		oninput={emitChange}
+		oninput={debouncedEmitChange}
 		class="rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[120px]"
 		style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
 		data-testid="search-input"

@@ -461,7 +461,7 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
         _ => "ASC",
     };
 
-    let order_clause = format!("{sort_field} {sort_dir}");
+    let order_clause = format!("{sort_field} {sort_dir}, ce.id ASC");
 
     (where_clause, order_clause)
 }

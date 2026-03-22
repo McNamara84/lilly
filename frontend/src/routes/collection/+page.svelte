@@ -72,6 +72,7 @@
 	}
 
 	async function handleSelect(entry: CollectionEntry) {
+		sheetError = null;
 		try {
 			const issue = await fetchIssue(entry.issue_id);
 			selectedIssue = issue;
@@ -84,6 +85,7 @@
 	function closeSheet() {
 		selectedIssue = null;
 		selectedEntry = null;
+		sheetError = null;
 	}
 
 	async function handleSave(data: {

@@ -163,13 +163,9 @@ async fn add_to_collection(
     )
     .await
     .map_err(|e| {
-        // Detect duplicate key violation (MariaDB/MySQL errno 1062)
+        // Detect duplicate key violation
         if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.code().as_deref() == Some("23000")
-                || db_err
-                    .kind()
-                    == sqlx::error::ErrorKind::UniqueViolation
-            {
+            if db_err.kind() == sqlx::error::ErrorKind::UniqueViolation {
                 return AppError::BadRequest(
                     "Duplicate entry: this issue with the same copy number already exists in your collection".to_string(),
                 );

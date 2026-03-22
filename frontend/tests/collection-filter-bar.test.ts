@@ -155,19 +155,25 @@ describe('CollectionFilterBar', () => {
 		expect(search.placeholder).toBe('Suchen...');
 	});
 
-	it('fires onfilterchange on search input', async () => {
+	it('fires onfilterchange on search input (debounced)', async () => {
+		vi.useFakeTimers();
 		render(CollectionFilterBar, {
 			props: { series_options: seriesOptions, onfilterchange }
 		});
-		const user = userEvent.setup();
 
 		const search = screen.getByTestId('search-input');
-		await user.type(search, 'Dunkle');
+		await fireEvent.input(search, { target: { value: 'Dunkle' } });
 
-		// Should fire on each keystroke via oninput
-		expect(onfilterchange).toHaveBeenCalled();
-		const lastCall = (onfilterchange as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0];
-		expect(lastCall.q).toBe('Dunkle');
+		// Should not fire immediately (debounced)
+		expect(onfilterchange).not.toHaveBeenCalled();
+
+		// Advance past debounce delay
+		vi.advanceTimersByTime(300);
+
+		expect(onfilterchange).toHaveBeenCalledTimes(1);
+		const call = (onfilterchange as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(call.q).toBe('Dunkle');
+		vi.useRealTimers();
 	});
 
 	it('does not include default values in params', async () => {
