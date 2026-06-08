@@ -49,6 +49,19 @@
 
 /* ===== CSS Custom Properties for Theming ===== */
 :root {
+	--glass: rgba(255, 255, 255, 0.6);
+	--glass-border: rgba(255, 255, 255, 0.4);
+	--glass-hover: rgba(255, 255, 255, 0.75);
+	--surface-base: #f8fafc;
+	--surface-raised: #ffffff;
+	--surface-overlay: #f1f5f9;
+	--text-primary: #0f172a;
+	--text-secondary: #475569;
+	--text-tertiary: #94a3b8;
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
 	--glass: rgba(255, 255, 255, 0.05);
 	--glass-border: rgba(255, 255, 255, 0.1);
 	--glass-hover: rgba(255, 255, 255, 0.08);
@@ -62,15 +75,6 @@
 }
 
 :root[data-theme='light'] {
-	--glass: rgba(255, 255, 255, 0.6);
-	--glass-border: rgba(255, 255, 255, 0.4);
-	--glass-hover: rgba(255, 255, 255, 0.75);
-	--surface-base: #f8fafc;
-	--surface-raised: #ffffff;
-	--surface-overlay: #f1f5f9;
-	--text-primary: #0f172a;
-	--text-secondary: #475569;
-	--text-tertiary: #94a3b8;
 	color-scheme: light;
 }
 

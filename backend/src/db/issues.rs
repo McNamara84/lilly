@@ -318,7 +318,7 @@ pub async fn build_issue_responses(
          JOIN issue_persons ip ON ip.person_id = p.id \
          WHERE ip.issue_id IN ({placeholders}) ORDER BY ip.issue_id, p.name"
     );
-    let mut q = sqlx::query_as::<_, (u32, String, String)>(&persons_query);
+    let mut q = sqlx::query_as::<_, (u32, String, String)>(sqlx::AssertSqlSafe(persons_query));
     for id in &ids {
         q = q.bind(id);
     }
@@ -330,7 +330,7 @@ pub async fn build_issue_responses(
          JOIN issue_keywords ik ON ik.keyword_id = k.id \
          WHERE ik.issue_id IN ({placeholders}) ORDER BY ik.issue_id, k.name"
     );
-    let mut q = sqlx::query_as::<_, (u32, String)>(&keywords_query);
+    let mut q = sqlx::query_as::<_, (u32, String)>(sqlx::AssertSqlSafe(keywords_query));
     for id in &ids {
         q = q.bind(id);
     }
@@ -342,7 +342,7 @@ pub async fn build_issue_responses(
          JOIN issue_notes ino ON ino.note_id = n.id \
          WHERE ino.issue_id IN ({placeholders}) ORDER BY ino.issue_id, n.text"
     );
-    let mut q = sqlx::query_as::<_, (u32, String)>(&notes_query);
+    let mut q = sqlx::query_as::<_, (u32, String)>(sqlx::AssertSqlSafe(notes_query));
     for id in &ids {
         q = q.bind(id);
     }

@@ -162,7 +162,7 @@ pub async fn update_entry(
         set_clauses.join(", ")
     );
 
-    let mut query = sqlx::query(&sql);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
 
     if let Some(grade) = condition_grade {
         query = query.bind(grade);
@@ -223,7 +223,7 @@ pub async fn find_collection_entries(
          LIMIT ? OFFSET ?"
     );
 
-    let query = sqlx::query_as::<_, CollectionEntryRow>(&sql).bind(user_id);
+    let query = sqlx::query_as::<_, CollectionEntryRow>(sqlx::AssertSqlSafe(sql)).bind(user_id);
     let query = bind_filters!(query, params);
     query.bind(per_page).bind(offset).fetch_all(pool).await
 }
@@ -243,7 +243,7 @@ pub async fn count_collection_entries(
          WHERE ce.user_id = ? AND s.active = TRUE {where_clause}"
     );
 
-    let query = sqlx::query_scalar::<_, i64>(&sql).bind(user_id);
+    let query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql)).bind(user_id);
     let query = bind_filters!(query, params);
     let count = query.fetch_one(pool).await?;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
