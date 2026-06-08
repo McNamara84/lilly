@@ -34,9 +34,9 @@ pub fn router() -> Router<AppState> {
 }
 
 fn generate_random_token() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut bytes = [0u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
+    rand::rng().fill(&mut bytes);
     hex::encode(bytes)
 }
 
