@@ -12,12 +12,13 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@12.0.2
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
@@ -30,15 +31,16 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@12.0.2
       - run: npm ci
       - run: npm run test:coverage
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7.0.0
         with:
           files: frontend/coverage/lcov.info
           flags: frontend
@@ -53,12 +55,13 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@12.0.2
       - run: npm ci
       - run: npm run build
 
@@ -66,11 +69,11 @@ jobs:
     name: Backend Lint & Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo fmt --check --all
       - run: cargo clippy --workspace --all-targets -- -D warnings
         env:
@@ -81,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mariadb:
-        image: mariadb:11
+        image: mariadb:12.3.2
         env:
           MARIADB_ROOT_PASSWORD: test_root
           MARIADB_DATABASE: lilly_test
@@ -95,9 +98,9 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo test --workspace
         env:
           DATABASE_URL: mysql://lilly_test:lilly_test@127.0.0.1:3306/lilly_test
@@ -109,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [frontend-build, backend-test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Copy .env
         run: |
           cp .env.example .env
@@ -117,11 +120,12 @@ jobs:
       - name: Start services
         run: docker compose up -d --build --wait
         timeout-minutes: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@12.0.2
       - name: Install Playwright
         working-directory: frontend
         run: |
@@ -139,8 +143,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [frontend-test, backend-test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Build Frontend Image
         run: docker build -t lilly-frontend ./frontend
       - name: Build Backend Image
-        run: docker build -t lilly-backend ./backend
+        run: docker build -t lilly-backend -f backend/Dockerfile .

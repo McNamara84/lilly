@@ -53,10 +53,9 @@ async fn main() {
     if std::env::var("ENABLE_DEMO_SEED")
         .unwrap_or_default()
         .eq_ignore_ascii_case("true")
+        && let Err(e) = db::users::seed_demo_user(&pool).await
     {
-        if let Err(e) = db::users::seed_demo_user(&pool).await {
-            tracing::error!("Failed to seed demo user: {e}");
-        }
+        tracing::error!("Failed to seed demo user: {e}");
     }
 
     // Promote admin user if ADMIN_EMAIL is configured

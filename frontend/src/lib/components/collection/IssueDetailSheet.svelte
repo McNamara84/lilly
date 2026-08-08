@@ -155,8 +155,7 @@
 					class="w-full rounded-lg p-2 text-sm resize-none"
 					style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
 					placeholder="Optionale Notizen..."
-					data-testid="notes-textarea"
-				></textarea>
+					data-testid="notes-textarea"></textarea>
 			</section>
 
 			<!-- Error message -->

@@ -46,7 +46,7 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 | **Frontend** | Svelte 5 / SvelteKit | Kompiliert zu minimalem JS, Runes-Reaktivität, SSR + CSR, integrierte PWA-Unterstützung via Vite-Plugin |
 | **UI-Framework** | Skeleton UI + Tailwind CSS | Svelte-native Komponentenbibliothek, Tailwind für Utility-First-Styling, Dark/Light Mode |
 | **Backend / API** | Rust + Axum | Async HTTP-Framework auf Basis von Tokio, Tower-Middleware, modularer Router |
-| **Datenbank** | MariaDB 11.x | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität |
+| **Datenbank** | MariaDB 12.3 LTS | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität |
 | **DB-Zugriff** | SQLx | Compile-time verified SQL-Queries, async, kein ORM-Overhead, Migrations-System |
 | **Authentifizierung** | Eigenbau: JWT + argon2id | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub |
 | **API-Spezifikation** | OpenAPI 3.1 / Swagger | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool |
@@ -109,10 +109,10 @@ Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 
 | Container | Image | Port (intern) | Aufgabe |
 |---|---|---|---|
-| `caddy` | `caddy:2-alpine` | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, Static File Serving für /media |
-| `frontend` | `node:24-alpine` + Build | 3000 (intern) | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages |
-| `backend` | `rust:slim` + Build | 8080 (intern) | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung |
-| `db` | `mariadb:11` | 3306 (intern) | Persistente Datenhaltung, Volltextindex |
+| `caddy` | `caddy:2.11.4-alpine` | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, Static File Serving für /media |
+| `frontend` | `node:26.7.0-alpine` + Build | 3000 (intern) | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages |
+| `backend` | `rust:1.97.1-trixie` + `debian:trixie-slim` | 8080 (intern) | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung |
+| `db` | `mariadb:12.3.2` | 3306 (intern) | Persistente Datenhaltung, Volltextindex |
 | `importer` | Rust CLI (eigener Build) | – | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB |
 
 ### 3.3 Request-Flow

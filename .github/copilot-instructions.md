@@ -6,7 +6,7 @@ LILLY (Listing Inventory for Lovely Little Yellowbacks) is a PWA for managing an
 
 - **Frontend**: Svelte 5 / SvelteKit with Skeleton UI + Tailwind CSS
 - **Backend**: Rust / Axum REST API with SQLx (compile-time verified queries)
-- **Database**: MariaDB 11.x
+- **Database**: MariaDB 12.3 LTS
 - **Infrastructure**: Docker Compose, Caddy v2 reverse proxy
 - **Importer**: Rust CLI for wiki data import (Maddraxikon, Gruselroman-Wiki)
 

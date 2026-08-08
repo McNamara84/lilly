@@ -66,13 +66,11 @@ impl MaddraxAdapter {
         // Each redirect entry means the Quelle:MX{n} page exists
         if let Some(redirects) = json["query"]["redirects"].as_array() {
             for redirect in redirects {
-                if let Some(from) = redirect["from"].as_str() {
-                    // Extract number from "Quelle:MX123"
-                    if let Some(num_str) = from.strip_prefix("Quelle:MX") {
-                        if let Ok(num) = num_str.parse::<u32>() {
-                            found.push(num);
-                        }
-                    }
+                if let Some(from) = redirect["from"].as_str()
+                    && let Some(num_str) = from.strip_prefix("Quelle:MX")
+                    && let Ok(num) = num_str.parse::<u32>()
+                {
+                    found.push(num);
                 }
             }
         }
@@ -155,13 +153,14 @@ impl MaddraxAdapter {
         for line in wikitext.lines() {
             let original = line.trim();
             let stripped = original.trim_start_matches('|');
-            if !stripped.is_empty() && stripped.len() < original.len() {
-                if let Some((key, value)) = stripped.split_once('=') {
-                    let key = key.trim().to_string();
-                    let value = value.trim().to_string();
-                    if !key.is_empty() && !value.is_empty() {
-                        fields.insert(key, value);
-                    }
+            if !stripped.is_empty()
+                && stripped.len() < original.len()
+                && let Some((key, value)) = stripped.split_once('=')
+            {
+                let key = key.trim().to_string();
+                let value = value.trim().to_string();
+                if !key.is_empty() && !value.is_empty() {
+                    fields.insert(key, value);
                 }
             }
         }
@@ -435,19 +434,18 @@ fn extract_cover_url(html: &str) -> Option<String> {
     ];
 
     for sel_str in &selectors {
-        if let Ok(sel) = Selector::parse(sel_str) {
-            if let Some(img) = document.select(&sel).next() {
-                if let Some(src) = img.value().attr("src") {
-                    let url = if src.starts_with("//") {
-                        format!("https:{src}")
-                    } else if src.starts_with('/') {
-                        format!("{MADDRAXIKON_BASE}{src}")
-                    } else {
-                        src.to_string()
-                    };
-                    return Some(url);
-                }
-            }
+        if let Ok(sel) = Selector::parse(sel_str)
+            && let Some(img) = document.select(&sel).next()
+            && let Some(src) = img.value().attr("src")
+        {
+            let url = if src.starts_with("//") {
+                format!("https:{src}")
+            } else if src.starts_with('/') {
+                format!("{MADDRAXIKON_BASE}{src}")
+            } else {
+                src.to_string()
+            };
+            return Some(url);
         }
     }
     None

@@ -9,7 +9,7 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS_4-06B6D4?logo=tailwindcss&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![Axum](https://img.shields.io/badge/Axum-000000?logo=rust&logoColor=white)
-![MariaDB](https://img.shields.io/badge/MariaDB_11-003545?logo=mariadb&logoColor=white)
+![MariaDB](https://img.shields.io/badge/MariaDB_12.3-003545?logo=mariadb&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 ![Caddy](https://img.shields.io/badge/Caddy_v2-1F88C0?logo=caddy&logoColor=white)
 
@@ -121,7 +121,7 @@ The following scale is the established standard in the German *Heftroman* collec
 | **Frontend** | Svelte 5 / SvelteKit (PWA) |
 | **UI** | Skeleton UI + Tailwind CSS (Glassmorphism design) |
 | **Backend** | Rust + Axum |
-| **Database** | MariaDB 11.x |
+| **Database** | MariaDB 12.3 LTS |
 | **DB Access** | SQLx (compile-time verified queries) |
 | **Auth** | JWT + argon2id, OAuth2 (Google, GitHub) |
 | **API** | REST, documented via OpenAPI 3.1 / Swagger |
