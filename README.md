@@ -52,7 +52,9 @@ docker compose up -d --build
 | Email    | `demo@lilly.app` |
 | Password | `demo1234`       |
 
-The demo user is only created when `ENABLE_DEMO_SEED=true` is set (disabled by default).
+The demo user and a minimal deterministic catalogue fixture are only created when
+`ENABLE_DEMO_SEED=true` is set (disabled by default). This fixture keeps local demos and E2E tests
+independent from live wiki availability.
 
 ---
 

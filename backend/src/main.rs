@@ -50,13 +50,13 @@ async fn main() {
         Err(e) => tracing::error!(error = %e, "Failed to reconcile orphaned import jobs"),
     }
 
-    // Seed demo user only if explicitly enabled (dev/test only)
+    // Seed deterministic demo data only if explicitly enabled (dev/test only)
     if std::env::var("ENABLE_DEMO_SEED")
         .unwrap_or_default()
         .eq_ignore_ascii_case("true")
-        && let Err(e) = db::users::seed_demo_user(&pool).await
+        && let Err(e) = db::demo::seed_demo_data(&pool).await
     {
-        tracing::error!("Failed to seed demo user: {e}");
+        tracing::error!("Failed to seed demo data: {e}");
     }
 
     // Promote admin user if ADMIN_EMAIL is configured

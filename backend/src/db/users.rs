@@ -142,27 +142,27 @@ pub async fn promote_user_to_admin(pool: &MySqlPool, email: &str) -> Result<bool
     Ok(result.rows_affected() > 0)
 }
 
-pub async fn seed_demo_user(pool: &MySqlPool) -> Result<(), anyhow::Error> {
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+pub async fn seed_demo_user(pool: &MySqlPool) -> Result<u32, anyhow::Error> {
+    let password_hash =
+        crate::auth::password::hash_password("demo1234").map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    sqlx::query(
+        "INSERT INTO users (email, password_hash, display_name, role, email_verified) \
+         VALUES (?, ?, ?, 'admin', TRUE) \
+         ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), \
+         display_name = VALUES(display_name), role = 'admin', email_verified = TRUE",
+    )
+    .bind("demo@lilly.app")
+    .bind(&password_hash)
+    .bind("Demo-Sammler")
+    .execute(pool)
+    .await?;
+
+    let (user_id,): (u32,) = sqlx::query_as("SELECT id FROM users WHERE email = ?")
+        .bind("demo@lilly.app")
         .fetch_one(pool)
         .await?;
 
-    if count.0 == 0 {
-        let password_hash =
-            crate::auth::password::hash_password("demo1234").map_err(|e| anyhow::anyhow!("{e}"))?;
-
-        sqlx::query(
-            "INSERT INTO users (email, password_hash, display_name, role, email_verified) \
-             VALUES (?, ?, ?, 'admin', TRUE)",
-        )
-        .bind("demo@lilly.app")
-        .bind(&password_hash)
-        .bind("Demo-Sammler")
-        .execute(pool)
-        .await?;
-
-        tracing::info!("Demo user seeded: demo@lilly.app");
-    }
-
-    Ok(())
+    tracing::info!("Demo user seeded: demo@lilly.app");
+    Ok(user_id)
 }
