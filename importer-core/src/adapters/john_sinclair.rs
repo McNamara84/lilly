@@ -6,6 +6,7 @@ use chrono::{NaiveDate, Utc};
 use reqwest::Client;
 
 use crate::adapter::{AdapterError, WikiAdapter};
+use crate::cover_image::download_cover_image;
 use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus};
 
 const BASE_URL: &str = "https://www.gruselroman-wiki.de";
@@ -324,23 +325,9 @@ impl WikiAdapter for JohnSinclairAdapter {
             return Ok(None);
         };
 
-        let image_response = self
-            .client
-            .get(image_url)
-            .send()
-            .await?
-            .error_for_status()?;
-        let content_type = image_response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("application/octet-stream")
-            .to_string();
-        let bytes = image_response.bytes().await?.to_vec();
-        Ok(Some(CoverData {
-            bytes,
-            content_type,
-        }))
+        download_cover_image(&self.client, &image_url)
+            .await
+            .map(Some)
     }
 }
 

@@ -4,6 +4,7 @@ use scraper::{Html, Selector};
 use std::time::Duration;
 
 use crate::adapter::{AdapterError, WikiAdapter};
+use crate::cover_image::download_cover_image;
 use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus};
 
 const MADDRAXIKON_BASE: &str = "https://de.maddraxikon.com";
@@ -404,20 +405,7 @@ impl WikiAdapter for MaddraxAdapter {
             return Ok(None);
         };
 
-        let img_response = self.client.get(&img_url).send().await?;
-        let content_type = img_response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("image/jpeg")
-            .to_string();
-
-        let bytes = img_response.bytes().await?.to_vec();
-
-        Ok(Some(CoverData {
-            bytes,
-            content_type,
-        }))
+        download_cover_image(&self.client, &img_url).await.map(Some)
     }
 }
 

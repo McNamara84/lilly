@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod adapters;
+mod cover_image;
 pub mod progress;
 pub mod types;
 
