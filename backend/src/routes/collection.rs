@@ -8,9 +8,9 @@ use crate::auth::middleware::AuthUser;
 use crate::db::collection;
 use crate::error::AppError;
 use crate::models::collection::{
-    validate_condition_grade, validate_status, AddCollectionEntryRequest, CollectionEntryResponse,
-    CollectionQueryParams, CollectionStatsResponse, PaginatedCollectionResponse, SeriesStatsEntry,
-    UpdateCollectionEntryRequest,
+    AddCollectionEntryRequest, CollectionEntryResponse, CollectionQueryParams,
+    CollectionStatsResponse, PaginatedCollectionResponse, SeriesStatsEntry,
+    UpdateCollectionEntryRequest, validate_condition_grade, validate_status,
 };
 
 pub fn router() -> Router<AppState> {
@@ -36,12 +36,15 @@ async fn list_collection(
     Query(params): Query<CollectionQueryParams>,
 ) -> Result<Json<PaginatedCollectionResponse>, AppError> {
     // Validate optional filter values
-    if let Some(ref status) = params.status {
-        if status != "missing" && status != "owned" && status != "duplicate" && status != "wanted" {
-            return Err(AppError::BadRequest(format!(
-                "Invalid status filter '{status}'. Must be one of: owned, duplicate, wanted, missing"
-            )));
-        }
+    if let Some(ref status) = params.status
+        && status != "missing"
+        && status != "owned"
+        && status != "duplicate"
+        && status != "wanted"
+    {
+        return Err(AppError::BadRequest(format!(
+            "Invalid status filter '{status}'. Must be one of: owned, duplicate, wanted, missing"
+        )));
     }
     if let Some(ref g) = params.condition_min {
         validate_condition_grade(g).map_err(AppError::BadRequest)?;
@@ -164,12 +167,12 @@ async fn add_to_collection(
     .await
     .map_err(|e| {
         // Detect duplicate key violation
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.kind() == sqlx::error::ErrorKind::UniqueViolation {
-                return AppError::BadRequest(
-                    "Duplicate entry: this issue with the same copy number already exists in your collection".to_string(),
-                );
-            }
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.kind() == sqlx::error::ErrorKind::UniqueViolation
+        {
+            return AppError::BadRequest(
+                "Duplicate entry: this issue with the same copy number already exists in your collection".to_string(),
+            );
         }
         AppError::from(e)
     })?;

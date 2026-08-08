@@ -18,42 +18,41 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Self {
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
+
+    fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
         Self {
-            database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-            jwt_secret: std::env::var("JWT_SECRET").expect("JWT_SECRET must be set"),
-            jwt_access_token_expiry: std::env::var("JWT_ACCESS_TOKEN_EXPIRY")
-                .unwrap_or_else(|_| "900".to_string())
+            database_url: get("DATABASE_URL").expect("DATABASE_URL must be set"),
+            jwt_secret: get("JWT_SECRET").expect("JWT_SECRET must be set"),
+            jwt_access_token_expiry: get("JWT_ACCESS_TOKEN_EXPIRY")
+                .unwrap_or_else(|| "900".to_string())
                 .parse()
                 .expect("JWT_ACCESS_TOKEN_EXPIRY must be a number"),
-            jwt_refresh_token_expiry: std::env::var("JWT_REFRESH_TOKEN_EXPIRY")
-                .unwrap_or_else(|_| "2592000".to_string())
+            jwt_refresh_token_expiry: get("JWT_REFRESH_TOKEN_EXPIRY")
+                .unwrap_or_else(|| "2592000".to_string())
                 .parse()
                 .expect("JWT_REFRESH_TOKEN_EXPIRY must be a number"),
-            backend_port: std::env::var("BACKEND_PORT")
-                .unwrap_or_else(|_| "8080".to_string())
+            backend_port: get("BACKEND_PORT")
+                .unwrap_or_else(|| "8080".to_string())
                 .parse()
                 .expect("BACKEND_PORT must be a number"),
-            smtp_host: std::env::var("SMTP_HOST").ok().filter(|s| !s.is_empty()),
-            smtp_port: std::env::var("SMTP_PORT")
-                .unwrap_or_else(|_| "587".to_string())
+            smtp_host: get("SMTP_HOST").filter(|s| !s.is_empty()),
+            smtp_port: get("SMTP_PORT")
+                .unwrap_or_else(|| "587".to_string())
                 .parse()
                 .expect("SMTP_PORT must be a number"),
-            smtp_user: std::env::var("SMTP_USER").ok().filter(|s| !s.is_empty()),
-            smtp_password: std::env::var("SMTP_PASSWORD")
-                .ok()
-                .filter(|s| !s.is_empty()),
-            smtp_from: std::env::var("SMTP_FROM")
-                .unwrap_or_else(|_| "noreply@lilly.app".to_string()),
-            app_base_url: std::env::var("APP_BASE_URL")
-                .unwrap_or_else(|_| "http://localhost".to_string()),
-            cookie_secure: std::env::var("COOKIE_SECURE")
-                .unwrap_or_else(|_| "false".to_string())
+            smtp_user: get("SMTP_USER").filter(|s| !s.is_empty()),
+            smtp_password: get("SMTP_PASSWORD").filter(|s| !s.is_empty()),
+            smtp_from: get("SMTP_FROM").unwrap_or_else(|| "noreply@lilly.app".to_string()),
+            app_base_url: get("APP_BASE_URL").unwrap_or_else(|| "http://localhost".to_string()),
+            cookie_secure: get("COOKIE_SECURE")
+                .unwrap_or_else(|| "false".to_string())
                 .parse()
                 .unwrap_or(false),
-            admin_email: std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty()),
-            media_path: std::env::var("MEDIA_PATH").unwrap_or_else(|_| "/media".to_string()),
-            media_url_prefix: std::env::var("MEDIA_URL_PREFIX")
-                .unwrap_or_else(|_| "/media".to_string()),
+            admin_email: get("ADMIN_EMAIL").filter(|s| !s.is_empty()),
+            media_path: get("MEDIA_PATH").unwrap_or_else(|| "/media".to_string()),
+            media_url_prefix: get("MEDIA_URL_PREFIX").unwrap_or_else(|| "/media".to_string()),
         }
     }
 }
@@ -64,23 +63,11 @@ mod tests {
 
     #[test]
     fn test_from_env_with_defaults() {
-        std::env::set_var("DATABASE_URL", "mysql://test:test@localhost/test");
-        std::env::set_var("JWT_SECRET", "test-secret");
-        std::env::remove_var("JWT_ACCESS_TOKEN_EXPIRY");
-        std::env::remove_var("JWT_REFRESH_TOKEN_EXPIRY");
-        std::env::remove_var("BACKEND_PORT");
-        std::env::remove_var("SMTP_HOST");
-        std::env::remove_var("SMTP_PORT");
-        std::env::remove_var("SMTP_USER");
-        std::env::remove_var("SMTP_PASSWORD");
-        std::env::remove_var("SMTP_FROM");
-        std::env::remove_var("APP_BASE_URL");
-        std::env::remove_var("COOKIE_SECURE");
-        std::env::remove_var("ADMIN_EMAIL");
-        std::env::remove_var("MEDIA_PATH");
-        std::env::remove_var("MEDIA_URL_PREFIX");
-
-        let config = AppConfig::from_env();
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            _ => None,
+        });
         assert_eq!(config.jwt_access_token_expiry, 900);
         assert_eq!(config.jwt_refresh_token_expiry, 2_592_000);
         assert_eq!(config.backend_port, 8080);

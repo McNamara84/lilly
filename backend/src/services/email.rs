@@ -1,5 +1,5 @@
-use lettre::message::header::ContentType;
 use lettre::message::Mailbox;
+use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Address, AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 

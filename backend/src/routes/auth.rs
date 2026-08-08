@@ -3,8 +3,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use axum_extra::extract::cookie::{Cookie, SameSite};
 use axum_extra::extract::CookieJar;
+use axum_extra::extract::cookie::{Cookie, SameSite};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use validator::Validate;
@@ -149,8 +149,8 @@ async fn register(
     };
 
     // Send verification email only if user was actually created
-    if user_created {
-        if let Err(e) = state
+    if user_created
+        && let Err(e) = state
             .inner
             .email_service
             .send_verification_email(
@@ -160,9 +160,8 @@ async fn register(
                 &state.inner.app_base_url,
             )
             .await
-        {
-            tracing::error!("Failed to send verification email: {e}");
-        }
+    {
+        tracing::error!("Failed to send verification email: {e}");
     }
 
     Ok((
@@ -212,34 +211,30 @@ async fn resend_verification(
         .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
 
     // Always return success to prevent user enumeration
-    if let Ok(Some(user)) = users::find_user_by_email(&state.inner.pool, &payload.email).await {
-        if !user.email_verified {
-            let token = generate_random_token();
-            let token_hash = hash_token(&token);
-            let expires_at = Utc::now().naive_utc() + chrono::Duration::hours(24);
+    if let Ok(Some(user)) = users::find_user_by_email(&state.inner.pool, &payload.email).await
+        && !user.email_verified
+    {
+        let token = generate_random_token();
+        let token_hash = hash_token(&token);
+        let expires_at = Utc::now().naive_utc() + chrono::Duration::hours(24);
 
-            if let Err(e) = users::update_verification_token(
-                &state.inner.pool,
-                user.id,
-                &token_hash,
-                expires_at,
+        if let Err(e) =
+            users::update_verification_token(&state.inner.pool, user.id, &token_hash, expires_at)
+                .await
+        {
+            tracing::error!("Failed to update verification token: {e}");
+        } else if let Err(e) = state
+            .inner
+            .email_service
+            .send_verification_email(
+                &user.email,
+                &user.display_name,
+                &token,
+                &state.inner.app_base_url,
             )
             .await
-            {
-                tracing::error!("Failed to update verification token: {e}");
-            } else if let Err(e) = state
-                .inner
-                .email_service
-                .send_verification_email(
-                    &user.email,
-                    &user.display_name,
-                    &token,
-                    &state.inner.app_base_url,
-                )
-                .await
-            {
-                tracing::error!("Failed to resend verification email: {e}");
-            }
+        {
+            tracing::error!("Failed to resend verification email: {e}");
         }
     }
 

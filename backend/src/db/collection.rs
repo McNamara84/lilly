@@ -423,10 +423,10 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
         where_parts.push("AND s.slug = ?".to_string());
     }
 
-    if let Some(ref status) = params.status {
-        if status != "missing" {
-            where_parts.push("AND ce.status = ?".to_string());
-        }
+    if let Some(ref status) = params.status
+        && status != "missing"
+    {
+        where_parts.push("AND ce.status = ?".to_string());
     }
 
     if params.condition_min.is_some() && params.condition_max.is_some() {

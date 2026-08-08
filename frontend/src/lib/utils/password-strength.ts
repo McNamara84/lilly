@@ -1,4 +1,4 @@
-import { zxcvbn, zxcvbnOptions } from '@zxcvbn-ts/core';
+import { ZxcvbnFactory } from '@zxcvbn-ts/core';
 import * as zxcvbnCommonPackage from '@zxcvbn-ts/language-common';
 import * as zxcvbnDePackage from '@zxcvbn-ts/language-de';
 
@@ -11,7 +11,7 @@ const options = {
 	}
 };
 
-zxcvbnOptions.setOptions(options);
+const zxcvbn = new ZxcvbnFactory(options);
 
 export interface PasswordStrengthResult {
 	score: 0 | 1 | 2 | 3 | 4;
@@ -43,7 +43,7 @@ export function checkPasswordStrength(
 		return { score: 0, label: LABELS[0], color: COLORS[0] };
 	}
 
-	const result = zxcvbn(password, userInputs);
+	const result = zxcvbn.check(password, userInputs);
 	const score = result.score as 0 | 1 | 2 | 3 | 4;
 
 	return {

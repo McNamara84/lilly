@@ -1,4 +1,4 @@
-FROM rust:1-bookworm AS builder
+FROM rust:1.97.1-trixie AS builder
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ RUN touch backend/src/main.rs importer-core/src/lib.rs
 ENV SQLX_OFFLINE=true
 RUN cargo build --release -p lilly-backend
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
