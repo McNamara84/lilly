@@ -158,7 +158,18 @@ describe('SeriesProgressBar', () => {
 			props: { series_name: 'Empty', owned_count: 0, total_count: 0 }
 		});
 
-		expect(screen.getByText(/0\.0%/)).toBeInTheDocument();
+		expect(screen.getByText('Noch keine Hefte verfügbar')).toBeInTheDocument();
+		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+		expect(screen.getByTestId('progress-unavailable')).toBeInTheDocument();
+	});
+
+	it('distinguishes an unknown total from a known zero total', () => {
+		render(SeriesProgressBar, {
+			props: { series_name: 'Unknown', owned_count: 3, total_count: null }
+		});
+
+		expect(screen.getByText('3 gesammelt — Gesamtzahl unbekannt')).toBeInTheDocument();
+		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 	});
 
 	it('renders progressbar with correct ARIA attributes', () => {
@@ -169,7 +180,20 @@ describe('SeriesProgressBar', () => {
 		const bar = screen.getByRole('progressbar');
 		expect(bar).toHaveAttribute('aria-valuemin', '0');
 		expect(bar).toHaveAttribute('aria-valuemax', '100');
-		expect(bar).toHaveAttribute('aria-label', 'Maddrax: 50.0% gesammelt');
+		expect(bar).toHaveAttribute('aria-label', 'Maddrax: 310 von 620 Heften, 50.0% gesammelt');
+	});
+
+	it('uses the backend percentage when supplied', () => {
+		render(SeriesProgressBar, {
+			props: {
+				series_name: 'Test',
+				owned_count: 10,
+				total_count: 50,
+				progress_percent: 19.5
+			}
+		});
+
+		expect(screen.getByText(/19\.5%/)).toBeInTheDocument();
 	});
 
 	it('shows duplicate count when present', () => {

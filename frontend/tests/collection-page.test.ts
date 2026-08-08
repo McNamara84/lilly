@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import CollectionPage from '../src/routes/collection/+page.svelte';
 
 const mockGetAuthState = vi.fn();
@@ -349,6 +349,23 @@ describe('Collection Page', () => {
 
 		await waitFor(() => {
 			expect(screen.getByTestId('collection-filter-bar')).toBeInTheDocument();
+		});
+	});
+
+	it('writes filter changes to a canonical collection URL', async () => {
+		const { goto } = await import('$app/navigation');
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchSeries.mockResolvedValue([{ id: 1, slug: 'maddrax', name: 'Maddrax' }]);
+		render(CollectionPage);
+
+		const series = await screen.findByLabelText('Serie');
+		await waitFor(() => expect(series).toContainHTML('Maddrax'));
+		await fireEvent.change(series, { target: { value: 'maddrax' } });
+
+		expect(goto).toHaveBeenCalledWith('/collection?series_slug=maddrax', {
+			replaceState: false,
+			noScroll: true,
+			keepFocus: true
 		});
 	});
 });

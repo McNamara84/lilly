@@ -39,10 +39,14 @@ pub struct UpdateCollectionEntryRequest {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct CollectionQueryParams {
     pub series_slug: Option<String>,
     pub status: Option<String>,
+    pub issue_number: Option<u32>,
+    pub condition: Option<String>,
+    pub title: Option<String>,
+    pub author: Option<String>,
     pub condition_min: Option<String>,
     pub condition_max: Option<String>,
     pub sort: Option<String>,
@@ -94,11 +98,11 @@ pub struct PaginatedCollectionResponse {
 
 #[derive(Debug, Serialize)]
 pub struct CollectionStatsResponse {
-    pub total_issues: u32,
+    pub total_issues: Option<u32>,
     pub total_owned: u32,
     pub total_duplicate: u32,
     pub total_wanted: u32,
-    pub overall_progress_percent: f64,
+    pub overall_progress_percent: Option<f64>,
     pub series_stats: Vec<SeriesStatsEntry>,
 }
 
@@ -107,11 +111,11 @@ pub struct SeriesStatsEntry {
     pub series_id: u32,
     pub series_name: String,
     pub series_slug: String,
-    pub total_in_series: u32,
+    pub total_in_series: Option<u32>,
     pub owned_count: u32,
     pub duplicate_count: u32,
     pub wanted_count: u32,
-    pub progress_percent: f64,
+    pub progress_percent: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +171,15 @@ impl From<&CollectionEntryRow> for CollectionEntryResponse {
 
 const VALID_CONDITION_GRADES: &[&str] = &["Z0", "Z1", "Z2", "Z3", "Z4", "Z5"];
 const VALID_STATUSES: &[&str] = &["owned", "duplicate", "wanted"];
+const VALID_COLLECTION_SORTS: &[&str] = &[
+    "series",
+    "issue_number",
+    "condition",
+    "title",
+    "author",
+    "added",
+];
+const VALID_SORT_DIRECTIONS: &[&str] = &["asc", "desc"];
 
 pub fn validate_condition_grade(grade: &str) -> Result<(), String> {
     if VALID_CONDITION_GRADES.contains(&grade) {
@@ -185,6 +198,36 @@ pub fn validate_status(status: &str) -> Result<(), String> {
         Err(format!(
             "Invalid status '{status}'. Must be one of: owned, duplicate, wanted"
         ))
+    }
+}
+
+pub fn validate_collection_sort(sort: &str) -> Result<(), String> {
+    if VALID_COLLECTION_SORTS.contains(&sort) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Invalid sort field '{sort}'. Must be one of: series, issue_number, condition, title, author, added"
+        ))
+    }
+}
+
+pub fn validate_sort_direction(direction: &str) -> Result<(), String> {
+    if VALID_SORT_DIRECTIONS.contains(&direction) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Invalid sort direction '{direction}'. Must be one of: asc, desc"
+        ))
+    }
+}
+
+pub fn validate_missing_collection_sort(sort: &str) -> Result<(), String> {
+    if matches!(sort, "condition" | "added") {
+        Err(format!(
+            "Sort field '{sort}' cannot be used with status=missing"
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -222,6 +265,33 @@ mod tests {
         assert!(validate_status("sold").is_err());
         assert!(validate_status("").is_err());
         assert!(validate_status("missing").is_err());
+    }
+
+    #[test]
+    fn test_validate_collection_sort() {
+        for sort in VALID_COLLECTION_SORTS {
+            assert!(validate_collection_sort(sort).is_ok());
+        }
+        assert!(validate_collection_sort("publisher").is_err());
+        assert!(validate_collection_sort("").is_err());
+    }
+
+    #[test]
+    fn test_validate_sort_direction() {
+        for direction in VALID_SORT_DIRECTIONS {
+            assert!(validate_sort_direction(direction).is_ok());
+        }
+        assert!(validate_sort_direction("sideways").is_err());
+        assert!(validate_sort_direction("").is_err());
+    }
+
+    #[test]
+    fn test_validate_missing_collection_sort() {
+        for sort in ["series", "issue_number", "title", "author"] {
+            assert!(validate_missing_collection_sort(sort).is_ok());
+        }
+        assert!(validate_missing_collection_sort("condition").is_err());
+        assert!(validate_missing_collection_sort("added").is_err());
     }
 
     #[test]

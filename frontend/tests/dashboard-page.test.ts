@@ -98,6 +98,7 @@ describe('Dashboard Page', () => {
 			expect(screen.getByTestId('empty-state')).toBeInTheDocument();
 		});
 		expect(screen.getByText(/Deine Sammlung ist noch leer/i)).toBeInTheDocument();
+		expect(screen.queryByTestId('series-progress-section')).not.toBeInTheDocument();
 	});
 
 	it('renders logout button', () => {
@@ -297,6 +298,47 @@ describe('Dashboard Page', () => {
 			expect(screen.getByTestId('series-progress-section')).toBeInTheDocument();
 		});
 		expect(screen.getByText('Maddrax')).toBeInTheDocument();
+	});
+
+	it('renders progress for a series containing only wanted entries', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchCollectionStats.mockResolvedValue({
+			total_issues: 1,
+			total_owned: 0,
+			total_duplicate: 0,
+			total_wanted: 1,
+			overall_progress_percent: 0,
+			series_stats: [
+				{
+					series_id: 1,
+					series_name: 'Maddrax',
+					series_slug: 'maddrax',
+					total_in_series: 1,
+					owned_count: 0,
+					duplicate_count: 0,
+					wanted_count: 1,
+					progress_percent: 0
+				}
+			]
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(screen.getByText('Maddrax')).toBeInTheDocument();
+		});
+		expect(screen.getByText('0 von 1 — 0.0%')).toBeInTheDocument();
+		expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
 	});
 
 	it('renders quick links', () => {

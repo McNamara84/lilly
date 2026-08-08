@@ -66,12 +66,59 @@ test.describe('Collection Overview', () => {
 		expect(textBefore).not.toEqual(textAfter);
 	});
 
-	test('search input is present and editable', async ({ page }) => {
+	test('combined metadata filters survive reload and can be reset', async ({ page }) => {
 		await page.goto('/collection');
-		const input = page.getByTestId('search-input');
-		await expect(input).toBeVisible();
-		await input.fill('Maddrax');
-		await expect(input).toHaveValue('Maddrax');
+		const advancedToggle = page.getByTestId('advanced-filter-toggle');
+		if (await advancedToggle.isVisible()) await advancedToggle.click();
+
+		await page.getByLabel('Serie').selectOption('maddrax');
+		await page.getByTestId('issue-number-filter').fill('1');
+		await page.getByTestId('condition-filter').selectOption('Z1');
+		await page.getByTestId('title-filter').fill('Gott aus dem Eis');
+		await page.getByTestId('author-filter').fill('Zybell');
+		await page.getByLabel('Sortierung').selectOption('author');
+		await page.getByTestId('sort-dir-toggle').click();
+
+		await expect
+			.poll(() => Object.fromEntries(new URL(page.url()).searchParams))
+			.toEqual({
+				series_slug: 'maddrax',
+				issue_number: '1',
+				condition: 'Z1',
+				title: 'Gott aus dem Eis',
+				author: 'Zybell',
+				sort: 'author',
+				sort_dir: 'desc'
+			});
+
+		await page.reload();
+		await expect(page.getByLabel('Serie')).toHaveValue('maddrax');
+		await expect(page.getByTestId('issue-number-filter')).toHaveValue('1');
+		await expect(page.getByTestId('condition-filter')).toHaveValue('Z1');
+		await expect(page.getByTestId('title-filter')).toHaveValue('Gott aus dem Eis');
+		await expect(page.getByTestId('author-filter')).toHaveValue('Zybell');
+		await expect(page.getByLabel('Sortierung')).toHaveValue('author');
+		await expect(page.getByTestId('sort-dir-toggle')).toHaveText('↓');
+
+		await page.getByTestId('reset-filters').click();
+		await expect(page).toHaveURL(/\/collection$/);
+		await expect(page.getByTestId('issue-number-filter')).toHaveValue('');
+		await expect(page.getByTestId('title-filter')).toHaveValue('');
+		await expect(page.getByTestId('author-filter')).toHaveValue('');
+	});
+
+	test('browser back restores the previous filter state', async ({ page }) => {
+		await page.goto('/collection');
+		await page.getByLabel('Serie').selectOption('maddrax');
+		await expect(page).toHaveURL(/\/collection\?series_slug=maddrax$/);
+
+		await page.getByTestId('status-filter-owned').click();
+		await expect(page).toHaveURL(/series_slug=maddrax&status=owned/);
+
+		await page.goBack();
+		await expect(page).toHaveURL(/\/collection\?series_slug=maddrax$/);
+		await expect(page.getByLabel('Serie')).toHaveValue('maddrax');
+		await expect(page.getByTestId('status-filter-all')).toHaveAttribute('aria-checked', 'true');
 	});
 });
 
@@ -268,7 +315,7 @@ test.describe('Collection End-to-End Workflow', () => {
 		await expect(page.getByTestId('issue-detail-sheet')).toBeVisible({ timeout: 5000 });
 
 		// Click backdrop to close
-		await page.getByTestId('detail-sheet-backdrop').click();
+		await page.getByTestId('detail-sheet-backdrop').click({ position: { x: 10, y: 10 } });
 		await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 3000 });
 	});
 
@@ -301,6 +348,98 @@ test.describe('Collection End-to-End Workflow', () => {
 		await expect(textarea).toBeVisible();
 		await textarea.fill('E2E Test Notiz');
 		await expect(textarea).toHaveValue('E2E Test Notiz');
+	});
+
+	test('dashboard progress follows owned, wanted and duplicate status changes', async ({
+		page
+	}) => {
+		async function changeFirstEntryStatus(status: 'owned' | 'duplicate' | 'wanted') {
+			await page.goto('/collection');
+			await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
+			await page.getByTestId('cover-card').first().click();
+			await expect(page.getByTestId('issue-detail-sheet')).toBeVisible({ timeout: 5000 });
+			await page.getByTestId(`status-${status}`).click();
+			await page.getByTestId('save-button').click();
+			await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 5000 });
+		}
+
+		try {
+			await changeFirstEntryStatus('wanted');
+			await page.goto('/');
+			const wantedProgress = page.getByTestId('series-progress-bar').first();
+			await expect(wantedProgress).toContainText(/0 von \d+ — 0\.0%/);
+			await expect(wantedProgress.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+
+			await changeFirstEntryStatus('duplicate');
+			await page.goto('/');
+			const duplicateProgress = page.getByTestId('series-progress-bar').first();
+			await expect(duplicateProgress).toContainText('1 Doppelte');
+			const duplicateBar = duplicateProgress.getByRole('progressbar');
+			const progressLabel = await duplicateBar.getAttribute('aria-label');
+			const totalMatch = progressLabel?.match(/1 von (\d+) Heften/);
+			expect(totalMatch).not.toBeNull();
+			const expectedPercent = 100 / Number(totalMatch![1]);
+			await expect(duplicateProgress).toContainText(`1 von ${totalMatch![1]}`);
+			expect(Number(await duplicateBar.getAttribute('aria-valuenow'))).toBeCloseTo(
+				expectedPercent,
+				8
+			);
+		} finally {
+			await changeFirstEntryStatus('owned');
+		}
+	});
+
+	test('empty collection does not show progress for unrelated active series', async ({ page }) => {
+		type SnapshotEntry = {
+			id: number;
+			issue_id: number;
+			copy_number: number | null;
+			condition_grade: string | null;
+			status: 'owned' | 'duplicate' | 'wanted';
+			notes: string | null;
+		};
+
+		const collectionResponse = await page.request.get('/api/v1/me/collection?per_page=100');
+		expect(collectionResponse.ok()).toBe(true);
+		const snapshot = (await collectionResponse.json()) as { data: SnapshotEntry[] };
+		expect(snapshot.data.length).toBeGreaterThan(0);
+
+		const deletedEntries: SnapshotEntry[] = [];
+		try {
+			for (const entry of snapshot.data) {
+				const deleteResponse = await page.request.delete(`/api/v1/me/collection/${entry.id}`);
+				if (deleteResponse.ok()) deletedEntries.push(entry);
+				expect(deleteResponse.ok()).toBe(true);
+			}
+
+			const statsResponse = await page.request.get('/api/v1/me/collection/stats');
+			expect(statsResponse.ok()).toBe(true);
+			const stats = (await statsResponse.json()) as {
+				total_issues: number | null;
+				overall_progress_percent: number | null;
+				series_stats: unknown[];
+			};
+			expect(stats.total_issues).toBeNull();
+			expect(stats.overall_progress_percent).toBeNull();
+			expect(stats.series_stats).toEqual([]);
+
+			await page.goto('/');
+			await expect(page.getByTestId('empty-state')).toBeVisible();
+			await expect(page.getByTestId('series-progress-section')).toHaveCount(0);
+		} finally {
+			for (const entry of deletedEntries) {
+				const restoreResponse = await page.request.post('/api/v1/me/collection', {
+					data: {
+						issue_id: entry.issue_id,
+						copy_number: entry.copy_number ?? 1,
+						condition_grade: entry.condition_grade ?? 'Z1',
+						status: entry.status,
+						notes: entry.notes
+					}
+				});
+				expect(restoreResponse.ok()).toBe(true);
+			}
+		}
 	});
 });
 

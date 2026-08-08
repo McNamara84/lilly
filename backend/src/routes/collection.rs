@@ -10,7 +10,8 @@ use crate::error::AppError;
 use crate::models::collection::{
     AddCollectionEntryRequest, CollectionEntryResponse, CollectionQueryParams,
     CollectionStatsResponse, PaginatedCollectionResponse, SeriesStatsEntry,
-    UpdateCollectionEntryRequest, validate_condition_grade, validate_status,
+    UpdateCollectionEntryRequest, validate_collection_sort, validate_condition_grade,
+    validate_missing_collection_sort, validate_sort_direction, validate_status,
 };
 
 pub fn router() -> Router<AppState> {
@@ -58,29 +59,48 @@ async fn list_collection(
             "condition_min and condition_max must be provided together".to_string(),
         ));
     }
+    if let Some(ref condition) = params.condition {
+        validate_condition_grade(condition).map_err(AppError::BadRequest)?;
+    }
+    if params.issue_number == Some(0) {
+        return Err(AppError::BadRequest(
+            "issue_number must be greater than zero".to_string(),
+        ));
+    }
+    if let Some(ref sort) = params.sort {
+        validate_collection_sort(sort).map_err(AppError::BadRequest)?;
+    }
+    if let Some(ref direction) = params.sort_dir {
+        validate_sort_direction(direction).map_err(AppError::BadRequest)?;
+    }
 
     // Handle the virtual "missing" status via a separate query path
     if params.status.as_deref() == Some("missing") {
-        let series_slug = params.series_slug.as_deref().ok_or_else(|| {
+        params.series_slug.as_deref().ok_or_else(|| {
             AppError::BadRequest(
                 "series_slug is required when filtering by status=missing".to_string(),
             )
         })?;
+        if params.condition.is_some()
+            || params.condition_min.is_some()
+            || params.condition_max.is_some()
+        {
+            return Err(AppError::BadRequest(
+                "condition filters cannot be used with status=missing".to_string(),
+            ));
+        }
+        if let Some(ref sort) = params.sort {
+            validate_missing_collection_sort(sort).map_err(AppError::BadRequest)?;
+        }
 
         let per_page = params.per_page.clamp(1, 100);
         let page = params.page.max(1);
 
         let total =
-            collection::count_missing_issues(&state.inner.pool, auth.user_id, series_slug).await?;
+            collection::count_missing_issues(&state.inner.pool, auth.user_id, &params).await?;
 
-        let missing = collection::find_missing_issues(
-            &state.inner.pool,
-            auth.user_id,
-            series_slug,
-            page,
-            per_page,
-        )
-        .await?;
+        let missing =
+            collection::find_missing_issues(&state.inner.pool, auth.user_id, &params).await?;
 
         let data = missing
             .iter()
@@ -292,43 +312,21 @@ async fn collection_stats(
     let stats = collection::get_collection_stats(&state.inner.pool, auth.user_id).await?;
     let series = collection::get_series_stats(&state.inner.pool, auth.user_id).await?;
 
-    // Calculate total issues across all active series the user collects
-    let total_issues_in_series: u32 = series
-        .iter()
-        .map(|s| {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            {
-                s.total_in_series as u32
-            }
-        })
-        .sum();
-
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let total_owned = stats.total_owned as u32;
-
-    let overall_progress = if total_issues_in_series > 0 {
-        (f64::from(total_owned) / f64::from(total_issues_in_series)) * 100.0
-    } else {
-        0.0
-    };
 
     let series_stats = series
         .iter()
         .map(|s| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let total = s.total_in_series as u32;
+            let imported = s.imported_total as u32;
+            let total = resolve_series_total(s.declared_total, imported);
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let owned = s.owned_count as u32;
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let duplicate = s.duplicate_count as u32;
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let wanted = s.wanted_count as u32;
-
-            let progress = if total > 0 {
-                (f64::from(owned) / f64::from(total)) * 100.0
-            } else {
-                0.0
-            };
 
             SeriesStatsEntry {
                 series_id: s.series_id,
@@ -338,14 +336,16 @@ async fn collection_stats(
                 owned_count: owned,
                 duplicate_count: duplicate,
                 wanted_count: wanted,
-                progress_percent: progress,
+                progress_percent: calculate_progress(owned, total),
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    let (total_issues, overall_progress) = calculate_overall_stats(&series_stats);
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Ok(Json(CollectionStatsResponse {
-        total_issues: total_issues_in_series,
+        total_issues,
         total_owned,
         total_duplicate: stats.total_duplicate as u32,
         total_wanted: stats.total_wanted as u32,
@@ -354,9 +354,64 @@ async fn collection_stats(
     }))
 }
 
+fn resolve_series_total(declared_total: Option<u32>, imported_total: u32) -> Option<u32> {
+    match declared_total {
+        Some(declared) => Some(declared.max(imported_total)),
+        None if imported_total > 0 => Some(imported_total),
+        None => None,
+    }
+}
+
+fn calculate_progress(owned: u32, total: Option<u32>) -> Option<f64> {
+    total
+        .filter(|total| *total > 0)
+        .map(|total| (f64::from(owned) / f64::from(total)) * 100.0)
+}
+
+fn calculate_overall_stats(series_stats: &[SeriesStatsEntry]) -> (Option<u32>, Option<f64>) {
+    if series_stats.is_empty()
+        || series_stats
+            .iter()
+            .any(|series| series.total_in_series.is_none())
+    {
+        return (None, None);
+    }
+
+    let total_issues = series_stats.iter().fold(0u32, |sum, series| {
+        sum.saturating_add(series.total_in_series.unwrap_or_default())
+    });
+    let total_owned = series_stats.iter().fold(0u32, |sum, series| {
+        if series.total_in_series.is_some_and(|total| total > 0) {
+            sum.saturating_add(series.owned_count)
+        } else {
+            sum
+        }
+    });
+    let total_issues = Some(total_issues);
+
+    (total_issues, calculate_progress(total_owned, total_issues))
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::models::collection::{validate_condition_grade, validate_status};
+    use super::{calculate_overall_stats, calculate_progress, resolve_series_total};
+    use crate::models::collection::{
+        SeriesStatsEntry, validate_collection_sort, validate_condition_grade,
+        validate_sort_direction, validate_status,
+    };
+
+    fn series_stats(owned_count: u32, total_in_series: Option<u32>) -> SeriesStatsEntry {
+        SeriesStatsEntry {
+            series_id: 1,
+            series_name: "Test series".to_string(),
+            series_slug: "test-series".to_string(),
+            total_in_series,
+            owned_count,
+            duplicate_count: 0,
+            wanted_count: 0,
+            progress_percent: calculate_progress(owned_count, total_in_series),
+        }
+    }
 
     #[test]
     fn test_status_filter_values() {
@@ -374,5 +429,53 @@ mod tests {
             assert!(validate_condition_grade(g).is_ok());
         }
         assert!(validate_condition_grade("Z6").is_err());
+    }
+
+    #[test]
+    fn test_sort_filter_values() {
+        for sort in &[
+            "series",
+            "issue_number",
+            "condition",
+            "title",
+            "author",
+            "added",
+        ] {
+            assert!(validate_collection_sort(sort).is_ok());
+        }
+        assert!(validate_collection_sort("unknown").is_err());
+        assert!(validate_sort_direction("asc").is_ok());
+        assert!(validate_sort_direction("desc").is_ok());
+        assert!(validate_sort_direction("random").is_err());
+    }
+
+    #[test]
+    fn series_total_prefers_the_larger_known_value() {
+        assert_eq!(resolve_series_total(Some(620), 600), Some(620));
+        assert_eq!(resolve_series_total(Some(600), 620), Some(620));
+        assert_eq!(resolve_series_total(Some(0), 0), Some(0));
+        assert_eq!(resolve_series_total(None, 620), Some(620));
+        assert_eq!(resolve_series_total(None, 0), None);
+    }
+
+    #[test]
+    fn progress_handles_known_unknown_and_zero_totals() {
+        assert_eq!(calculate_progress(50, Some(200)), Some(25.0));
+        assert_eq!(calculate_progress(0, Some(0)), None);
+        assert_eq!(calculate_progress(0, None), None);
+    }
+
+    #[test]
+    fn overall_stats_require_every_series_total_to_be_known() {
+        let mixed_totals = [series_stats(10, Some(10)), series_stats(0, None)];
+        assert_eq!(calculate_overall_stats(&mixed_totals), (None, None));
+
+        let known_totals = [series_stats(10, Some(10)), series_stats(5, Some(10))];
+        assert_eq!(
+            calculate_overall_stats(&known_totals),
+            (Some(20), Some(75.0))
+        );
+
+        assert_eq!(calculate_overall_stats(&[]), (None, None));
     }
 }

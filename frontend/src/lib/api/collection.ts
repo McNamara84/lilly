@@ -30,11 +30,11 @@ export interface PaginatedCollection {
 }
 
 export interface CollectionStats {
-	total_issues: number;
+	total_issues: number | null;
 	total_owned: number;
 	total_duplicate: number;
 	total_wanted: number;
-	overall_progress_percent: number;
+	overall_progress_percent: number | null;
 	series_stats: SeriesStats[];
 }
 
@@ -42,11 +42,11 @@ export interface SeriesStats {
 	series_id: number;
 	series_name: string;
 	series_slug: string;
-	total_in_series: number;
+	total_in_series: number | null;
 	owned_count: number;
 	duplicate_count: number;
 	wanted_count: number;
-	progress_percent: number;
+	progress_percent: number | null;
 }
 
 export interface AddCollectionEntryRequest {
@@ -66,6 +66,10 @@ export interface UpdateCollectionEntryRequest {
 export interface CollectionQueryParams {
 	series_slug?: string;
 	status?: string;
+	issue_number?: number;
+	condition?: string;
+	title?: string;
+	author?: string;
 	condition_min?: string;
 	condition_max?: string;
 	sort?: string;
@@ -110,12 +114,13 @@ function buildQueryString(params: CollectionQueryParams): string {
 // ---------------------------------------------------------------------------
 
 export async function fetchCollection(
-	params: CollectionQueryParams = {}
+	params: CollectionQueryParams = {},
+	signal?: AbortSignal
 ): Promise<PaginatedCollection> {
 	const qs = buildQueryString(params);
-	const response = await fetch(`${API_BASE}/me/collection${qs}`, {
-		credentials: 'same-origin'
-	});
+	const init: RequestInit = { credentials: 'same-origin' };
+	if (signal) init.signal = signal;
+	const response = await fetch(`${API_BASE}/me/collection${qs}`, init);
 	return handleResponse<PaginatedCollection>(response);
 }
 

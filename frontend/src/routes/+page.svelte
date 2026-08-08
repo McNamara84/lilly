@@ -73,7 +73,9 @@
 			<StatsCard label="Gesamte Hefte" value={stats?.total_owned ?? 0} icon="📚" />
 			<StatsCard
 				label="Sammlungsfortschritt"
-				value="{(stats?.overall_progress_percent ?? 0).toFixed(1)}%"
+				value={stats?.overall_progress_percent === null || stats === null
+					? '—'
+					: `${stats.overall_progress_percent.toFixed(1)}%`}
 				icon="📈"
 			/>
 			<StatsCard label="Tauschbar" value={stats?.total_duplicate ?? 0} icon="🔄" />
@@ -91,6 +93,7 @@
 						series_name={s.series_name}
 						owned_count={s.owned_count}
 						total_count={s.total_in_series}
+						progress_percent={s.progress_percent}
 						duplicate_count={s.duplicate_count}
 					/>
 				{/each}
