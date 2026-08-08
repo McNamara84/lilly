@@ -1,5 +1,11 @@
 <script lang="ts">
-	import type { CollectionEntry } from '$lib/api/collection';
+	import type { CollectionEntry, PersistedCollectionStatus } from '$lib/api/collection';
+	import type { ConditionGrade } from '$lib/collection/conditions';
+	import {
+		MAX_COLLECTION_NOTE_LENGTH,
+		countCollectionNoteCharacters,
+		limitCollectionNote
+	} from '$lib/collection/notes';
 	import type { Issue } from '$lib/api/series';
 	import ConditionChips from './ConditionChips.svelte';
 
@@ -9,9 +15,9 @@
 		onclose: () => void;
 		onsave: (data: {
 			issue_id: number;
-			condition_grade: string;
-			status?: string;
-			notes?: string;
+			condition_grade: ConditionGrade;
+			status: PersistedCollectionStatus;
+			notes: string;
 		}) => void;
 		ondelete?: () => void;
 		error?: string | null;
@@ -19,19 +25,22 @@
 
 	let { issue, collection_entry, onclose, onsave, ondelete, error = null }: Props = $props();
 
-	let conditionGrade = $state('Z2');
-	let status = $state('owned');
+	let conditionGrade = $state<ConditionGrade>('Z2');
+	let status = $state<PersistedCollectionStatus>('owned');
 	let notes = $state('');
+	const ENTRY_STATUSES = ['owned', 'duplicate', 'wanted'] as const;
 
 	// Sync state when props change
 	$effect(() => {
 		conditionGrade = collection_entry?.condition_grade ?? 'Z2';
-		status = collection_entry?.status ?? 'owned';
+		status =
+			collection_entry && collection_entry.status !== 'missing' ? collection_entry.status : 'owned';
 		notes = collection_entry?.notes ?? '';
 	});
 
 	const isOpen = $derived(issue !== null);
 	const isEditing = $derived(collection_entry !== null && collection_entry.id > 0);
+	const noteLength = $derived(countCollectionNoteCharacters(notes));
 
 	function handleSave() {
 		if (!issue) return;
@@ -39,12 +48,18 @@
 			issue_id: issue.id,
 			condition_grade: conditionGrade,
 			status,
-			notes: notes.trim() || undefined
+			notes
 		});
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') onclose();
+	}
+
+	function handleNotesInput(event: Event) {
+		const textarea = event.currentTarget as HTMLTextAreaElement;
+		notes = limitCollectionNote(textarea.value);
+		if (textarea.value !== notes) textarea.value = notes;
 	}
 </script>
 
@@ -116,7 +131,7 @@
 
 				<!-- Status toggle -->
 				<div class="flex gap-2 mb-4" role="radiogroup" aria-label="Status">
-					{#each ['owned', 'duplicate', 'wanted'] as s (s)}
+					{#each ENTRY_STATUSES as s (s)}
 						{@const isActive = status === s}
 						{@const label = s === 'owned' ? 'Vorhanden' : s === 'duplicate' ? 'Doppelt' : 'Gesucht'}
 						{@const color = `var(--color-status-${s})`}
@@ -150,12 +165,17 @@
 				</label>
 				<textarea
 					id="entry-notes"
-					bind:value={notes}
+					value={notes}
+					oninput={handleNotesInput}
 					rows="3"
+					aria-describedby="entry-notes-hint"
 					class="w-full rounded-lg p-2 text-sm resize-none"
 					style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
 					placeholder="Optionale Notizen..."
 					data-testid="notes-textarea"></textarea>
+				<p id="entry-notes-hint" class="mt-1 text-[10px]" style="color: var(--text-tertiary);">
+					Leeren und speichern entfernt die Notiz. {noteLength}/{MAX_COLLECTION_NOTE_LENGTH}
+				</p>
 			</section>
 
 			<!-- Error message -->

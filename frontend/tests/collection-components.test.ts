@@ -78,13 +78,14 @@ describe('ConditionChips', () => {
 		onchange = vi.fn();
 	});
 
-	it('renders all 6 condition grades', () => {
+	it('renders exactly the five condition grades from Z0 through Z4', () => {
 		render(ConditionChips, { props: { value: null, onchange } });
 
 		expect(screen.getByTestId('condition-chips')).toBeInTheDocument();
-		for (const g of ['Z0', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5']) {
+		for (const g of ['Z0', 'Z1', 'Z2', 'Z3', 'Z4']) {
 			expect(screen.getByTestId(`condition-chip-${g}`)).toBeInTheDocument();
 		}
+		expect(screen.queryByTestId('condition-chip-Z5')).not.toBeInTheDocument();
 	});
 
 	it('marks selected chip as pressed', () => {
@@ -107,18 +108,29 @@ describe('ConditionChips', () => {
 		render(ConditionChips, { props: { value: 'Z0', onchange, disabled: true } });
 
 		expect(screen.getByTestId('condition-chip-Z0')).toBeDisabled();
-		expect(screen.getByTestId('condition-chip-Z5')).toBeDisabled();
+		expect(screen.getByTestId('condition-chip-Z4')).toBeDisabled();
 	});
 
 	it('shows German sublabels', () => {
 		render(ConditionChips, { props: { value: null, onchange } });
 
-		expect(screen.getByText('Neuwertig')).toBeInTheDocument();
-		expect(screen.getByText('Sehr gut')).toBeInTheDocument();
-		expect(screen.getByText('Gut')).toBeInTheDocument();
-		expect(screen.getByText('Akzeptabel')).toBeInTheDocument();
-		expect(screen.getByText('Schlecht')).toBeInTheDocument();
-		expect(screen.getByText('Sehr schlecht')).toBeInTheDocument();
+		expect(screen.getByText('Druckfrisch')).toBeInTheDocument();
+		expect(screen.getByText('Sehr gut erhalten')).toBeInTheDocument();
+		expect(screen.getByText('Gut erhalten')).toBeInTheDocument();
+		expect(screen.getByText('Stärker beschädigt')).toBeInTheDocument();
+		expect(screen.getByText('Stark beschädigt')).toBeInTheDocument();
+	});
+
+	it('exposes the complete condition definition accessibly', () => {
+		render(ConditionChips, { props: { value: null, onchange } });
+
+		expect(screen.getByTestId('condition-chip-Z0')).toHaveAccessibleName(
+			/Z0: Druckfrisch\. Druckfrisches neues Heft ohne jegliche Mängel/
+		);
+		expect(screen.getByTestId('condition-chip-Z4')).toHaveAttribute(
+			'title',
+			expect.stringContaining('lose oder fehlende Seiten')
+		);
 	});
 
 	it('has accessible fieldset label', () => {

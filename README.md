@@ -68,7 +68,7 @@ While generic book managers and general-purpose collector software exist, there 
 
 ### Collection Management
 - Add issues from available series to your personal collection
-- Condition grading using the established collector scale (Z0–Z5)
+- Condition grading using the established collector scale (Z0–Z4)
 - Mark issues as *Owned*, *Duplicate/Tradeable*, or *Wanted*
 - Collection progress per series as progress bar and percentage
 - Grid view of all issues in a series with color-coded ownership status
@@ -107,12 +107,11 @@ The following scale is the established standard in the German *Heftroman* collec
 
 | Grade | Label | Description |
 |-------|-------|-------------|
-| **Z0** | Mint | Unread, no signs of use, newsstand condition |
-| **Z1** | Near Mint | Minimally read, barely visible signs of use |
-| **Z2** | Good | Read, light signs of use, minor corner creases possible |
-| **Z3** | Acceptable | Noticeable signs of use, creases, slight discoloration |
-| **Z4** | Poor | Heavy signs of use, tears, stains, loose pages |
-| **Z5** | Damaged | Severe damage, missing pages, water damage |
+| **Z0** | Mint | Freshly printed, no defects, white interior pages |
+| **Z1** | Near Mint | Minimal signs of use, no tears or cover markings |
+| **Z2** | Good | Normal signs of use, small edge tears or a light reading roll |
+| **Z3** | Damaged | Larger tears, strong reading roll, darkened or stained pages |
+| **Z4** | Heavily damaged | Torn or marked cover, tattered appearance, possibly loose or missing pages |
 
 ---
 
@@ -286,7 +285,7 @@ GitHub Actions workflows run automatically:
 ### Phase 1 – MVP
 - Collection management for Maddrax and John Sinclair
 - Data import from Maddraxikon and Gruselroman-Wiki
-- Condition grading (Z0–Z5)
+- Condition grading (Z0–Z4)
 - User registration (email + OAuth)
 - Trade matching and messaging system
 - Public profiles and statistics

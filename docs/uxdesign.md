@@ -63,8 +63,8 @@ Die Cyan-Palette (50–950) bildet die Markenidentität. Der Basiswert `#06b6d4`
 **Akzentfarbe: Sky Blue (brand.accent)**
 Sky Blue wird sparsam für sekundäre Highlights und Links eingesetzt und ergänzt die Primärfarbe harmonisch.
 
-**Zustandsfarben (condition.Z0–Z5)**
-Eine intuitive Grün-zu-Rot-Skala kodiert den Heftzustand von neuwertig (Grün) bis defekt (Rot). Diese Farben werden als Badges auf Cover-Karten und als Chips im Zustandswähler verwendet.
+**Zustandsfarben (condition.Z0–Z4)**
+Eine intuitive Grün-zu-Rot-Skala kodiert den Heftzustand von druckfrisch (Grün) bis stark beschädigt (Rot). Diese Farben werden als Badges auf Cover-Karten und als Chips im Zustandswähler verwendet.
 
 **Sammlungsstatus-Farben (collection_status)**
 Vier Farben kennzeichnen den Besitzstatus: Cyan für vorhanden, Lila für doppelt/tauschbar, Amber für gesucht, transparent für fehlend.
@@ -166,7 +166,7 @@ Alle Komponenten sind in `components.json` vollständig spezifiziert. Hier eine 
 Die CoverCard ist das visuelle Herzstück von LILLY. Sie zeigt ein Heftroman-Cover im Format 2:3 mit kontextuellen Overlays:
 
 - **Heftnummer** (oben links, Glass-Pill, Monospace-Font)
-- **Zustandsbadge** (oben rechts, farbig nach Z0–Z5)
+- **Zustandsbadge** (oben rechts, farbig nach Z0–Z4)
 - **Statusindikator** (unten, farbig nach owned/duplicate/wanted/missing)
 
 Hover-Effekt: 5% Scale-up mit Glow-Schatten (Cyan). Fehlende Hefte werden mit 40% Opacity und gestricheltem Rand dargestellt, was visuell sofort die Lücken in der Sammlung zeigt.
@@ -177,7 +177,7 @@ CSS-Grid mit `auto-fill` und `minmax(140px, 1fr)` für vollautomatische responsi
 
 ### 5.3 ConditionChips
 
-Horizontale Chip-Gruppe für die Zustandsauswahl Z0–Z5. Jeder Chip ist in der jeweiligen Zustandsfarbe gehalten (von Grün bis Rot). Ausgewählter Chip: gefüllt mit Glow. Nicht ausgewählt: Glass-Hintergrund, gedämpfter Text.
+Horizontale Chip-Gruppe für die Zustandsauswahl Z0–Z4. Jeder Chip ist in der jeweiligen Zustandsfarbe gehalten (von Grün bis Rot). Ausgewählter Chip: gefüllt mit Glow. Nicht ausgewählt: Glass-Hintergrund, gedämpfter Text.
 
 ### 5.4 SeriesProgressBar
 
@@ -228,7 +228,7 @@ Alle Screens sind in `screens.json` vollständig spezifiziert. Hier eine Übersi
 
 **Sammlung (`/collection`):** FilterBar (sticky) + CoverGrid mit Infinite Scroll. Floating Action Button zum Hinzufügen. Long-Press für Multi-Select und Batch-Operationen.
 
-**Hefte hinzufügen (`/collection/add`):** Serienauswahl, dann Nummern-Grid mit farbiger Kennzeichnung. Optimiert für schnelles Batch-Hinzufügen: Tap zum Togglen, Bereich-Auswahl für zusammenhängende Nummern.
+**Hefte verwalten (`/collection/add`):** Serienauswahl, dann responsives Nummern-Grid mit den vier farblich und textlich gekennzeichneten Zuständen „Vorhanden“, „Doppelt/Tauschbar“, „Gesucht“ und „Fehlend“. Ein Tap beziehungsweise Tastendruck öffnet die Heftdetails; Status, Zustand und persönliche Notiz werden dort bewusst gespeichert. Ein Rasterklick fügt nichts unmittelbar hinzu und löscht nichts unmittelbar.
 
 **Tausch (`/trades`):** Zwei-Tab-Ansicht mit "Vorschläge" (TradeMatchCards) und "Aktive Tausche". Semi-automatisches Matching wird visuell durch Match-Score-Ringe dargestellt.
 

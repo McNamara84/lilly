@@ -53,9 +53,8 @@
       "Z1": "#34d399",
       "Z2": "#a3e635",
       "Z3": "#facc15",
-      "Z4": "#f97316",
-      "Z5": "#ef4444",
-      "$description": "Color coding for Heftroman condition grades Z0 (mint) to Z5 (poor). Green-to-red gradient for intuitive quality indication."
+      "Z4": "#ef4444",
+      "$description": "Color coding for Heftroman condition grades Z0 (mint) to Z4 (heavily damaged). Green-to-red gradient for intuitive quality indication."
     },
 
     "collection_status": {

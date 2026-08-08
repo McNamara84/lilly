@@ -273,7 +273,12 @@ describe('Issue Detail Page', () => {
 		await user.click(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ }));
 
 		await waitFor(() => {
-			expect(mockAddToCollection).toHaveBeenCalledOnce();
+			expect(mockAddToCollection).toHaveBeenCalledWith({
+				issue_id: 42,
+				condition_grade: 'Z2',
+				status: 'owned',
+				notes: ''
+			});
 		});
 	});
 
@@ -292,8 +297,32 @@ describe('Issue Detail Page', () => {
 		await user.click(screen.getByRole('button', { name: /Speichern/ }));
 
 		await waitFor(() => {
-			expect(mockUpdateCollectionEntry).toHaveBeenCalledOnce();
+			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(1, {
+				condition_grade: 'Z1',
+				status: 'owned',
+				notes: 'Test note'
+			});
 		});
+	});
+
+	it('sends an empty note explicitly when clearing an existing note', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
+		mockUpdateCollectionEntry.mockResolvedValue({ ...sampleEntry, notes: null });
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByLabelText('Notizen')).toHaveValue('Test note'));
+		await user.clear(screen.getByLabelText('Notizen'));
+		await user.click(screen.getByRole('button', { name: 'Speichern' }));
+
+		await waitFor(() =>
+			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(
+				1,
+				expect.objectContaining({ notes: '' })
+			)
+		);
 	});
 
 	it('calls deleteCollectionEntry when remove button is clicked', async () => {

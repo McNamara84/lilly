@@ -1,4 +1,5 @@
 import type { CollectionQueryParams } from '$lib/api/collection';
+import { CONDITION_GRADES } from '$lib/collection/conditions';
 
 export const COLLECTION_SORTS = [
 	'issue_number',
@@ -10,7 +11,7 @@ export const COLLECTION_SORTS = [
 ] as const;
 
 export const COLLECTION_STATUSES = ['owned', 'duplicate', 'wanted', 'missing'] as const;
-export const CONDITION_GRADES = ['Z0', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5'] as const;
+export { CONDITION_GRADES };
 
 function trimmed(value: string | null | undefined): string | undefined {
 	const result = value?.trim();

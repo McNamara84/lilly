@@ -152,7 +152,7 @@ describe('IssueDetailSheet', () => {
 			issue_id: 42,
 			condition_grade: 'Z2',
 			status: 'owned',
-			notes: undefined
+			notes: ''
 		});
 	});
 
@@ -298,6 +298,45 @@ describe('IssueDetailSheet', () => {
 				notes: 'Test notes'
 			})
 		);
+	});
+
+	it('sends an empty string to remove an existing note', async () => {
+		render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: sampleEntry, onclose, onsave }
+		});
+		const user = userEvent.setup();
+
+		const textarea = screen.getByTestId('notes-textarea');
+		await user.clear(textarea);
+		await user.click(screen.getByTestId('save-button'));
+
+		expect(onsave).toHaveBeenCalledWith(expect.objectContaining({ notes: '' }));
+	});
+
+	it('preserves unicode and line breaks in notes', async () => {
+		render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }
+		});
+		const user = userEvent.setup();
+
+		await user.type(screen.getByTestId('notes-textarea'), 'Erste Zeile\nGrüße 📚');
+		await user.click(screen.getByTestId('save-button'));
+
+		expect(onsave).toHaveBeenCalledWith(
+			expect.objectContaining({ notes: 'Erste Zeile\nGrüße 📚' })
+		);
+	});
+
+	it('limits notes to 10,000 Unicode characters and displays a counter', async () => {
+		render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }
+		});
+		const textarea = screen.getByTestId('notes-textarea') as HTMLTextAreaElement;
+
+		expect(screen.getByText(/0\/10000/)).toBeInTheDocument();
+		await fireEvent.input(textarea, { target: { value: '📚'.repeat(10_001) } });
+		expect(Array.from(textarea.value)).toHaveLength(10_000);
+		expect(screen.getByText(/10000\/10000/)).toBeInTheDocument();
 	});
 
 	it('prefers cover_local_path over cover_url', () => {

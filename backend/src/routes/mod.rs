@@ -10,6 +10,7 @@ pub mod admin;
 pub mod auth;
 pub mod collection;
 pub mod health;
+pub mod profiles;
 pub mod series;
 
 #[derive(Clone)]

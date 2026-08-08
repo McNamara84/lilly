@@ -10,8 +10,10 @@
 		updateCollectionEntry,
 		deleteCollectionEntry,
 		type CollectionEntry,
-		type CollectionQueryParams
+		type CollectionQueryParams,
+		type PersistedCollectionStatus
 	} from '$lib/api/collection';
+	import type { ConditionGrade } from '$lib/collection/conditions';
 	import { fetchSeries } from '$lib/api/series';
 	import CollectionFilterBar from '$lib/components/collection/CollectionFilterBar.svelte';
 	import CoverGrid from '$lib/components/collection/CoverGrid.svelte';
@@ -129,9 +131,9 @@
 
 	async function handleSave(data: {
 		issue_id: number;
-		condition_grade: string;
-		status?: string;
-		notes?: string;
+		condition_grade: ConditionGrade;
+		status: PersistedCollectionStatus;
+		notes: string;
 	}) {
 		sheetError = null;
 		try {

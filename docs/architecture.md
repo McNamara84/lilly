@@ -178,6 +178,7 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `avatar_path` | VARCHAR(500) | NULL | Pfad zum Avatar-Bild |
 | `location` | VARCHAR(255) | NULL | Standort (freiwillig, für Tausch-Nähe) |
 | `profile_public` | BOOLEAN | NOT NULL, DEF 0 | Profil öffentlich sichtbar? |
+| `collection_public` | BOOLEAN | NOT NULL, DEF 0 | Sammlung einschließlich persönlicher Heftnotizen öffentlich sichtbar? |
 | `oauth_provider` | VARCHAR(50) | NULL | 'google' \| 'github' \| NULL |
 | `oauth_id` | VARCHAR(255) | NULL | Externe OAuth-ID |
 | `created_at` | TIMESTAMP | NOT NULL | Registrierungszeitpunkt |
@@ -190,7 +191,7 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `user_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf users.id (ON DELETE CASCADE) |
 | `issue_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf issues.id |
 | `copy_number` | TINYINT UNSIGNED | NOT NULL, DEF 1 | Exemplarnummer (1 = Erstexemplar, 2+ = weitere Auflagen/Kopien, vgl. SV-009) |
-| `condition_grade` | ENUM | NOT NULL | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4' \| 'Z5' |
+| `condition_grade` | ENUM | NOT NULL | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4' |
 | `status` | ENUM | NOT NULL | 'owned' \| 'duplicate' \| 'wanted' |
 | `notes` | TEXT | NULL | Persönliche Notizen |
 | `created_at` | TIMESTAMP | NOT NULL | Zeitpunkt der Erfassung |
@@ -276,8 +277,11 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **POST** | `/api/v1/messages` | Ja | Nachricht senden |
 | **GET** | `/api/v1/me/collection/stats` | Ja | Sammlungsstatistiken (Gesamt, pro Serie, Doppelte, Gesuchte) |
 | **GET** | `/api/v1/me/activity` | Ja | Letzte Aktivitäten des Nutzers (Timeline) |
-| **GET** | `/api/v1/users/{name}/profile` | Nein | Öffentliches Profil + Statistiken |
-| **GET** | `/api/v1/users/{name}/collection` | Nein | Öffentliche Sammlung (wenn freigegeben) |
+| **GET** | `/api/v1/me/profile` | Ja | Eigenes Profil + Sichtbarkeitseinstellungen |
+| **PATCH** | `/api/v1/me/profile/visibility` | Ja | Profil- und Sammlungssichtbarkeit ändern |
+| **GET** | `/api/v1/users/{user_id}/profile` | Nein | Öffentliches Profil (wenn freigegeben) |
+| **GET** | `/api/v1/users/{user_id}/collection` | Nein | Öffentliche Sammlung einschließlich Notizen (wenn freigegeben) |
+| **GET** | `/api/v1/users/{user_id}/collection/stats` | Nein | Öffentliche Sammlungsstatistiken (wenn freigegeben) |
 | **GET** | `/api/v1/users` | Nein | Öffentliche Sammler-Liste (sortier-/filterbar) |
 | **GET** | `/api/v1/issues/most-wanted` | Nein | Meistgesuchte Hefte plattformweit |
 
@@ -486,7 +490,7 @@ lilly/
 - **CORS:** Strikte CORS-Policy – nur die eigene Domain ist als Origin erlaubt.
 - **Rate Limiting:** Tower-Middleware im Axum-Backend: 10 Requests/Minute für Auth-Endpunkte, 100 Requests/Minute für allgemeine API-Nutzung.
 - **Input-Validierung:** Alle Eingaben werden serverseitig validiert (serde + validator-Crate). SQL Injection wird durch SQLx-Prepared-Statements verhindert.
-- **XSS:** SvelteKit escaped Output automatisch. User-generierte Inhalte (Notizen, Kommentare) werden zusätzlich serverseitig sanitized.
+- **XSS:** SvelteKit escaped Output automatisch. User-generierte Notizen werden ausschließlich als Text gespeichert und gerendert; ungeprüftes HTML wird nicht ausgegeben.
 - **CSRF:** API-Calls sind durch JWT im Authorization-Header geschützt (kein Cookie). Der Refresh-Token wird jedoch als httpOnly-Cookie übertragen, daher ist der Endpunkt `/api/v1/auth/refresh` prinzipiell CSRF-anfällig. Schutzmaßnahmen: `SameSite=Strict` auf dem Refresh-Cookie, serverseitige Validierung des `Origin`-Headers, und Beschränkung des Refresh-Endpunkts auf das Ausstellen neuer Tokens (keine zustandsändernde Geschäftslogik).
 - **Upload-Sicherheit:** Nur JPEG, PNG und WebP erlaubt. Maximale Dateigröße: 5 MB. Dateien werden serverseitig re-encoded (image-Crate), um Exploits in Bild-Metadaten zu eliminieren.
 - **Datenschutz:** E-Mail-Adressen werden verschlüsselt gespeichert (AES-256-GCM). Account-Löschung entfernt alle personenbezogenen Daten inklusive Fotos.

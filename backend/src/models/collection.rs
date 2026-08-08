@@ -169,7 +169,7 @@ impl From<&CollectionEntryRow> for CollectionEntryResponse {
 // Validation helpers
 // ---------------------------------------------------------------------------
 
-const VALID_CONDITION_GRADES: &[&str] = &["Z0", "Z1", "Z2", "Z3", "Z4", "Z5"];
+const VALID_CONDITION_GRADES: &[&str] = &["Z0", "Z1", "Z2", "Z3", "Z4"];
 const VALID_STATUSES: &[&str] = &["owned", "duplicate", "wanted"];
 const VALID_COLLECTION_SORTS: &[&str] = &[
     "series",
@@ -180,13 +180,14 @@ const VALID_COLLECTION_SORTS: &[&str] = &[
     "added",
 ];
 const VALID_SORT_DIRECTIONS: &[&str] = &["asc", "desc"];
+pub const MAX_COLLECTION_NOTE_LENGTH: usize = 10_000;
 
 pub fn validate_condition_grade(grade: &str) -> Result<(), String> {
     if VALID_CONDITION_GRADES.contains(&grade) {
         Ok(())
     } else {
         Err(format!(
-            "Invalid condition grade '{grade}'. Must be one of: Z0, Z1, Z2, Z3, Z4, Z5"
+            "Invalid condition grade '{grade}'. Must be one of: Z0, Z1, Z2, Z3, Z4"
         ))
     }
 }
@@ -198,6 +199,26 @@ pub fn validate_status(status: &str) -> Result<(), String> {
         Err(format!(
             "Invalid status '{status}'. Must be one of: owned, duplicate, wanted"
         ))
+    }
+}
+
+/// Validate and normalize a personal collection note without changing its
+/// meaningful whitespace. Empty or whitespace-only notes are stored as NULL.
+pub fn normalize_collection_note(note: Option<&str>) -> Result<Option<&str>, String> {
+    let Some(note) = note else {
+        return Ok(None);
+    };
+
+    if note.chars().count() > MAX_COLLECTION_NOTE_LENGTH {
+        return Err(format!(
+            "Collection notes must not exceed {MAX_COLLECTION_NOTE_LENGTH} characters"
+        ));
+    }
+
+    if note.trim().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(note))
     }
 }
 
@@ -249,6 +270,7 @@ mod tests {
     #[test]
     fn test_validate_condition_grade_invalid() {
         assert!(validate_condition_grade("Z6").is_err());
+        assert!(validate_condition_grade("Z5").is_err());
         assert!(validate_condition_grade("").is_err());
         assert!(validate_condition_grade("z0").is_err());
     }
@@ -265,6 +287,27 @@ mod tests {
         assert!(validate_status("sold").is_err());
         assert!(validate_status("").is_err());
         assert!(validate_status("missing").is_err());
+    }
+
+    #[test]
+    fn test_normalize_collection_note_preserves_unicode_and_line_breaks() {
+        let note = "  Erste Zeile\r\nZweite Zeile 🟡  ";
+        assert_eq!(normalize_collection_note(Some(note)), Ok(Some(note)));
+    }
+
+    #[test]
+    fn test_normalize_collection_note_turns_blank_text_into_none() {
+        assert_eq!(normalize_collection_note(Some(" \n\t ")), Ok(None));
+        assert_eq!(normalize_collection_note(None), Ok(None));
+    }
+
+    #[test]
+    fn test_normalize_collection_note_counts_unicode_characters() {
+        let valid = "ä".repeat(MAX_COLLECTION_NOTE_LENGTH);
+        assert!(normalize_collection_note(Some(&valid)).is_ok());
+
+        let invalid = "🟡".repeat(MAX_COLLECTION_NOTE_LENGTH + 1);
+        assert!(normalize_collection_note(Some(&invalid)).is_err());
     }
 
     #[test]

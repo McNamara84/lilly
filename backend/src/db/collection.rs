@@ -488,9 +488,9 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
 
     if params.condition_min.is_some() && params.condition_max.is_some() {
         where_parts.push(
-            "AND FIELD(ce.condition_grade, 'Z0','Z1','Z2','Z3','Z4','Z5') \
-             BETWEEN FIELD(?, 'Z0','Z1','Z2','Z3','Z4','Z5') \
-             AND FIELD(?, 'Z0','Z1','Z2','Z3','Z4','Z5')"
+            "AND FIELD(ce.condition_grade, 'Z0','Z1','Z2','Z3','Z4') \
+             BETWEEN FIELD(?, 'Z0','Z1','Z2','Z3','Z4') \
+             AND FIELD(?, 'Z0','Z1','Z2','Z3','Z4')"
                 .to_string(),
         );
     }
@@ -531,7 +531,7 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
     let sort_field = match params.sort.as_deref() {
         Some("series") => "s.name",
         Some("title") => "i.title",
-        Some("condition") => "FIELD(ce.condition_grade, 'Z0','Z1','Z2','Z3','Z4','Z5')",
+        Some("condition") => "FIELD(ce.condition_grade, 'Z0','Z1','Z2','Z3','Z4')",
         Some("author") => {
             "COALESCE((SELECT MIN(p.name) FROM issue_persons ip \
              JOIN persons p ON ip.person_id = p.id \

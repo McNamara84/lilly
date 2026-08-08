@@ -10,8 +10,9 @@ use crate::error::AppError;
 use crate::models::collection::{
     AddCollectionEntryRequest, CollectionEntryResponse, CollectionQueryParams,
     CollectionStatsResponse, PaginatedCollectionResponse, SeriesStatsEntry,
-    UpdateCollectionEntryRequest, validate_collection_sort, validate_condition_grade,
-    validate_missing_collection_sort, validate_sort_direction, validate_status,
+    UpdateCollectionEntryRequest, normalize_collection_note, validate_collection_sort,
+    validate_condition_grade, validate_missing_collection_sort, validate_sort_direction,
+    validate_status,
 };
 
 pub fn router() -> Router<AppState> {
@@ -175,6 +176,8 @@ async fn add_to_collection(
         )));
     }
 
+    let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
+
     let entry_id = collection::add_entry(
         &state.inner.pool,
         auth.user_id,
@@ -182,7 +185,7 @@ async fn add_to_collection(
         copy_number,
         &body.condition_grade,
         status,
-        body.notes.as_deref(),
+        notes,
     )
     .await
     .map_err(|e| {
@@ -239,12 +242,14 @@ async fn update_entry(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Collection entry {entry_id} not found")))?;
 
-    // Convert Option<String> → Option<Option<&str>> for notes
-    let notes_param: Option<Option<&str>> = if body.notes.is_some() {
-        Some(body.notes.as_deref())
-    } else {
-        None
-    };
+    // A present but empty note explicitly clears the stored value. Omitting the
+    // field leaves it unchanged, preserving PATCH semantics.
+    let notes_param = body
+        .notes
+        .as_deref()
+        .map(|note| normalize_collection_note(Some(note)))
+        .transpose()
+        .map_err(AppError::BadRequest)?;
 
     collection::update_entry(
         &state.inner.pool,
@@ -425,9 +430,10 @@ mod tests {
 
     #[test]
     fn test_condition_grade_filter_values() {
-        for g in &["Z0", "Z1", "Z2", "Z3", "Z4", "Z5"] {
+        for g in &["Z0", "Z1", "Z2", "Z3", "Z4"] {
             assert!(validate_condition_grade(g).is_ok());
         }
+        assert!(validate_condition_grade("Z5").is_err());
         assert!(validate_condition_grade("Z6").is_err());
     }
 

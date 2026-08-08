@@ -110,7 +110,7 @@
       "overlays": {
         "condition_badge": {
           "position": "top-right",
-          "content": "Z0–Z5 label",
+          "content": "Z0–Z4 label",
           "style": "Small pill badge, colored per condition.Z* token, backdrop-blur"
         },
         "status_indicator": {
@@ -170,7 +170,7 @@
     "IssueDetailSheet": {
       "description": "Bottom sheet (mobile) or side panel (desktop) showing full details of a single issue. Glassmorphism elevated card.",
       "file": "src/lib/components/collection/IssueDetailSheet.svelte",
-      "trigger": "Tap/click on CoverCard",
+	  "trigger": "Tap/click on CoverCard or SeriesStatusGrid cell",
       "style": "glassmorphism.card_elevated",
       "layout": {
         "mobile": "Bottom sheet, slides up from bottom, max 85vh, draggable handle",
@@ -183,7 +183,7 @@
         },
         {
           "name": "collection_actions",
-          "content": ["Status toggle (owned/duplicate/wanted)", "Condition selector (Z0–Z5 chips)", "Notes textarea", "Photo upload button"],
+		  "content": ["Status toggle (owned/duplicate/wanted)", "Condition selector (Z0–Z4 chips)", "Notes textarea (10,000 Unicode characters, clear to remove)", "Photo upload button"],
           "description": "Only shown for authenticated users"
         },
         {
@@ -200,20 +200,19 @@
     },
 
     "ConditionChips": {
-      "description": "Horizontal chip group for selecting Heftroman condition grade Z0–Z5. Single-select.",
+      "description": "Horizontal chip group for selecting Heftroman condition grade Z0–Z4. Single-select.",
       "file": "src/lib/components/collection/ConditionChips.svelte",
       "props": {
-        "value": { "type": "'Z0'|'Z1'|'Z2'|'Z3'|'Z4'|'Z5'|null", "required": true },
-        "on_change": { "type": "(grade: 'Z0'|'Z1'|'Z2'|'Z3'|'Z4'|'Z5') => void", "required": true },
+        "value": { "type": "'Z0'|'Z1'|'Z2'|'Z3'|'Z4'|null", "required": true },
+        "on_change": { "type": "(grade: 'Z0'|'Z1'|'Z2'|'Z3'|'Z4') => void", "required": true },
         "disabled": { "type": "boolean", "default": false }
       },
       "chips": [
-        { "value": "Z0", "label": "Z0", "sublabel": "Neuwertig",      "color": "condition.Z0" },
-        { "value": "Z1", "label": "Z1", "sublabel": "Sehr gut",       "color": "condition.Z1" },
-        { "value": "Z2", "label": "Z2", "sublabel": "Gut",            "color": "condition.Z2" },
-        { "value": "Z3", "label": "Z3", "sublabel": "Akzeptabel",     "color": "condition.Z3" },
-        { "value": "Z4", "label": "Z4", "sublabel": "Mängel",         "color": "condition.Z4" },
-        { "value": "Z5", "label": "Z5", "sublabel": "Schlecht",       "color": "condition.Z5" }
+        { "value": "Z0", "label": "Z0", "sublabel": "Druckfrisch",         "color": "condition.Z0" },
+        { "value": "Z1", "label": "Z1", "sublabel": "Sehr gut erhalten",   "color": "condition.Z1" },
+        { "value": "Z2", "label": "Z2", "sublabel": "Gut erhalten",        "color": "condition.Z2" },
+        { "value": "Z3", "label": "Z3", "sublabel": "Stärker beschädigt",  "color": "condition.Z3" },
+        { "value": "Z4", "label": "Z4", "sublabel": "Stark beschädigt",    "color": "condition.Z4" }
       ],
       "visual": {
         "unselected": "Glass background, muted text",
@@ -221,6 +220,38 @@
         "transition": "Scale spring animation on select"
       }
     },
+
+	"SeriesStatusGrid": {
+	  "description": "Responsive grid that joins every issue in a series with collection entries and renders four deterministic states.",
+	  "file": "src/lib/components/collection/SeriesStatusGrid.svelte",
+	  "props": {
+		"issues": { "type": "Issue[]", "required": true },
+		"entries": { "type": "CollectionEntry[]", "required": true },
+		"onselect": { "type": "(issue, entry, trigger) => void", "required": true }
+	  },
+	  "states": [
+		{ "value": "owned", "label": "Vorhanden", "marker": "V" },
+		{ "value": "duplicate", "label": "Doppelt/Tauschbar", "marker": "D" },
+		{ "value": "wanted", "label": "Gesucht", "marker": "G" },
+		{ "value": "missing", "label": "Fehlend", "marker": "F" }
+	  ],
+	  "priority": ["duplicate", "owned", "wanted", "missing"],
+	  "accessibility": "Every cell is a native button with issue, status and action in its accessible name; status is never conveyed by color alone."
+	},
+
+	"CollectionStatusLegend": {
+	  "description": "Legend for all four grid states with visible markers and labels.",
+	  "file": "src/lib/components/collection/CollectionStatusLegend.svelte"
+	},
+
+	"CollectionNote": {
+	  "description": "Read-only escaped rendering of a personal collection note. Preserves line breaks and provides an explicit empty state.",
+	  "file": "src/lib/components/collection/CollectionNote.svelte",
+	  "props": {
+		"note": { "type": "string|null", "required": true },
+		"emptyText": { "type": "string", "default": "Keine öffentliche Notiz." }
+	  }
+	},
 
     "TradeMatchCard": {
       "description": "Card showing a potential trade match between current user and another collector. Shows what each side offers/seeks.",
@@ -261,7 +292,7 @@
       "filters": [
         { "name": "series", "type": "select", "label": "Serie", "description": "Dropdown to filter by series" },
         { "name": "status", "type": "chip_group", "options": ["Alle", "Vorhanden", "Doppelt", "Gesucht", "Fehlend"], "description": "Quick filter chips" },
-        { "name": "condition", "type": "range", "min": "Z0", "max": "Z5", "description": "Condition range slider" },
+        { "name": "condition", "type": "range", "min": "Z0", "max": "Z4", "description": "Condition range slider" },
         { "name": "sort", "type": "select", "options": ["Heftnummer", "Titel", "Zustand", "Hinzugefügt"], "description": "Sort order" },
         { "name": "search", "type": "text", "placeholder": "Titel oder Autor...", "description": "Inline text filter" }
       ]
