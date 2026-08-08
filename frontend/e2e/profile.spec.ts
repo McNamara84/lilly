@@ -164,10 +164,10 @@ test.describe('Profile Visibility and Public Notes', () => {
 			expect(publicEntry?.notes).toBe(note);
 
 			await page.goto(`/users/${profileSnapshot.id}/collection`);
-			await expect(
-				page.getByTestId('collection-note').filter({ hasText: 'Grüße aus Köln' })
-			).toBeVisible();
-			await expect(page.locator('script')).toHaveCount(0);
+			const publicNote = page.getByTestId('collection-note').filter({ hasText: 'Grüße aus Köln' });
+			await expect(publicNote).toBeVisible();
+			await expect(publicNote).toContainText('<script>alert(1)</script>');
+			await expect(publicNote.locator('script')).toHaveCount(0);
 
 			const clearResponse = await page.request.patch(`/api/v1/me/collection/${entry.id}`, {
 				data: { notes: '' }

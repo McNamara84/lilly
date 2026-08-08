@@ -42,7 +42,7 @@
 
     "semantic": {
       "success": "#10b981",
-      "warning": "#f59e0b",
+      "warning": "#b45309",
       "error": "#ef4444",
       "info": "#06b6d4",
       "$description": "Semantic colors for status indicators and feedback."
@@ -80,7 +80,8 @@
         "secondary": "#94a3b8",
         "tertiary": "#64748b",
         "inverse": "#0f172a",
-        "$description": "Dark mode text hierarchy."
+        "warning": "#fbbf24",
+        "$description": "Dark mode text hierarchy, including the accessible warning text override."
       }
     },
 
