@@ -37,6 +37,8 @@ pub struct IssueData {
     pub title: String,
     pub authors: Vec<String>,
     pub published_at: Option<chrono::NaiveDate>,
+    pub part_number: Option<u32>,
+    pub part_total: Option<u32>,
     pub cycle: Option<String>,
     pub cover_artists: Vec<String>,
     pub keywords: Vec<String>,
@@ -90,6 +92,8 @@ mod tests {
             title: "Dunkle Zukunft".to_string(),
             authors: vec!["Jo Zybell".to_string()],
             published_at: None,
+            part_number: Some(1),
+            part_total: Some(2),
             cycle: Some("Euree".to_string()),
             cover_artists: vec!["Koveck".to_string()],
             keywords: vec!["Kometeneinschlag".to_string(), "Taratzen".to_string()],
@@ -100,6 +104,8 @@ mod tests {
         assert_eq!(data.title, "Dunkle Zukunft");
         assert_eq!(data.cover_artists[0], "Koveck");
         assert_eq!(data.keywords.len(), 2);
+        assert_eq!(data.part_number, Some(1));
+        assert_eq!(data.part_total, Some(2));
     }
 
     #[test]

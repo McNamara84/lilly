@@ -20,6 +20,8 @@ export interface Issue {
 	title: string;
 	authors: string[];
 	published_at: string | null;
+	part_number: number | null;
+	part_total: number | null;
 	cycle: string | null;
 	cover_artists: string[];
 	keywords: string[];

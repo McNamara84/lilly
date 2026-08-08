@@ -7,7 +7,8 @@ import {
 	startImport,
 	fetchImportJob,
 	fetchImportSeriesIssues,
-	fetchImportHistory
+	fetchImportHistory,
+	fetchImportSchedule
 } from '../src/lib/api/admin';
 
 const mockFetch = vi.fn();
@@ -176,6 +177,26 @@ describe('Admin API', () => {
 				credentials: 'same-origin'
 			});
 			expect(result).toEqual(history);
+		});
+	});
+
+	describe('fetchImportSchedule', () => {
+		it('fetches the automatic import schedule', async () => {
+			const status = {
+				enabled: true,
+				schedule: '0 10 6 * * Sat *',
+				timezone: 'Europe/Berlin',
+				adapters: ['maddrax', 'john-sinclair'],
+				next_run: '2026-08-08T04:10:00Z'
+			};
+			mockFetch.mockResolvedValue(jsonResponse(status));
+
+			const result = await fetchImportSchedule();
+
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/schedule', {
+				credentials: 'same-origin'
+			});
+			expect(result).toEqual(status);
 		});
 	});
 

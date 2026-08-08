@@ -4,6 +4,7 @@ use scraper::{Html, Selector};
 use std::time::Duration;
 
 use crate::adapter::{AdapterError, WikiAdapter};
+use crate::cover_image::download_cover_image;
 use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus};
 
 const MADDRAXIKON_BASE: &str = "https://de.maddraxikon.com";
@@ -351,17 +352,12 @@ impl WikiAdapter for MaddraxAdapter {
             })
             .unwrap_or_default();
 
-        // Split comma-separated notes
-        let notes: Vec<String> = fields
+        // Split comma-separated notes and normalize an optional multipart marker.
+        let raw_notes = fields
             .get("Besonderes")
             .map(|s| Self::strip_wiki_markup(s))
-            .map(|a| {
-                a.split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            })
             .unwrap_or_default();
+        let (part_number, part_total, notes) = parse_multipart_and_notes(&raw_notes);
 
         let published_at = fields
             .get("Erscheinungsdatum")
@@ -377,6 +373,8 @@ impl WikiAdapter for MaddraxAdapter {
             title,
             authors,
             published_at,
+            part_number,
+            part_total,
             cycle,
             cover_artists,
             keywords,
@@ -407,21 +405,35 @@ impl WikiAdapter for MaddraxAdapter {
             return Ok(None);
         };
 
-        let img_response = self.client.get(&img_url).send().await?;
-        let content_type = img_response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("image/jpeg")
-            .to_string();
-
-        let bytes = img_response.bytes().await?.to_vec();
-
-        Ok(Some(CoverData {
-            bytes,
-            content_type,
-        }))
+        download_cover_image(&self.client, &img_url).await.map(Some)
     }
+}
+
+fn parse_multipart_and_notes(raw: &str) -> (Option<u32>, Option<u32>, Vec<String>) {
+    let part_pattern = regex::Regex::new(r"(?i)^teil\s+(\d+)\s+von\s+(\d+)\.?$")
+        .expect("multipart regex must be valid");
+    let mut part = None;
+    let mut notes = Vec::new();
+
+    for segment in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let parsed = part_pattern.captures(segment).and_then(|captures| {
+            let number = captures.get(1)?.as_str().parse::<u32>().ok()?;
+            let total = captures.get(2)?.as_str().parse::<u32>().ok()?;
+            (number > 0 && number <= total).then_some((number, total))
+        });
+
+        if part.is_none()
+            && let Some(parsed) = parsed
+        {
+            part = Some(parsed);
+        } else {
+            notes.push(segment.to_string());
+        }
+    }
+
+    let (part_number, part_total) =
+        part.map_or((None, None), |(number, total)| (Some(number), Some(total)));
+    (part_number, part_total, notes)
 }
 
 fn extract_cover_url(html: &str) -> Option<String> {
@@ -686,5 +698,48 @@ mod tests {
             "Kometeneinschlag, Taratzen, Feuervogel"
         );
         assert_eq!(fields.get("Besonderes").unwrap(), "Teil 1 von 2");
+    }
+
+    #[test]
+    fn test_parse_multipart_only() {
+        assert_eq!(
+            parse_multipart_and_notes("Teil 1 von 2"),
+            (Some(1), Some(2), vec![])
+        );
+    }
+
+    #[test]
+    fn test_parse_multipart_between_other_notes() {
+        assert_eq!(
+            parse_multipart_and_notes("Jubiläumsband, Teil 2 von 3, Mit Poster"),
+            (
+                Some(2),
+                Some(3),
+                vec!["Jubiläumsband".to_string(), "Mit Poster".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_multipart_is_case_and_whitespace_insensitive() {
+        assert_eq!(
+            parse_multipart_and_notes("  TEIL   3   VON  4. "),
+            (Some(3), Some(4), vec![])
+        );
+    }
+
+    #[test]
+    fn test_parse_multipart_rejects_invalid_positions_without_losing_note() {
+        for raw in ["Teil 0 von 2", "Teil 3 von 2", "Teil x von y"] {
+            assert_eq!(
+                parse_multipart_and_notes(raw),
+                (None, None, vec![raw.to_string()])
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_multipart_empty() {
+        assert_eq!(parse_multipart_and_notes(""), (None, None, vec![]));
     }
 }

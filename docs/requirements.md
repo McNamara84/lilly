@@ -56,7 +56,7 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 - **Open Source:** Der gesamte Quellcode wird unter der GNU General Public License v3.0 (GPLv3) veröffentlicht. Community-Beiträge sind erwünscht.
 - **Kein kommerzielles Geschäftsmodell:** LILLY ist ein Community-Projekt. Es wird kein Unternehmen gegründet. Es gibt keinen Verkauf, keine Provisionen, keine Werbung.
 - **Datenschutz:** Konformität mit der DSGVO ist erforderlich, insbesondere hinsichtlich Nutzerdaten, Profil-Öffentlichkeit und Nachrichten.
-- **Urheberrecht:** Cover-Bilder aus den Fan-Wikis dürfen nur unter Beachtung der jeweiligen Lizenzbedingungen der Wikis eingebunden werden. Nutzer-Uploads unterliegen der Verantwortung der Nutzer.
+- **Urheberrecht:** Für die von Bastei publizierten Serien liegt dem Projekt die Erlaubnis vor, sämtliche Bastei-Cover zu verwenden; deren Einbindung ist daher nicht von Lizenzmetadaten der Fan-Wikis abhängig. Für Cover anderer Rechteinhaber gelten deren jeweilige Nutzungsbedingungen. Nutzer-Uploads unterliegen der Verantwortung der Nutzer.
 
 ---
 

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use axum::Router;
 use lilly_importer_core::adapter::AdapterRegistry;
+use lilly_importer_core::adapters::john_sinclair::JohnSinclairAdapter;
 use lilly_importer_core::adapters::maddrax::MaddraxAdapter;
 use sqlx::mysql::MySqlPoolOptions;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
@@ -49,13 +50,13 @@ async fn main() {
         Err(e) => tracing::error!(error = %e, "Failed to reconcile orphaned import jobs"),
     }
 
-    // Seed demo user only if explicitly enabled (dev/test only)
+    // Seed deterministic demo data only if explicitly enabled (dev/test only)
     if std::env::var("ENABLE_DEMO_SEED")
         .unwrap_or_default()
         .eq_ignore_ascii_case("true")
-        && let Err(e) = db::users::seed_demo_user(&pool).await
+        && let Err(e) = db::demo::seed_demo_data(&pool).await
     {
-        tracing::error!("Failed to seed demo user: {e}");
+        tracing::error!("Failed to seed demo data: {e}");
     }
 
     // Promote admin user if ADMIN_EMAIL is configured
@@ -69,6 +70,16 @@ async fn main() {
     adapter_registry.register(Box::new(
         MaddraxAdapter::new().expect("Failed to create Maddrax adapter"),
     ));
+    adapter_registry.register(Box::new(
+        JohnSinclairAdapter::new().expect("Failed to create John Sinclair adapter"),
+    ));
+
+    let import_scheduler_config = services::import_scheduler::ImportSchedulerConfig {
+        enabled: config.import_scheduler_enabled,
+        schedule: config.import_schedule.clone(),
+        timezone: config.import_timezone.clone(),
+        adapters: config.import_scheduled_adapters.clone(),
+    };
 
     let app_state = routes::AppState {
         inner: std::sync::Arc::new(routes::AppStateInner {
@@ -82,8 +93,15 @@ async fn main() {
             adapter_registry,
             media_path: PathBuf::from(config.media_path),
             media_url_prefix: config.media_url_prefix,
+            import_scheduler_config: import_scheduler_config.clone(),
         }),
     };
+
+    services::import_scheduler::spawn_import_scheduler(
+        app_state.inner.clone(),
+        import_scheduler_config,
+    )
+    .expect("Invalid import scheduler configuration");
 
     let app = Router::new()
         .merge(routes::health::router())

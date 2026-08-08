@@ -24,13 +24,24 @@ export interface ImportJob {
 	series_id: number;
 	series_slug: string;
 	adapter_name: string;
+	trigger_type: 'manual' | 'scheduled';
+	scheduled_for: string | null;
 	status: string;
 	total_issues: number;
 	imported_issues: number;
+	failed_issues: number;
 	error_message: string | null;
-	started_by: number;
+	started_by: number | null;
 	started_at: string | null;
 	completed_at: string | null;
+}
+
+export interface ImportScheduleStatus {
+	enabled: boolean;
+	schedule: string;
+	timezone: string;
+	adapters: string[];
+	next_run: string | null;
 }
 
 export interface IssueAdmin {
@@ -40,6 +51,8 @@ export interface IssueAdmin {
 	title: string;
 	authors: string[];
 	published_at: string | null;
+	part_number: number | null;
+	part_total: number | null;
 	cycle: string | null;
 	cover_artists: string[];
 	keywords: string[];
@@ -132,4 +145,11 @@ export async function fetchImportHistory(): Promise<ImportJob[]> {
 		credentials: 'same-origin'
 	});
 	return handleResponse<ImportJob[]>(response);
+}
+
+export async function fetchImportSchedule(): Promise<ImportScheduleStatus> {
+	const response = await fetch(`${API_BASE}/admin/import/schedule`, {
+		credentials: 'same-origin'
+	});
+	return handleResponse<ImportScheduleStatus>(response);
 }

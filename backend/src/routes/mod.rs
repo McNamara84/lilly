@@ -4,6 +4,7 @@ use std::sync::Arc;
 use lilly_importer_core::adapter::AdapterRegistry;
 
 use crate::services::email::EmailService;
+use crate::services::import_scheduler::ImportSchedulerConfig;
 
 pub mod admin;
 pub mod auth;
@@ -27,4 +28,5 @@ pub struct AppStateInner {
     pub adapter_registry: AdapterRegistry,
     pub media_path: PathBuf,
     pub media_url_prefix: String,
+    pub import_scheduler_config: ImportSchedulerConfig,
 }

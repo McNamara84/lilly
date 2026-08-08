@@ -16,6 +16,8 @@ const sampleIssue: Issue = {
 	authors: ['Jo Zybell'],
 	cycle: 'Kreuzfahrt',
 	published_at: '2000-02-11',
+	part_number: null,
+	part_total: null,
 	keywords: ['Zukunft'],
 	cover_artists: [],
 	notes: []

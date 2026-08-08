@@ -19,17 +19,17 @@ test.describe.serial('Admin Import Flow', () => {
 		const select = page.getByTestId('adapter-select');
 		await expect(select).toBeVisible();
 
-		// The maddrax adapter should be available
-		await expect(select.locator('option')).not.toHaveCount(0);
+		// The test uses Maddrax explicitly so adapter registry ordering cannot affect it.
+		await expect(select.locator('option[value="maddrax"]')).toHaveCount(1);
 	});
 
 	test('start import creates job and shows progress', async ({ page }) => {
 		await page.goto('/admin/import');
 
-		// Wait for adapters to load, then select the first one
+		// Wait for adapters to load, then select a deterministic adapter.
 		const select = page.getByTestId('adapter-select');
-		await expect(select.locator('option')).not.toHaveCount(0);
-		await select.selectOption({ index: 0 });
+		await expect(select.locator('option[value="maddrax"]')).toHaveCount(1);
+		await select.selectOption('maddrax');
 
 		// Start import
 		const startButton = page.getByTestId('start-import-button');
@@ -45,11 +45,14 @@ test.describe.serial('Admin Import Flow', () => {
 		// Progress section should be visible
 		await expect(page.getByTestId('progress-section')).toBeVisible();
 
-		// Status should be running or completed (if incremental with 0 new issues)
+		// The external source may finish or fail before the detail request completes.
+		// This flow verifies that the created job is rendered in every valid state.
 		const status = page.getByTestId('job-status');
 		await expect(status).toBeVisible();
 		const statusText = await status.textContent();
-		expect(['running', 'completed', 'pending']).toContain(statusText?.trim());
+		expect(['pending', 'running', 'completed', 'completed_with_errors', 'failed']).toContain(
+			statusText?.trim()
+		);
 	});
 
 	test('import detail page shows progress count', async ({ page }) => {
@@ -65,7 +68,7 @@ test.describe.serial('Admin Import Flow', () => {
 		const progressCount = page.getByTestId('progress-count');
 		await expect(progressCount).toBeVisible({ timeout: 30000 });
 		const text = await progressCount.textContent();
-		expect(text).toMatch(/\d+\s*\/\s*\d+\s*Hefte/);
+		expect(text).toMatch(/\d+\s*\/\s*\d+\s*bearbeitet/);
 	});
 
 	test('back link navigates to import overview', async ({ page }) => {

@@ -28,6 +28,10 @@ services:
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       MEDIA_PATH: /media
+      IMPORT_SCHEDULER_ENABLED: ${IMPORT_SCHEDULER_ENABLED:-false}
+      IMPORT_SCHEDULE: ${IMPORT_SCHEDULE:-0 10 6 * * Sat *}
+      IMPORT_TIMEZONE: ${IMPORT_TIMEZONE:-Europe/Berlin}
+      IMPORT_SCHEDULED_ADAPTERS: ${IMPORT_SCHEDULED_ADAPTERS:-maddrax,john-sinclair}
     volumes:
       - media_data:/media
     depends_on:
