@@ -45,7 +45,7 @@ describe('IssueDetailSheet', () => {
 	let onclose: () => void;
 	let onsave: (data: {
 		issue_id: number;
-		condition_grade: string;
+		condition_grade?: string;
 		status?: string;
 		notes?: string;
 	}) => void;
@@ -233,8 +233,35 @@ describe('IssueDetailSheet', () => {
 
 		expect(onsave).toHaveBeenCalledWith(
 			expect.objectContaining({
-				status: 'wanted'
+				status: 'wanted',
+				condition_grade: undefined
 			})
+		);
+		expect(screen.getByTestId('wanted-condition-hint')).toBeInTheDocument();
+	});
+
+	it('requires a condition when a conditionless wanted entry becomes owned', async () => {
+		render(IssueDetailSheet, {
+			props: {
+				issue: sampleIssue,
+				collection_entry: {
+					...sampleEntry,
+					status: 'wanted',
+					condition_grade: null
+				},
+				onclose,
+				onsave
+			}
+		});
+		const user = userEvent.setup();
+
+		expect(screen.getByTestId('wanted-condition-hint')).toBeInTheDocument();
+		await user.click(screen.getByTestId('status-owned'));
+		expect(screen.getByTestId('condition-chip-Z2')).toBeInTheDocument();
+		await user.click(screen.getByTestId('save-button'));
+
+		expect(onsave).toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'owned', condition_grade: 'Z2' })
 		);
 	});
 

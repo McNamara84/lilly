@@ -5,4 +5,5 @@ pub mod issues;
 pub mod profiles;
 pub mod refresh_tokens;
 pub mod series;
+pub mod trades;
 pub mod users;

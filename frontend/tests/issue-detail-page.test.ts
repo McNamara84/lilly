@@ -327,7 +327,7 @@ describe('Issue Detail Page', () => {
 		});
 	});
 
-	it('adds the condition and status selected by the user', async () => {
+	it('adds a wanted entry without inventing a physical condition', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
 		mockAddToCollection.mockResolvedValue({
@@ -342,12 +342,12 @@ describe('Issue Detail Page', () => {
 			expect(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ })).toBeInTheDocument()
 		);
 		await user.click(screen.getByRole('radio', { name: 'Gesucht' }));
-		await user.click(screen.getByTestId('condition-chip-Z4'));
+		expect(screen.getByTestId('wanted-condition-hint')).toBeInTheDocument();
 		await user.click(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ }));
 
 		await waitFor(() =>
 			expect(mockAddToCollection).toHaveBeenCalledWith(
-				expect.objectContaining({ condition_grade: 'Z4', status: 'wanted' })
+				expect.objectContaining({ condition_grade: undefined, status: 'wanted' })
 			)
 		);
 	});

@@ -191,13 +191,13 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `user_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf users.id (ON DELETE CASCADE) |
 | `issue_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf issues.id |
 | `copy_number` | TINYINT UNSIGNED | NOT NULL, DEF 1 | Exemplarnummer (1 = Erstexemplar, 2+ = weitere Auflagen/Kopien, vgl. SV-009) |
-| `condition_grade` | ENUM | NOT NULL | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4' |
+| `condition_grade` | ENUM | NULL | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4'; nur bei `wanted` optional, bei `owned` und `duplicate` durch die Domänenvalidierung verpflichtend |
 | `status` | ENUM | NOT NULL | 'owned' \| 'duplicate' \| 'wanted' |
 | `notes` | TEXT | NULL | Persönliche Notizen |
 | `created_at` | TIMESTAMP | NOT NULL | Zeitpunkt der Erfassung |
 | `updated_at` | TIMESTAMP | NOT NULL | Letzte Änderung |
 
-*Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe Heft mehrfach erfassen (verschiedene Auflagen/Kopien gemäß SV-009), aber jede Kopie ist eindeutig identifiziert.*
+*Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe Heft mehrfach erfassen (verschiedene Auflagen/Kopien gemäß SV-009), aber jede Kopie ist eindeutig identifiziert. Der zusätzliche Index `(status, issue_id, user_id)` beschleunigt Angebots-, Wunsch- und spätere Matching-Abfragen.*
 
 ### 4.5 Tabelle: `collection_photos`
 
@@ -269,6 +269,11 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **PATCH** | `/api/v1/me/collection/{id}` | Ja | Eintrag ändern (Zustand, Status, Notizen) |
 | **DELETE** | `/api/v1/me/collection/{id}` | Ja | Eintrag entfernen |
 | **POST** | `/api/v1/me/collection/{id}/photos` | Ja | Foto hochladen (multipart/form-data) |
+| **GET** | `/api/v1/me/trade-offers` | Ja | Eigene aktive Tauschangebote aus Einträgen mit Status `duplicate` (Filter, Paginierung) |
+| **GET** | `/api/v1/me/wanted` | Ja | Eigene aktive Wunschliste (Filter, Paginierung) |
+| **GET** | `/api/v1/me/wanted/candidates` | Ja | Nicht vorhandene Hefte einer aktiven Serie samt Wunschstatus |
+| **POST** | `/api/v1/me/wanted/bulk` | Ja | Bis zu 100 Hefte idempotent zur Wunschliste hinzufügen |
+| **DELETE** | `/api/v1/me/wanted/{entry_id}` | Ja | Eigenen Wunschlisteneintrag entfernen |
 | **GET** | `/api/v1/me/trades` | Ja | Eigene Tauschvorgänge |
 | **GET** | `/api/v1/me/matches` | Ja | Potenzielle Tauschpartner (Matching) |
 | **POST** | `/api/v1/trades` | Ja | Tausch vorschlagen |
@@ -314,7 +319,15 @@ Wird der Filter `status=missing` angefragt, führt das Backend einen LEFT JOIN v
 
 Wenn ein authentifizierter Nutzer die Heftliste einer Serie abruft, reichert das Backend die Response optional mit dem Sammlungsstatus pro Heft an (owned/duplicate/wanted/null). Hefte mit `null`-Status gelten im Frontend als `missing`.
 
-### 5.3 Authentifizierung
+### 5.3 Abgeleitete Tausch- und Wunschlisten
+
+Tauschangebote und Wünsche verwenden `collection_entries` als einzige Datenquelle. Ein Eintrag mit Status `duplicate` ist automatisch ein aktives Angebot; `wanted` ist automatisch ein aktiver Wunsch. Statuswechsel und Löschungen benötigen daher weder Synchronisationsjobs noch zusätzliche Listentabellen.
+
+Neue Wünsche werden ohne Zustandsbewertung gespeichert, weil noch kein physisches Exemplar vorliegt. Beim Wechsel eines solchen Eintrags auf `owned` oder `duplicate` muss die Anfrage einen gültigen Zustand Z0–Z4 enthalten. Ein vorhandener Zustand sowie Notizen und Fotos bleiben bei Statuswechseln erhalten.
+
+Die Kandidatenabfrage verlangt `series_slug`, berücksichtigt nur aktive Serien und schließt eigene `owned`- und `duplicate`-Einträge aus. Bereits gesuchte Hefte bleiben mit `is_wanted = true` sichtbar. Die Bulk-Anlage dedupliziert höchstens 100 positive Heft-IDs, sperrt Hefte in stabiler Reihenfolge und meldet pro ID `created`, `unchanged` oder `rejected`. Alle neuen Listenendpunkte sind privat; öffentliche Freigaben sind eine separate Ausbaustufe.
+
+### 5.4 Authentifizierung
 
 Die Authentifizierung basiert auf einem JWT-Paar:
 

@@ -66,6 +66,14 @@
 				>
 					Profil
 				</a>
+				<a
+					href={resolve('/trades')}
+					class="text-sm px-2 py-1 rounded"
+					style="color: var(--text-secondary);"
+					data-testid="trades-link"
+				>
+					Tausch
+				</a>
 				{#if auth.isAdmin}
 					<a
 						href={resolve('/admin')}

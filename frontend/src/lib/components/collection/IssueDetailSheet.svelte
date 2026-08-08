@@ -15,7 +15,7 @@
 		onclose: () => void;
 		onsave: (data: {
 			issue_id: number;
-			condition_grade: ConditionGrade;
+			condition_grade?: ConditionGrade;
 			status: PersistedCollectionStatus;
 			notes: string;
 		}) => void;
@@ -40,13 +40,14 @@
 
 	const isOpen = $derived(issue !== null);
 	const isEditing = $derived(collection_entry !== null && collection_entry.id > 0);
+	const needsCondition = $derived(status !== 'wanted' || collection_entry?.condition_grade != null);
 	const noteLength = $derived(countCollectionNoteCharacters(notes));
 
 	function handleSave() {
 		if (!issue) return;
 		onsave({
 			issue_id: issue.id,
-			condition_grade: conditionGrade,
+			condition_grade: needsCondition ? conditionGrade : undefined,
 			status,
 			notes
 		});
@@ -152,8 +153,18 @@
 				</div>
 
 				<!-- Condition -->
-				<p class="text-xs mb-2" style="color: var(--text-tertiary);">Zustand</p>
-				<ConditionChips value={conditionGrade} onchange={(g) => (conditionGrade = g)} />
+				{#if needsCondition}
+					<p class="text-xs mb-2" style="color: var(--text-tertiary);">Zustand</p>
+					<ConditionChips value={conditionGrade} onchange={(g) => (conditionGrade = g)} />
+				{:else}
+					<p
+						class="text-xs"
+						style="color: var(--text-tertiary);"
+						data-testid="wanted-condition-hint"
+					>
+						Ein Zustand wird erst benötigt, sobald du ein Exemplar besitzt oder anbietest.
+					</p>
+				{/if}
 
 				<!-- Notes -->
 				<label

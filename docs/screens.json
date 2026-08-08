@@ -196,29 +196,67 @@
     "trades": {
       "route": "/trades",
       "file": "src/routes/trades/+page.svelte",
-      "title": "Tausch",
+      "title": "Tauschlisten",
       "auth_required": true,
-      "description": "Trade hub with two tabs: 'Matches' (suggested trades) and 'Aktive Tausche' (ongoing trades).",
+      "description": "Private trade-list hub. Offers and wishes are projections of the user's collection entry statuses and stay synchronized without separate list records.",
       "tabs": [
         {
-          "id": "matches",
-          "label": "Vorschläge",
-          "icon": "Sparkles",
-          "component": "TradeMatchCard",
-          "data_source": "GET /api/v1/me/matches",
+          "id": "offers",
+          "label": "Tauschbar",
+          "icon": "ArrowLeftRight",
+          "component": null,
+          "data_source": "GET /api/v1/me/trade-offers?page={n}",
           "empty_state": {
             "icon": "ArrowLeftRight",
-            "title": "Noch keine Matches",
-            "description": "Markiere Hefte als 'Doppelt' oder 'Gesucht', damit wir passende Tauschpartner finden können."
+            "title": "Noch keine Tauschangebote",
+            "description": "Markiere ein vorhandenes Heft als 'Doppelt', damit es hier erscheint."
+          },
+          "interactions": {
+            "open_issue": "Navigates to the issue detail page.",
+            "deactivate": "Changes the existing collection entry to owned and removes it from the projection."
           }
         },
         {
-          "id": "active",
-          "label": "Aktive Tausche",
-          "icon": "Clock",
+          "id": "wanted",
+          "label": "Wunschliste",
+          "icon": "Search",
           "component": null,
-          "description": "List of ongoing trades with status (proposed/accepted), partner info, and item summary. Tap to open trade detail.",
-          "data_source": "GET /api/v1/me/trades?status=proposed,accepted"
+          "description": "Private list of collection entries with status wanted.",
+          "data_source": "GET /api/v1/me/wanted?page={n}",
+          "interactions": {
+            "mark_owned": "Opens issue details; a condition is required before switching a conditionless wish to owned.",
+            "remove": "Deletes only the authenticated user's wanted entry."
+          }
+        }
+      ],
+      "primary_action": {
+        "label": "Wünsche hinzufügen",
+        "route": "/trades/wanted/add"
+      }
+    },
+
+    "wanted_add": {
+      "route": "/trades/wanted/add",
+      "file": "src/routes/trades/wanted/add/+page.svelte",
+      "title": "Wünsche hinzufügen",
+      "auth_required": true,
+      "description": "Series-scoped, searchable bulk selection of issues the user does not own.",
+      "sections": [
+        {
+          "id": "candidate_filters",
+          "component": null,
+          "description": "Required active-series selector and optional title/author search. Changing either reloads the first candidate page."
+        },
+        {
+          "id": "candidate_list",
+          "component": null,
+          "data_source": "GET /api/v1/me/wanted/candidates?series_slug={slug}&q={search}&page={n}",
+          "description": "Paginated candidates exclude owned and duplicate issues. Existing wishes stay visible, checked and disabled.",
+          "interactions": {
+            "select_one": "Toggles an available issue.",
+            "select_page": "Selects or clears every available issue on the visible page.",
+            "add_selected": "POST /api/v1/me/wanted/bulk and announce created, unchanged and rejected counts."
+          }
         }
       ]
     },

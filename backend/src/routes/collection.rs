@@ -12,7 +12,7 @@ use crate::models::collection::{
     CollectionStatsResponse, PaginatedCollectionResponse, SeriesStatsEntry,
     UpdateCollectionEntryRequest, normalize_collection_note, validate_collection_sort,
     validate_condition_grade, validate_missing_collection_sort, validate_sort_direction,
-    validate_status,
+    validate_status_condition,
 };
 
 pub fn router() -> Router<AppState> {
@@ -158,9 +158,9 @@ async fn add_to_collection(
     Json(body): Json<AddCollectionEntryRequest>,
 ) -> Result<(StatusCode, Json<CollectionEntryResponse>), AppError> {
     // Validate fields
-    validate_condition_grade(&body.condition_grade).map_err(AppError::BadRequest)?;
     let status = body.status.as_deref().unwrap_or("owned");
-    validate_status(status).map_err(AppError::BadRequest)?;
+    validate_status_condition(status, body.condition_grade.as_deref())
+        .map_err(AppError::BadRequest)?;
     let copy_number = body.copy_number.unwrap_or(1);
     if copy_number < 1 {
         return Err(AppError::BadRequest(
@@ -183,7 +183,7 @@ async fn add_to_collection(
         auth.user_id,
         body.issue_id,
         copy_number,
-        &body.condition_grade,
+        body.condition_grade.as_deref(),
         status,
         notes,
     )
@@ -222,14 +222,6 @@ async fn update_entry(
     Path(entry_id): Path<u32>,
     Json(body): Json<UpdateCollectionEntryRequest>,
 ) -> Result<Json<CollectionEntryResponse>, AppError> {
-    // Validate optional fields
-    if let Some(ref grade) = body.condition_grade {
-        validate_condition_grade(grade).map_err(AppError::BadRequest)?;
-    }
-    if let Some(ref s) = body.status {
-        validate_status(s).map_err(AppError::BadRequest)?;
-    }
-
     // Reject empty updates — at least one field must be provided
     if body.condition_grade.is_none() && body.status.is_none() && body.notes.is_none() {
         return Err(AppError::BadRequest(
@@ -238,9 +230,16 @@ async fn update_entry(
     }
 
     // Ensure the entry exists and belongs to the user
-    collection::find_entry_by_id_and_user(&state.inner.pool, entry_id, auth.user_id)
+    let existing = collection::find_entry_by_id_and_user(&state.inner.pool, entry_id, auth.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Collection entry {entry_id} not found")))?;
+
+    let final_status = body.status.as_deref().unwrap_or(&existing.status);
+    let final_condition = body
+        .condition_grade
+        .as_deref()
+        .or(existing.condition_grade.as_deref());
+    validate_status_condition(final_status, final_condition).map_err(AppError::BadRequest)?;
 
     // A present but empty note explicitly clears the stored value. Omitting the
     // field leaves it unchanged, preserving PATCH semantics.

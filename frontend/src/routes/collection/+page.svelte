@@ -131,7 +131,7 @@
 
 	async function handleSave(data: {
 		issue_id: number;
-		condition_grade: ConditionGrade;
+		condition_grade?: ConditionGrade;
 		status: PersistedCollectionStatus;
 		notes: string;
 	}) {

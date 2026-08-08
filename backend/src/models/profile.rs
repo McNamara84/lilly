@@ -94,7 +94,7 @@ pub struct PublicCollectionEntryResponse {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
-    pub condition_grade: String,
+    pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
 }
@@ -168,7 +168,7 @@ mod tests {
             cover_url: None,
             cover_local_path: None,
             copy_number: 1,
-            condition_grade: "Z2".to_string(),
+            condition_grade: Some("Z2".to_string()),
             status: "owned".to_string(),
             notes: Some("Public note".to_string()),
         };

@@ -53,7 +53,7 @@ export interface SeriesStats {
 
 export interface AddCollectionEntryRequest {
 	issue_id: number;
-	condition_grade: ConditionGrade;
+	condition_grade?: ConditionGrade;
 	status?: PersistedCollectionStatus;
 	notes?: string;
 	copy_number?: number;
