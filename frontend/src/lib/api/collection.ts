@@ -1,3 +1,5 @@
+import type { ConditionGrade } from '$lib/collection/conditions';
+
 const API_BASE = '/api/v1';
 
 // ---------------------------------------------------------------------------
@@ -15,8 +17,8 @@ export interface CollectionEntry {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number | null;
-	condition_grade: string | null;
-	status: string;
+	condition_grade: ConditionGrade | null;
+	status: CollectionStatus;
 	notes: string | null;
 	created_at: string | null;
 	updated_at: string | null;
@@ -51,17 +53,20 @@ export interface SeriesStats {
 
 export interface AddCollectionEntryRequest {
 	issue_id: number;
-	condition_grade: string;
-	status?: string;
+	condition_grade: ConditionGrade;
+	status?: PersistedCollectionStatus;
 	notes?: string;
 	copy_number?: number;
 }
 
 export interface UpdateCollectionEntryRequest {
-	condition_grade?: string;
-	status?: string;
+	condition_grade?: ConditionGrade;
+	status?: PersistedCollectionStatus;
 	notes?: string;
 }
+
+export type PersistedCollectionStatus = 'owned' | 'duplicate' | 'wanted';
+export type CollectionStatus = PersistedCollectionStatus | 'missing';
 
 export interface CollectionQueryParams {
 	series_slug?: string;

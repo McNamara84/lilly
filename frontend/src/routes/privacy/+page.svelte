@@ -32,7 +32,7 @@
 				<li>E-Mail-Adresse</li>
 				<li>Passwort (verschlüsselt gespeichert mit Argon2id)</li>
 				<li>Zeitpunkt der Registrierung und Datenschutz-Einwilligung</li>
-				<li>Sammlungsdaten (Serien, Hefte, Tauschangebote)</li>
+				<li>Sammlungsdaten (Serien, Hefte, Tauschangebote und persönliche Heftnotizen)</li>
 			</ul>
 		</section>
 
@@ -51,7 +51,19 @@
 
 		<section>
 			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				4. Rechtsgrundlage
+				4. Öffentliche Freigaben
+			</h2>
+			<p>
+				Profil und Sammlung sind standardmäßig privat und können unabhängig voneinander öffentlich
+				freigegeben werden. Bei einer öffentlichen Sammlung werden auch die darin gespeicherten
+				persönlichen Heftnotizen öffentlich angezeigt. Die Freigabe kann jederzeit in den
+				Profileinstellungen zurückgenommen werden.
+			</p>
+		</section>
+
+		<section>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
+				5. Rechtsgrundlage
 			</h2>
 			<p>
 				Die Verarbeitung erfolgt auf Grundlage Ihrer Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) sowie
@@ -61,7 +73,7 @@
 
 		<section>
 			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				5. Speicherdauer
+				6. Speicherdauer
 			</h2>
 			<p>
 				Ihre Daten werden so lange gespeichert, wie Ihr Benutzerkonto besteht. Nach Löschung des
@@ -71,7 +83,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">6. Ihre Rechte</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">7. Ihre Rechte</h2>
 			<p>Sie haben das Recht auf:</p>
 			<ul class="list-disc list-inside mt-2 space-y-1">
 				<li>Auskunft über Ihre gespeicherten Daten</li>
@@ -84,7 +96,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">7. Cookies</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">8. Cookies</h2>
 			<p>
 				LILLY verwendet ausschließlich technisch notwendige Cookies zur Authentifizierung (HttpOnly,
 				SameSite). Es werden keine Tracking- oder Analyse-Cookies eingesetzt.
@@ -92,7 +104,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">8. Kontakt</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">9. Kontakt</h2>
 			<p>
 				Bei Fragen zum Datenschutz wenden Sie sich bitte an den Betreiber über die auf der Plattform
 				bereitgestellten Kontaktmöglichkeiten.

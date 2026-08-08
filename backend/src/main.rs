@@ -108,29 +108,11 @@ async fn main() {
         .merge(routes::auth::router())
         .merge(routes::series::router())
         .merge(routes::collection::router())
+        .merge(routes::profiles::router())
         .merge(routes::admin::router())
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::list([
-                    "http://localhost".parse().unwrap(),
-                    "http://localhost:5173".parse().unwrap(),
-                    "http://localhost:80".parse().unwrap(),
-                ]))
-                .allow_methods(AllowMethods::list([
-                    http::Method::GET,
-                    http::Method::POST,
-                    http::Method::PUT,
-                    http::Method::DELETE,
-                    http::Method::OPTIONS,
-                ]))
-                .allow_headers(AllowHeaders::list([
-                    http::header::CONTENT_TYPE,
-                    http::header::AUTHORIZATION,
-                ]))
-                .allow_credentials(true),
-        );
+        .layer(cors_layer());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.backend_port));
     tracing::info!("Backend listening on {}", addr);
@@ -140,4 +122,26 @@ async fn main() {
         .expect("Failed to bind listener");
 
     axum::serve(listener, app).await.expect("Server error");
+}
+
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list([
+            "http://localhost".parse().unwrap(),
+            "http://localhost:5173".parse().unwrap(),
+            "http://localhost:80".parse().unwrap(),
+        ]))
+        .allow_methods(AllowMethods::list([
+            http::Method::GET,
+            http::Method::POST,
+            http::Method::PATCH,
+            http::Method::PUT,
+            http::Method::DELETE,
+            http::Method::OPTIONS,
+        ]))
+        .allow_headers(AllowHeaders::list([
+            http::header::CONTENT_TYPE,
+            http::header::AUTHORIZATION,
+        ]))
+        .allow_credentials(true)
 }

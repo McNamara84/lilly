@@ -1,55 +1,59 @@
 <script lang="ts">
-	import { getAuthState } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { fetchSeries, fetchAllSeriesIssues, type Series, type Issue } from '$lib/api/series';
 	import {
-		fetchAllCollectionEntries,
 		addToCollection,
 		deleteCollectionEntry,
-		type CollectionEntry
+		fetchAllCollectionEntries,
+		updateCollectionEntry,
+		type CollectionEntry,
+		type PersistedCollectionStatus
 	} from '$lib/api/collection';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { fetchAllSeriesIssues, fetchSeries, type Issue, type Series } from '$lib/api/series';
+	import type { ConditionGrade } from '$lib/collection/conditions';
+	import IssueDetailSheet from '$lib/components/collection/IssueDetailSheet.svelte';
+	import SeriesStatusGrid from '$lib/components/collection/SeriesStatusGrid.svelte';
+	import { getAuthState } from '$lib/stores/auth.svelte';
 
 	const auth = getAuthState();
 
 	let seriesList = $state<Series[]>([]);
 	let selectedSeries = $state<Series | null>(null);
 	let issues = $state<Issue[]>([]);
-	let collectionEntries = new SvelteMap<number, CollectionEntry>();
+	let entries = $state<CollectionEntry[]>([]);
+	let selectedIssue = $state<Issue | null>(null);
+	let selectedEntry = $state<CollectionEntry | null>(null);
 	let loading = $state(true);
 	let gridLoading = $state(false);
 	let error = $state<string | null>(null);
+	let sheetError = $state<string | null>(null);
 	let toast = $state<string | null>(null);
 	let toastTimeoutId: ReturnType<typeof setTimeout> | null = null;
-
-	// Clean up toast timer on component destroy
-	$effect(() => {
-		return () => {
-			if (toastTimeoutId !== null) {
-				clearTimeout(toastTimeoutId);
-			}
-		};
-	});
+	let detailTrigger: HTMLButtonElement | null = null;
+	let seriesRequested = false;
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
-			goto(resolve('/login'));
+			void goto(resolve('/login'));
+		} else if (auth.isAuthenticated && !seriesRequested) {
+			seriesRequested = true;
+			void loadSeries();
 		}
 	});
 
 	$effect(() => {
-		if (auth.isAuthenticated) {
-			loadSeries();
-		}
+		return () => {
+			if (toastTimeoutId !== null) clearTimeout(toastTimeoutId);
+		};
 	});
 
 	async function loadSeries() {
 		loading = true;
+		error = null;
 		try {
 			seriesList = await fetchSeries();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Fehler beim Laden';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Serien konnten nicht geladen werden.';
 		} finally {
 			loading = false;
 		}
@@ -60,91 +64,105 @@
 		gridLoading = true;
 		error = null;
 		try {
-			// Load all issues and the user's collection for this series
-			const [allIssues, collectionResult] = await Promise.all([
+			[issues, entries] = await Promise.all([
 				fetchAllSeriesIssues(series.slug),
 				fetchAllCollectionEntries(series.slug)
 			]);
-			issues = allIssues;
-			collectionEntries.clear();
-			for (const entry of collectionResult) {
-				collectionEntries.set(entry.issue_id, entry);
-			}
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Fehler beim Laden der Hefte';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Hefte konnten nicht geladen werden.';
 		} finally {
 			gridLoading = false;
 		}
 	}
 
-	function showToast(msg: string) {
-		if (toastTimeoutId !== null) {
-			clearTimeout(toastTimeoutId);
+	function returnToSeriesList() {
+		selectedSeries = null;
+		issues = [];
+		entries = [];
+		closeSheet(false);
+	}
+
+	function openDetails(issue: Issue, entry: CollectionEntry | null, trigger: HTMLButtonElement) {
+		sheetError = null;
+		selectedIssue = issue;
+		selectedEntry = entry;
+		detailTrigger = trigger;
+	}
+
+	function closeSheet(restoreFocus = true) {
+		selectedIssue = null;
+		selectedEntry = null;
+		sheetError = null;
+		if (restoreFocus && detailTrigger) {
+			const trigger = detailTrigger;
+			queueMicrotask(() => trigger.focus());
 		}
-		toast = msg;
+		detailTrigger = null;
+	}
+
+	function showToast(message: string) {
+		if (toastTimeoutId !== null) clearTimeout(toastTimeoutId);
+		toast = message;
 		toastTimeoutId = setTimeout(() => {
 			toast = null;
 			toastTimeoutId = null;
 		}, 2500);
 	}
 
-	async function toggleIssue(issue: Issue) {
-		const existing = collectionEntries.get(issue.id);
-		if (existing) {
-			// Remove from collection
-			try {
-				await deleteCollectionEntry(existing.id);
-				collectionEntries.delete(issue.id);
-				showToast(`Heft #${issue.issue_number} entfernt`);
-			} catch {
-				showToast('Fehler beim Entfernen');
-			}
-		} else {
-			// Add to collection (quick-add with Z2 default)
-			try {
-				const entry = await addToCollection({
-					issue_id: issue.id,
-					condition_grade: 'Z2',
-					status: 'owned'
+	async function handleSave(data: {
+		issue_id: number;
+		condition_grade: ConditionGrade;
+		status: PersistedCollectionStatus;
+		notes: string;
+	}) {
+		sheetError = null;
+		try {
+			if (selectedEntry) {
+				const updated = await updateCollectionEntry(selectedEntry.id, {
+					condition_grade: data.condition_grade,
+					status: data.status,
+					notes: data.notes
 				});
-				collectionEntries.set(issue.id, entry);
-				showToast(`Heft #${issue.issue_number} hinzugefügt ✓`);
-			} catch (e) {
-				showToast(e instanceof Error ? e.message : 'Fehler beim Hinzufügen');
+				entries = entries.map((entry) => (entry.id === updated.id ? updated : entry));
+				showToast(`Heft #${updated.issue_number} aktualisiert`);
+			} else {
+				const created = await addToCollection(data);
+				entries = [...entries, created];
+				showToast(`Heft #${created.issue_number} hinzugefügt`);
 			}
+			closeSheet();
+		} catch (cause) {
+			sheetError =
+				cause instanceof Error ? cause.message : 'Eintrag konnte nicht gespeichert werden.';
 		}
 	}
 
-	function getStatusColor(issueId: number): string {
-		const entry = collectionEntries.get(issueId);
-		if (!entry) return 'var(--glass-border)';
-		switch (entry.status) {
-			case 'owned':
-				return 'var(--color-status-owned)';
-			case 'duplicate':
-				return 'var(--color-status-duplicate)';
-			case 'wanted':
-				return 'var(--color-status-wanted)';
-			default:
-				return 'var(--glass-border)';
+	async function handleDelete() {
+		if (!selectedEntry) return;
+		sheetError = null;
+		try {
+			await deleteCollectionEntry(selectedEntry.id);
+			const removedIssueNumber = selectedEntry.issue_number;
+			entries = entries.filter((entry) => entry.id !== selectedEntry?.id);
+			closeSheet();
+			showToast(`Heft #${removedIssueNumber} entfernt`);
+		} catch (cause) {
+			sheetError = cause instanceof Error ? cause.message : 'Eintrag konnte nicht entfernt werden.';
 		}
 	}
 </script>
 
 <svelte:head>
-	<title>Hefte hinzufügen – LILLY</title>
+	<title>Serienraster – LILLY</title>
 </svelte:head>
 
 <div class="min-h-[calc(100vh-3.5rem)] px-4 py-8 sm:px-6 lg:px-8">
-	<div class="flex items-center gap-4 mb-6">
+	<div class="mb-6 flex items-center gap-4">
 		{#if selectedSeries}
 			<button
-				onclick={() => {
-					selectedSeries = null;
-					issues = [];
-					collectionEntries.clear();
-				}}
-				class="text-sm cursor-pointer"
+				type="button"
+				onclick={returnToSeriesList}
+				class="cursor-pointer text-sm"
 				style="color: var(--text-secondary);"
 				data-testid="back-button"
 			>
@@ -157,35 +175,33 @@
 	</div>
 
 	{#if error}
-		<div role="alert" class="glass-elevated p-4 rounded-lg mb-4" data-testid="error-message">
+		<div role="alert" class="glass-elevated mb-4 rounded-lg p-4" data-testid="error-message">
 			<p style="color: var(--color-error);">{error}</p>
 		</div>
 	{/if}
 
 	{#if !selectedSeries}
-		<!-- Series selection -->
 		{#if loading}
-			<p data-testid="loading-indicator">Lade Serien...</p>
+			<p data-testid="loading-indicator">Lade Serien …</p>
 		{:else if seriesList.length === 0}
 			<p style="color: var(--text-secondary);" data-testid="empty-state">
 				Noch keine Serien verfügbar.
 			</p>
 		{:else}
 			<div
-				class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+				class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
 				data-testid="series-selector"
 			>
 				{#each seriesList as series (series.id)}
 					<button
-						class="glass-elevated rounded-lg p-6 text-left cursor-pointer transition-all hover:scale-[1.02]"
+						type="button"
+						class="glass-elevated cursor-pointer rounded-lg p-6 text-left transition-all hover:scale-[1.02]"
 						onclick={() => selectSeries(series)}
 						data-testid="series-card"
 					>
-						<h2 class="text-lg font-semibold" style="color: var(--text-primary);">
-							{series.name}
-						</h2>
+						<h2 class="text-lg font-semibold" style="color: var(--text-primary);">{series.name}</h2>
 						{#if series.total_issues}
-							<p class="text-sm mt-1" style="color: var(--text-secondary);">
+							<p class="mt-1 text-sm" style="color: var(--text-secondary);">
 								{series.total_issues} Hefte
 							</p>
 						{/if}
@@ -193,69 +209,32 @@
 				{/each}
 			</div>
 		{/if}
+	{:else if gridLoading}
+		<p data-testid="loading-indicator">Lade Hefte …</p>
+	{:else if issues.length === 0}
+		<p style="color: var(--text-secondary);" data-testid="empty-state">
+			Keine Hefte in dieser Serie.
+		</p>
 	{:else}
-		<!-- Number grid -->
-		{#if gridLoading}
-			<p data-testid="loading-indicator">Lade Hefte...</p>
-		{:else if issues.length === 0}
-			<p style="color: var(--text-secondary);" data-testid="empty-state">
-				Keine Hefte in dieser Serie.
-			</p>
-		{:else}
-			<div
-				class="grid gap-2"
-				style="grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));"
-				data-testid="number-grid"
-			>
-				{#each issues as issue (issue.id)}
-					{@const inCollection = collectionEntries.has(issue.id)}
-					<button
-						class="aspect-square rounded-lg flex items-center justify-center text-sm font-bold transition-all cursor-pointer"
-						style="background: {getStatusColor(issue.id)}; color: {inCollection
-							? '#000'
-							: 'var(--text-secondary)'}; border: {inCollection
-							? 'none'
-							: '1px solid var(--glass-border)'};"
-						onclick={() => toggleIssue(issue)}
-						title="{issue.title} — #{issue.issue_number}"
-						aria-label="Heft #{issue.issue_number}: {issue.title}{inCollection
-							? ' (in Sammlung)'
-							: ''}"
-						data-testid="number-cell"
-					>
-						{issue.issue_number}
-					</button>
-				{/each}
-			</div>
-
-			<div class="mt-4 flex gap-4 text-xs" style="color: var(--text-tertiary);">
-				<span>
-					<span
-						class="inline-block w-3 h-3 rounded mr-1"
-						style="background: var(--color-status-owned);"
-					></span>Vorhanden
-				</span>
-				<span>
-					<span
-						class="inline-block w-3 h-3 rounded mr-1"
-						style="background: var(--color-status-duplicate);"
-					></span>Doppelt
-				</span>
-				<span>
-					<span
-						class="inline-block w-3 h-3 rounded mr-1"
-						style="background: var(--color-status-wanted);"
-					></span>Gesucht
-				</span>
-			</div>
-		{/if}
+		<p class="mb-4 text-sm" style="color: var(--text-secondary);">
+			Wähle ein Heft, um Status, Zustand und persönliche Notiz zu bearbeiten.
+		</p>
+		<SeriesStatusGrid {issues} {entries} onselect={openDetails} />
 	{/if}
 </div>
 
-<!-- Toast notification -->
+<IssueDetailSheet
+	issue={selectedIssue}
+	collection_entry={selectedEntry}
+	onclose={closeSheet}
+	onsave={handleSave}
+	ondelete={handleDelete}
+	error={sheetError}
+/>
+
 {#if toast}
 	<div
-		class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg px-4 py-2 text-sm font-medium"
+		class="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-medium"
 		style="background: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-primary);"
 		role="status"
 		data-testid="toast"

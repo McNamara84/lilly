@@ -1,16 +1,9 @@
 <script lang="ts">
-	const GRADES = [
-		{ value: 'Z0', label: 'Neuwertig' },
-		{ value: 'Z1', label: 'Sehr gut' },
-		{ value: 'Z2', label: 'Gut' },
-		{ value: 'Z3', label: 'Akzeptabel' },
-		{ value: 'Z4', label: 'Schlecht' },
-		{ value: 'Z5', label: 'Sehr schlecht' }
-	] as const;
+	import { CONDITION_DEFINITIONS, type ConditionGrade } from '$lib/collection/conditions';
 
 	interface Props {
-		value: string | null;
-		onchange: (grade: string) => void;
+		value: ConditionGrade | null;
+		onchange: (grade: ConditionGrade) => void;
 		disabled?: boolean;
 	}
 
@@ -18,7 +11,7 @@
 </script>
 
 <fieldset class="flex flex-wrap gap-2" aria-label="Zustandsbewertung" data-testid="condition-chips">
-	{#each GRADES as grade (grade.value)}
+	{#each CONDITION_DEFINITIONS as grade (grade.value)}
 		{@const selected = value === grade.value}
 		<button
 			type="button"
@@ -28,6 +21,8 @@
 				? `background-color: var(--color-condition-${grade.value.toLowerCase()}); color: #000; box-shadow: 0 0 12px var(--color-condition-${grade.value.toLowerCase()});`
 				: `background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-secondary);`}
 			aria-pressed={selected}
+			aria-label={`${grade.value}: ${grade.label}. ${grade.description}`}
+			title={grade.description}
 			{disabled}
 			onclick={() => onchange(grade.value)}
 			data-testid={`condition-chip-${grade.value}`}

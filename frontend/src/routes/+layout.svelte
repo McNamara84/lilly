@@ -58,6 +58,14 @@
 				>
 					Sammlung
 				</a>
+				<a
+					href={resolve('/profile')}
+					class="text-sm px-2 py-1 rounded"
+					style="color: var(--text-secondary);"
+					data-testid="profile-link"
+				>
+					Profil
+				</a>
 				{#if auth.isAdmin}
 					<a
 						href={resolve('/admin')}

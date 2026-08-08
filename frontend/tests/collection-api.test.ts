@@ -199,9 +199,9 @@ describe('Collection API', () => {
 		it('throws on validation error', async () => {
 			mockFetch.mockResolvedValue(jsonResponse({ error: 'Invalid condition_grade' }, 422));
 
-			await expect(addToCollection({ issue_id: 42, condition_grade: 'invalid' })).rejects.toThrow(
-				'Invalid condition_grade'
-			);
+			await expect(
+				addToCollection({ issue_id: 42, condition_grade: 'invalid' as never })
+			).rejects.toThrow('Invalid condition_grade');
 		});
 	});
 

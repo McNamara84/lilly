@@ -100,9 +100,9 @@
     "collection_add": {
       "route": "/collection/add",
       "file": "src/routes/collection/add/+page.svelte",
-      "title": "Hefte hinzufügen",
+	  "title": "Serienraster",
       "auth_required": true,
-      "description": "Browse a series and quickly add issues to collection. Optimized for fast batch adding.",
+	  "description": "Select a series, inspect all four collection states, and open issue details to add or edit entries deliberately.",
       "sections": [
         {
           "id": "series_selector",
@@ -111,18 +111,17 @@
         },
         {
           "id": "number_grid",
-          "component": null,
-          "description": "After selecting a series: grid of all issue numbers. Color-coded: green=owned, purple=duplicate, amber=wanted, gray=not in collection. Tap to toggle ownership. Long press for detail view.",
+		  "component": "SeriesStatusGrid",
+          "description": "After selecting a series: grid of all issue numbers. Color and text/pattern distinguish owned, duplicate, wanted, and missing. Selecting a cell opens the detail sheet.",
           "visual": {
             "cell_size": "48x48px on mobile, 56x56px on desktop",
             "cell_style": "Rounded square with issue number centered. Uses collection_status colors.",
-            "cell_animation": "Spring scale + color fill animation on tap"
+            "cell_animation": "Spring scale and focus animation when selected"
           },
           "interactions": {
-            "tap": "Cycles: missing → owned (Z2 default) → missing. Shows brief toast confirmation.",
-            "long_press": "Opens IssueDetailSheet for full detail entry (condition, notes, photos)",
-            "swipe_right": "Quick-mark as duplicate (shows purple flash)",
-            "batch_range": "Tap first number, hold shift (desktop) or tap 'Bereich' button (mobile), tap last number → all numbers in range added"
+            "tap": "Opens IssueDetailSheet for creating or editing the collection entry.",
+            "keyboard": "Tab focuses a cell; Enter or Space opens IssueDetailSheet.",
+            "status_update": "Saving or deleting updates the affected cell without reloading the grid."
           }
         }
       ]
@@ -320,7 +319,7 @@
       "file": "src/routes/profile/+page.svelte",
       "title": "Mein Profil",
       "auth_required": true,
-      "description": "User profile page with settings. Doubles as the public profile view when navigated via /users/[name].",
+      "description": "User profile page with independent profile and collection visibility settings.",
       "sections": [
         {
           "id": "profile_header",
@@ -351,6 +350,7 @@
             { "name": "display_name", "type": "text", "label": "Anzeigename" },
             { "name": "location", "type": "text", "label": "Standort (optional)" },
             { "name": "profile_public", "type": "toggle", "label": "Profil öffentlich" },
+            { "name": "collection_public", "type": "toggle", "label": "Sammlung öffentlich", "warning": "Public collections also expose personal issue notes." },
             { "name": "theme", "type": "ThemeToggle", "label": "Darstellung" },
             { "name": "email", "type": "text", "label": "E-Mail", "readonly_hint": "Änderung per Verifizierung" }
           ],
@@ -363,13 +363,21 @@
     },
 
     "public_profile": {
-      "route": "/users/[name]",
-      "file": "src/routes/users/[name]/+page.svelte",
+      "route": "/users/[id]",
+      "file": "src/routes/users/[id]/+page.svelte",
       "title": "Sammler-Profil",
       "auth_required": false,
-      "description": "Public view of a collector's profile. Shows stats and public lists if profile_public is true. 404-style empty state if profile is private.",
+	  "description": "Public view of a collector's profile when profile_public is true. Collection statistics appear only when collection_public is independently true. A private profile uses the same 404-style state as an absent profile.",
       "reuses": "profile (sections: profile_header, profile_stats, public_lists)"
     },
+
+	"public_collection": {
+	  "route": "/users/[id]/collection",
+	  "file": "src/routes/users/[id]/collection/+page.svelte",
+	  "title": "Öffentliche Sammlung",
+	  "auth_required": false,
+	  "description": "Direct public collection view, independently available when collection_public is true even if the profile is private. Shows status, Z0–Z4 condition and escaped personal notes with preserved line breaks. Private and absent collections share the same 404-style state."
+	},
 
     "auth_login": {
       "route": "/login",

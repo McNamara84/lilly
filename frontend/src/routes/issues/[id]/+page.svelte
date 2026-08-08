@@ -8,8 +8,15 @@
 		addToCollection,
 		updateCollectionEntry,
 		deleteCollectionEntry,
-		type CollectionEntry
+		type CollectionEntry,
+		type PersistedCollectionStatus
 	} from '$lib/api/collection';
+	import type { ConditionGrade } from '$lib/collection/conditions';
+	import {
+		MAX_COLLECTION_NOTE_LENGTH,
+		countCollectionNoteCharacters,
+		limitCollectionNote
+	} from '$lib/collection/notes';
 	import ConditionChips from '$lib/components/collection/ConditionChips.svelte';
 
 	const auth = getAuthState();
@@ -21,12 +28,14 @@
 	let saving = $state(false);
 
 	// Editable fields
-	let conditionGrade = $state('Z2');
-	let status = $state('owned');
+	let conditionGrade = $state<ConditionGrade>('Z2');
+	let status = $state<PersistedCollectionStatus>('owned');
 	let notes = $state('');
+	const ENTRY_STATUSES = ['owned', 'duplicate', 'wanted'] as const;
 
 	const issueId = $derived(Number($page.params.id));
 	const isInCollection = $derived(entry !== null && entry.id > 0);
+	const noteLength = $derived(countCollectionNoteCharacters(notes));
 
 	$effect(() => {
 		void issueId;
@@ -61,7 +70,7 @@
 					if (found) {
 						entry = found;
 						conditionGrade = found.condition_grade ?? 'Z2';
-						status = found.status;
+						status = found.status === 'missing' ? 'owned' : found.status;
 						notes = found.notes ?? '';
 					}
 				} catch {
@@ -83,7 +92,7 @@
 				issue_id: issue.id,
 				condition_grade: conditionGrade,
 				status,
-				notes: notes.trim() || undefined
+				notes
 			});
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Fehler beim Hinzufügen';
@@ -99,7 +108,7 @@
 			entry = await updateCollectionEntry(entry.id, {
 				condition_grade: conditionGrade,
 				status,
-				notes: notes.trim() || undefined
+				notes
 			});
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Fehler beim Speichern';
@@ -122,6 +131,12 @@
 		} finally {
 			saving = false;
 		}
+	}
+
+	function handleNotesInput(event: Event) {
+		const textarea = event.currentTarget as HTMLTextAreaElement;
+		notes = limitCollectionNote(textarea.value);
+		if (textarea.value !== notes) textarea.value = notes;
 	}
 </script>
 
@@ -206,7 +221,7 @@
 
 					<!-- Status toggle -->
 					<div class="flex gap-2 mb-4" role="radiogroup" aria-label="Status">
-						{#each ['owned', 'duplicate', 'wanted'] as s (s)}
+						{#each ENTRY_STATUSES as s (s)}
 							{@const isActive = status === s}
 							{@const label =
 								s === 'owned' ? 'Vorhanden' : s === 'duplicate' ? 'Doppelt' : 'Gesucht'}
@@ -240,11 +255,16 @@
 					</label>
 					<textarea
 						id="detail-notes"
-						bind:value={notes}
+						value={notes}
+						oninput={handleNotesInput}
 						rows="3"
+						aria-describedby="detail-notes-hint"
 						class="w-full rounded-lg p-2 text-sm resize-none"
 						style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
 						placeholder="Optionale Notizen..."></textarea>
+					<p id="detail-notes-hint" class="mt-1 text-[10px]" style="color: var(--text-tertiary);">
+						Leeren und speichern entfernt die Notiz. {noteLength}/{MAX_COLLECTION_NOTE_LENGTH}
+					</p>
 
 					<!-- Actions -->
 					<div class="flex gap-3 mt-4">

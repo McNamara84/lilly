@@ -71,12 +71,12 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 | ID | Beschreibung | Prio | Kat. |
 |---|---|---|---|
 | SV-001 | Nutzer können aus den verfügbaren Heftroman-Serien einzelne Hefte zu ihrer persönlichen Sammlung hinzufügen. | MUSS | SV |
-| SV-002 | Zu jedem Heft in der Sammlung kann der Zustand gemäß der Heftroman-Zustandsskala (Z0 bis Z5) angegeben werden: Z0 = neuwertig/ungelesen, Z1 = sehr gut, Z2 = gut, Z3 = akzeptabel, Z4 = mängelbehaftet, Z5 = schlecht/defekt. | MUSS | SV |
-| SV-003 | Nutzer können zu jedem Heft in ihrer Sammlung persönliche Notizen hinterlegen (z. B. Besonderheiten, Auflagenhinweise, Erinnerungen). | SOLL | SV |
+| SV-002 | Zu jedem Heft in der Sammlung kann der Zustand gemäß der Heftroman-Zustandsskala Z0 bis Z4 angegeben werden. Die verbindlichen Beschreibungen stehen in Kapitel 5. | MUSS | SV |
+| SV-003 | Nutzer können zu jedem Heft in ihrer Sammlung persönliche Notizen hinterlegen (z. B. Besonderheiten, Auflagenhinweise, Erinnerungen). Notizen sind Teil der Sammlung und werden bei einer öffentlich freigegebenen Sammlung ebenfalls öffentlich angezeigt. | SOLL | SV |
 | SV-004 | Die Sammlung kann nach Serie, Heftnummer, Zustand, Titel und Autor gefiltert und sortiert werden. | MUSS | SV |
 | SV-005 | Nutzer können Hefte als „Vorhanden“, „Doppelt/Tauschbar“ oder „Gesucht“ markieren. | MUSS | SV |
 | SV-006 | Eine Übersichtsansicht zeigt den Sammlungsfortschritt pro Serie als Balken oder Prozentwert an (z. B. „437 von 620 Heften – 70,5 %“). | MUSS | SV |
-| SV-007 | Eine Rasteransicht zeigt alle Hefte einer Serie als Grid mit farblicher Kennzeichnung des Besitzstatus (vorhanden / fehlend / doppelt). | SOLL | SV |
+| SV-007 | Eine Rasteransicht zeigt alle Hefte einer Serie als Grid mit Kennzeichnung der vier Zustände „Vorhanden“, „Doppelt/Tauschbar“, „Gesucht“ und „Fehlend“. Die Kennzeichnung erfolgt nicht ausschließlich durch Farbe. | SOLL | SV |
 | SV-008 | Import und Export der Sammlungsdaten im CSV- und JSON-Format. | SOLL | SV |
 | SV-009 | Nutzer können mehrere Auflagen desselben Heftes getrennt erfassen. | KANN | SV |
 
@@ -115,7 +115,7 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 | BN-001 | Registrierung ist möglich über klassische E-Mail/Passwort-Kombination. | MUSS | BN |
 | BN-002 | Registrierung ist alternativ möglich über OAuth-Anbieter (mindestens Google und GitHub). | MUSS | BN |
 | BN-003 | Nutzer können ein Profil mit Anzeigename, Avatar und optionaler Standortangabe (für Tausch-Nähe) anlegen. | MUSS | BN |
-| BN-004 | Nutzer können wählen, ob ihr Profil und ihre Sammlung öffentlich oder privat sind. | MUSS | BN |
+| BN-004 | Nutzer können unabhängig wählen, ob ihr Profil und ihre Sammlung öffentlich oder privat sind. Bei einer öffentlichen Sammlung werden die zugehörigen persönlichen Heftnotizen öffentlich angezeigt; die Oberfläche weist vor der Freigabe darauf hin. Beide Einstellungen sind standardmäßig privat. | MUSS | BN |
 | BN-005 | Passwort-Reset per E-Mail muss implementiert sein. | MUSS | BN |
 | BN-006 | Zwei-Faktor-Authentifizierung (2FA) als optionale Sicherheitserweiterung. | KANN | BN |
 | BN-008 | Es existiert ein Rollensystem mit den Rollen „User" (Standard) und „Admin". Admins haben erweiterte Rechte für Datenimport und Serienverwaltung. | MUSS | BN |
@@ -191,12 +191,11 @@ Die folgende Skala ist der etablierte Standard in der Heftroman-Sammlerszene und
 
 | Stufe | Bezeichnung | Beschreibung |
 |---|---|---|
-| **Z0** | Neuwertig | Ungelesen, keine Gebrauchsspuren, Zustand wie am Kiosk. Makellos. |
-| **Z1** | Sehr gut | Minimal gelesen, kaum sichtbare Gebrauchsspuren. Keine Knicke, Risse oder Flecken. |
-| **Z2** | Gut | Gelesen, leichte Gebrauchsspuren. Kleinere Knicke an Ecken möglich, keine Risse oder Flecken. |
-| **Z3** | Akzeptabel | Deutliche Gebrauchsspuren. Knicke, leichte Verfärbungen, eventuell kleiner Stempel oder Name. Vollständig und lesbar. |
-| **Z4** | Mängelbehaftet | Starke Gebrauchsspuren. Risse, Flecken, lose Seiten, fehlende Beilagen. Noch vollständig lesbar. |
-| **Z5** | Schlecht / Defekt | Schwere Schäden. Fehlende Seiten, starke Verschmutzung, Wasserschäden. Nur als Platzhalter oder Lesekopie geeignet. |
+| **Z0** | Druckfrisch | Druckfrisches neues Heft ohne jegliche Mängel. Innenseiten noch weiß. |
+| **Z1** | Sehr gut erhalten | Sehr gut erhaltenes Heft mit minimalen Gebrauchsspuren und ohne Risse. Keine Beschriftung oder Aufkleber auf der Titelseite. Heftklammern dürfen leicht angerostet sein, aber ohne Rostflecken auf dem Papier. Kein oder nur minimaler Lesewulst. Innenseiten leicht bräunlich. |
+| **Z2** | Gut erhalten | Gut erhaltenes Heft mit Gebrauchsspuren, beispielsweise kleinen Rissen am Rand und leichtem Lesewulst. Klammern angerostet. Keine Beschriftungen oder Aufkleber auf der Titelseite. Innenseiten bräunlich, aber nicht fleckig. |
+| **Z3** | Stärker beschädigt | Heft mit stärkeren Beschädigungen, größeren Einrissen und starkem Lesewulst. Klammern angerostet bis verrostet. Geringe Beschriftungen oder Aufkleber auf der Titelseite. Innenseiten stark gedunkelt und fleckig. Das Heft ist noch nicht zerfleddert und hat keine losen oder fehlenden Seiten. |
+| **Z4** | Stark beschädigt | Stark beschädigtes Heft. Titelbild eingerissen und/oder deutlich störende Beschriftungen beziehungsweise Aufkleber auf der Titelseite. Innenseiten deutlich braun. Das Heft wirkt zerfleddert und kann lose oder fehlende Seiten haben. |
 
 ---
 
@@ -208,8 +207,8 @@ Die folgenden Kernentitäten bilden das Datenmodell von LILLY. Das detaillierte 
 
 - **Serie (Series):** Serienname, Verlag, Genre, Erscheinungsrhythmus, Status, Datenquelle-URL, Gesamtzahl Hefte.
 - **Heft (Issue):** Heftnummer, Titel, Autor(en), Ersterscheinungsdatum, Serienzugehörigkeit, Cover-URL, Zyklus/Handlungsabschnitt.
-- **Nutzer (User):** Anzeigename, E-Mail (verschlüsselt), Passwort-Hash, OAuth-Referenzen, Avatar, Standort (optional), Profil-Sichtbarkeit.
-- **Sammlungseintrag (CollectionEntry):** Nutzer-Referenz, Heft-Referenz, Zustand (Z0–Z5), Status (vorhanden/doppelt/gesucht), Notizen, eigene Fotos.
+- **Nutzer (User):** Anzeigename, E-Mail (verschlüsselt), Passwort-Hash, OAuth-Referenzen, Avatar, Standort (optional), Profil- und Sammlungssichtbarkeit.
+- **Sammlungseintrag (CollectionEntry):** Nutzer-Referenz, Heft-Referenz, Zustand (Z0–Z4), Status (vorhanden/doppelt/gesucht), Notizen, eigene Fotos.
 - **Tausch (Trade):** Anbieter, Nachfrager, angebotene Hefte, gesuchte Hefte, Status (offen/akzeptiert/abgeschlossen/abgebrochen), Nachrichten-Thread.
 - **Nachricht (Message):** Absender, Empfänger, Tausch-Referenz (optional), Inhalt, Zeitstempel, Gelesen-Status.
 - **Kommentar (Comment):** Nutzer-Referenz, Heft-Referenz, Text, Bewertung (1–5 Sterne), Zeitstempel.
@@ -234,7 +233,7 @@ Folgende Funktionen sind bewusst nicht Teil von LILLY:
 
 - Sammlungsverwaltung für Maddrax und John Sinclair
 - Datenimport aus Maddraxikon und Gruselroman-Wiki
-- Zustandsbewertung (Z0–Z5)
+- Zustandsbewertung (Z0–Z4)
 - Nutzerregistrierung (E-Mail + OAuth)
 - Tausch-Matching und Nachrichtensystem
 - Öffentliche Profile und Statistiken
@@ -264,7 +263,7 @@ Folgende Funktionen sind bewusst nicht Teil von LILLY:
 |---|---|
 | **Heftroman** | Gehefteter Roman im Format DIN C5 bis A5, erscheint periodisch im Zeitschriftenhandel. Auch: Groschenroman, Groschenheft. |
 | **Yellowback** | Historischer englischer Begriff für billige, in gelbe Umschläge gebundene Trivialromane des 19. Jahrhunderts. Namensgebend für LILLY. |
-| **Zustandsskala (Z0–Z5)** | Standardisierte Bewertungsskala für den physischen Zustand von Romanheften in der deutschen Sammlerszene. |
+| **Zustandsskala (Z0–Z4)** | Standardisierte Bewertungsskala für den physischen Zustand von Romanheften in der deutschen Sammlerszene. |
 | **PWA** | Progressive Web App. Webanwendung, die wie eine native App installiert und teilweise offline genutzt werden kann. |
 | **Fan-Wiki** | Von Fans betriebene, auf MediaWiki basierende Wissensdatenbank zu einer Heftroman-Serie (z. B. Maddraxikon, Perrypedia). |
 | **Matching** | Automatischer Abgleich von Angebots- und Suchlisten verschiedener Nutzer zur Identifikation potenzieller Tauschpartner. |

@@ -19,11 +19,19 @@ describe('Privacy Page', () => {
 		expect(screen.getByText(/1\. Verantwortlicher/)).toBeInTheDocument();
 		expect(screen.getByText(/2\. Erhobene Daten/)).toBeInTheDocument();
 		expect(screen.getByText(/3\. Zweck der Verarbeitung/)).toBeInTheDocument();
-		expect(screen.getByText(/4\. Rechtsgrundlage/)).toBeInTheDocument();
-		expect(screen.getByText(/5\. Speicherdauer/)).toBeInTheDocument();
-		expect(screen.getByText(/6\. Ihre Rechte/)).toBeInTheDocument();
-		expect(screen.getByText(/7\. Cookies/)).toBeInTheDocument();
-		expect(screen.getByText(/8\. Kontakt/)).toBeInTheDocument();
+		expect(screen.getByText(/4\. Öffentliche Freigaben/)).toBeInTheDocument();
+		expect(screen.getByText(/5\. Rechtsgrundlage/)).toBeInTheDocument();
+		expect(screen.getByText(/6\. Speicherdauer/)).toBeInTheDocument();
+		expect(screen.getByText(/7\. Ihre Rechte/)).toBeInTheDocument();
+		expect(screen.getByText(/8\. Cookies/)).toBeInTheDocument();
+		expect(screen.getByText(/9\. Kontakt/)).toBeInTheDocument();
+	});
+
+	it('explains that public collections also publish personal issue notes', () => {
+		render(PrivacyPage);
+
+		expect(screen.getByText(/standardmäßig privat/)).toBeInTheDocument();
+		expect(screen.getByText(/persönlichen Heftnotizen öffentlich angezeigt/)).toBeInTheDocument();
 	});
 
 	it('mentions Argon2id password hashing', () => {

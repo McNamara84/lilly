@@ -137,7 +137,7 @@ test.describe('Add to Collection', () => {
 	});
 
 	test('add page has correct document title', async ({ page }) => {
-		await expect(page).toHaveTitle(/Hefte hinzufügen.*LILLY/);
+		await expect(page).toHaveTitle(/Serienraster.*LILLY/);
 	});
 
 	test('series cards are displayed after loading', async ({ page }) => {
@@ -145,7 +145,7 @@ test.describe('Add to Collection', () => {
 		await expect(page.getByTestId('series-card').first()).toBeVisible();
 	});
 
-	test('selecting a series shows number grid and updates heading', async ({ page }) => {
+	test('selecting a series shows the four-state grid and updates heading', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
@@ -162,8 +162,11 @@ test.describe('Add to Collection', () => {
 		// Wait for grid loading
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		await expect(page.getByTestId('number-grid')).toBeVisible();
-		await expect(page.getByTestId('number-cell').first()).toBeVisible();
+		await expect(page.getByTestId('series-status-grid')).toBeVisible();
+		await expect(page.getByTestId('series-status-cell').first()).toBeVisible();
+		for (const status of ['owned', 'duplicate', 'wanted', 'missing']) {
+			await expect(page.getByTestId(`legend-${status}`)).toBeVisible();
+		}
 	});
 
 	test('back button returns to series selection', async ({ page }) => {
@@ -179,33 +182,23 @@ test.describe('Add to Collection', () => {
 		await expect(page.getByTestId('add-title')).toHaveText('Serie wählen');
 	});
 
-	test('toggling a number cell shows toast notification', async ({ page }) => {
+	test('grid remains free of horizontal page scrolling at phone, tablet and desktop widths', async ({
+		page
+	}) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
+		await page.getByTestId('series-card').first().click();
+		await expect(page.getByTestId('series-status-grid')).toBeVisible();
 
-		const firstCard = page.getByTestId('series-card').first();
-		await expect(firstCard).toBeVisible();
-
-		await firstCard.click();
-		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
-
-		const firstCell = page.getByTestId('number-cell').first();
-		await expect(firstCell).toBeVisible();
-
-		await firstCell.click();
-
-		// Toast should appear with "hinzugefügt" or "entfernt"
-		const toast = page.getByTestId('toast');
-		await expect(toast).toBeVisible({ timeout: 5000 });
-		const toastText = await toast.textContent();
-		expect(toastText).toMatch(/hinzugefügt|entfernt/);
-
-		// Restore the initial state so this test is independent of later scenarios.
-		await expect(toast).toBeHidden({ timeout: 5000 });
-		await firstCell.click();
-		await expect(toast).toBeVisible({ timeout: 5000 });
+		for (const width of [375, 768, 1280]) {
+			await page.setViewportSize({ width, height: 800 });
+			const horizontalOverflow = await page.evaluate(
+				() => document.documentElement.scrollWidth - document.documentElement.clientWidth
+			);
+			expect(horizontalOverflow).toBeLessThanOrEqual(0);
+		}
 	});
 
-	test('number cell reflects collection state after toggle', async ({ page }) => {
+	test('selecting a grid cell opens details without changing its status', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
@@ -214,18 +207,52 @@ test.describe('Add to Collection', () => {
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCell = page.getByTestId('number-cell').first();
+		const firstCell = page.getByTestId('series-status-cell').first();
 		await expect(firstCell).toBeVisible();
+		const initialStatus = await firstCell.getAttribute('data-status');
 
-		// Click to toggle (add or remove)
 		await firstCell.click();
-		await expect(page.getByTestId('toast')).toBeVisible({ timeout: 5000 });
-		// Wait for toast to disappear
-		await expect(page.getByTestId('toast')).toBeHidden({ timeout: 5000 });
 
-		// Click again to toggle back
-		await firstCell.click();
-		await expect(page.getByTestId('toast')).toBeVisible({ timeout: 5000 });
+		await expect(page.getByTestId('issue-detail-sheet')).toBeVisible();
+		await expect(firstCell).toHaveAttribute('data-status', initialStatus!);
+		await expect(page.getByTestId('toast')).toHaveCount(0);
+	});
+
+	test('saving details updates the grid state without a reload and can be restored', async ({
+		page
+	}) => {
+		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
+
+		const firstCard = page.getByTestId('series-card').first();
+		await expect(firstCard).toBeVisible();
+
+		await firstCard.click();
+		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
+
+		const firstCell = page.getByTestId('series-status-cell').first();
+		await expect(firstCell).toBeVisible();
+		const originalStatus = await firstCell.getAttribute('data-status');
+
+		try {
+			await firstCell.click();
+			await expect(page.getByTestId('issue-detail-sheet')).toBeVisible();
+			await page.getByTestId('status-wanted').click();
+			await page.getByTestId('save-button').click();
+			await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 5000 });
+			await expect(firstCell).toHaveAttribute('data-status', 'wanted');
+			await expect(page.getByTestId('toast')).toHaveAttribute('role', 'status');
+		} finally {
+			await firstCell.click();
+			await expect(page.getByTestId('issue-detail-sheet')).toBeVisible();
+			if (originalStatus === 'missing') {
+				await page.getByTestId('delete-button').click();
+				await expect(firstCell).toHaveAttribute('data-status', 'missing');
+			} else {
+				await page.getByTestId(`status-${originalStatus}`).click();
+				await page.getByTestId('save-button').click();
+				await expect(firstCell).toHaveAttribute('data-status', originalStatus!);
+			}
+		}
 	});
 });
 
@@ -250,16 +277,16 @@ test.describe('Collection End-to-End Workflow', () => {
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const cells = page.getByTestId('number-cell');
+		const cells = page.getByTestId('series-status-cell');
 		await expect(cells.first()).toBeVisible();
 
 		// Step 3: Add the first issue
 		const firstCell = cells.first();
-		const ariaLabel = await firstCell.getAttribute('aria-label');
-		const wasInCollection = ariaLabel?.includes('in Sammlung') ?? false;
+		const wasInCollection = (await firstCell.getAttribute('data-status')) !== 'missing';
 
 		if (!wasInCollection) {
 			await firstCell.click();
+			await page.getByTestId('save-button').click();
 			await expect(page.getByTestId('toast')).toBeVisible({ timeout: 5000 });
 			await expect(page.getByTestId('toast')).toContainText(/hinzugefügt/);
 		}

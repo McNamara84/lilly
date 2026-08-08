@@ -103,7 +103,7 @@ test.describe('Add to Collection Page Accessibility', () => {
 	});
 
 	test('has a descriptive page title', async ({ page }) => {
-		await expect(page).toHaveTitle(/Hefte hinzufügen.*LILLY/);
+		await expect(page).toHaveTitle(/Serienraster.*LILLY/);
 	});
 
 	test('series cards are keyboard navigable', async ({ page }) => {
@@ -117,7 +117,7 @@ test.describe('Add to Collection Page Accessibility', () => {
 		await expect(firstCard).toBeFocused();
 	});
 
-	test('number cells have descriptive aria-labels', async ({ page }) => {
+	test('status cells have descriptive aria-labels', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
@@ -126,16 +126,20 @@ test.describe('Add to Collection Page Accessibility', () => {
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCell = page.getByTestId('number-cell').first();
+		const firstCell = page.getByTestId('series-status-cell').first();
 		await expect(firstCell).toBeVisible();
 
 		const ariaLabel = await firstCell.getAttribute('aria-label');
 		expect(ariaLabel).toBeTruthy();
 		// Should contain "Heft #" pattern
 		expect(ariaLabel).toMatch(/Heft #\d+/);
+		expect(ariaLabel).toMatch(/Status: (Vorhanden|Doppelt\/Tauschbar|Gesucht|Fehlend)/);
+
+		const results = await new AxeBuilder({ page }).analyze();
+		expect(results.violations).toEqual([]);
 	});
 
-	test('toast notification uses role="status"', async ({ page }) => {
+	test('saved detail changes announce a status notification', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
@@ -144,19 +148,27 @@ test.describe('Add to Collection Page Accessibility', () => {
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCell = page.getByTestId('number-cell').first();
+		const firstCell = page.getByTestId('series-status-cell').first();
 		await expect(firstCell).toBeVisible();
+		const originalStatus = await firstCell.getAttribute('data-status');
 
-		await firstCell.click();
+		try {
+			await firstCell.click();
+			await page.getByTestId('status-wanted').click();
+			await page.getByTestId('save-button').click();
 
-		const toast = page.getByTestId('toast');
-		await expect(toast).toBeVisible({ timeout: 5000 });
-		await expect(toast).toHaveAttribute('role', 'status');
-
-		// Restore the seeded collection state for the following detail-sheet tests.
-		await expect(toast).toBeHidden({ timeout: 5000 });
-		await firstCell.click();
-		await expect(toast).toBeVisible({ timeout: 5000 });
+			const toast = page.getByTestId('toast');
+			await expect(toast).toBeVisible({ timeout: 5000 });
+			await expect(toast).toHaveAttribute('role', 'status');
+		} finally {
+			await firstCell.click();
+			if (originalStatus === 'missing') {
+				await page.getByTestId('delete-button').click();
+			} else {
+				await page.getByTestId(`status-${originalStatus}`).click();
+				await page.getByTestId('save-button').click();
+			}
+		}
 	});
 });
 

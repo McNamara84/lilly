@@ -93,6 +93,7 @@ describe('Layout', () => {
 
 		expect(screen.getByTestId('user-display-name')).toHaveTextContent('Max Mustermann');
 		expect(screen.getByTestId('header-logout-button')).toBeInTheDocument();
+		expect(screen.getByTestId('profile-link')).toHaveAttribute('href', '/profile');
 	});
 
 	it('toggles theme when theme button is clicked', async () => {
