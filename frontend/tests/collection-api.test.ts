@@ -90,6 +90,39 @@ describe('Collection API', () => {
 			expect(url).toContain('q=dark');
 		});
 
+		it('appends separate issue metadata filters', async () => {
+			const data = { data: [], page: 1, per_page: 20, total: 0 };
+			mockFetch.mockResolvedValue(jsonResponse(data));
+
+			await fetchCollection({
+				issue_number: 42,
+				condition: 'Z2',
+				title: 'Dunkle Zukunft',
+				author: 'Jo Zybell',
+				sort: 'author'
+			});
+
+			const url = mockFetch.mock.calls[0][0] as string;
+			expect(url).toContain('issue_number=42');
+			expect(url).toContain('condition=Z2');
+			expect(url).toContain('title=Dunkle+Zukunft');
+			expect(url).toContain('author=Jo+Zybell');
+			expect(url).toContain('sort=author');
+		});
+
+		it('passes an abort signal when provided', async () => {
+			const data = { data: [], page: 1, per_page: 20, total: 0 };
+			mockFetch.mockResolvedValue(jsonResponse(data));
+			const controller = new AbortController();
+
+			await fetchCollection({ title: 'Dunkle' }, controller.signal);
+
+			expect(mockFetch).toHaveBeenCalledWith(
+				'/api/v1/me/collection?title=Dunkle',
+				expect.objectContaining({ signal: controller.signal })
+			);
+		});
+
 		it('omits undefined and empty string params', async () => {
 			const data = { data: [], page: 1, per_page: 20, total: 0 };
 			mockFetch.mockResolvedValue(jsonResponse(data));
@@ -277,6 +310,35 @@ describe('Collection API', () => {
 			mockFetch.mockResolvedValue(jsonResponse({ error: 'Internal error' }, 500));
 
 			await expect(fetchCollectionStats()).rejects.toThrow('Internal error');
+		});
+
+		it('supports unknown collection totals', async () => {
+			const stats = {
+				total_issues: null,
+				total_owned: 0,
+				total_duplicate: 0,
+				total_wanted: 0,
+				overall_progress_percent: null,
+				series_stats: [
+					{
+						series_id: 1,
+						series_name: 'Neue Serie',
+						series_slug: 'neue-serie',
+						total_in_series: null,
+						owned_count: 0,
+						duplicate_count: 0,
+						wanted_count: 0,
+						progress_percent: null
+					}
+				]
+			};
+			mockFetch.mockResolvedValue(jsonResponse(stats));
+
+			const result = await fetchCollectionStats();
+
+			expect(result.total_issues).toBeNull();
+			expect(result.overall_progress_percent).toBeNull();
+			expect(result.series_stats[0].total_in_series).toBeNull();
 		});
 	});
 

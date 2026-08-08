@@ -2,6 +2,8 @@
 	import { getAuthState } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/stores';
+	import { untrack } from 'svelte';
 	import {
 		fetchCollection,
 		addToCollection,
@@ -15,6 +17,11 @@
 	import CoverGrid from '$lib/components/collection/CoverGrid.svelte';
 	import IssueDetailSheet from '$lib/components/collection/IssueDetailSheet.svelte';
 	import { fetchIssue, type Issue } from '$lib/api/series';
+	import {
+		normalizeCollectionQuery,
+		parseCollectionQuery,
+		serializeCollectionQuery
+	} from '$lib/utils/collection-query';
 
 	const auth = getAuthState();
 
@@ -25,6 +32,8 @@
 	let sheetError = $state<string | null>(null);
 	let seriesOptions = $state<{ slug: string; name: string }[]>([]);
 	let currentParams = $state<CollectionQueryParams>({});
+	let collectionRequest: AbortController | null = null;
+	let seriesLoaded = false;
 
 	// Detail sheet state
 	let selectedIssue = $state<Issue | null>(null);
@@ -38,9 +47,23 @@
 
 	$effect(() => {
 		if (auth.isAuthenticated) {
-			loadSeries();
-			loadCollection({});
+			if (!seriesLoaded) {
+				seriesLoaded = true;
+				loadSeries();
+			}
+			const currentUrl = $page.url ?? new URL('http://localhost/collection');
+			const params = parseCollectionQuery(currentUrl.searchParams);
+			const canonicalQuery = serializeCollectionQuery(params).toString();
+			if (canonicalQuery !== currentUrl.searchParams.toString()) {
+				void navigateToCollection(params, true);
+			} else {
+				untrack(() => loadCollection(params));
+			}
 		}
+	});
+
+	$effect(() => {
+		return () => collectionRequest?.abort();
 	});
 
 	async function loadSeries() {
@@ -52,23 +75,39 @@
 		}
 	}
 
+	function navigateToCollection(params: CollectionQueryParams, replaceState = false) {
+		const query = serializeCollectionQuery(params).toString();
+		const destination = query ? resolve(`/collection?${query}`) : resolve('/collection');
+		return goto(destination, {
+			replaceState,
+			noScroll: true,
+			keepFocus: true
+		});
+	}
+
 	async function loadCollection(params: CollectionQueryParams) {
+		collectionRequest?.abort();
+		const request = new AbortController();
+		collectionRequest = request;
 		loading = true;
 		error = null;
-		currentParams = params;
+		currentParams = normalizeCollectionQuery(params);
 		try {
-			const result = await fetchCollection(params);
+			const result = await fetchCollection(currentParams, request.signal);
+			if (collectionRequest !== request) return;
 			entries = result.data;
 			total = result.total;
 		} catch (e) {
+			if (e instanceof DOMException && e.name === 'AbortError') return;
+			if (collectionRequest !== request) return;
 			error = e instanceof Error ? e.message : 'Fehler beim Laden der Sammlung';
 		} finally {
-			loading = false;
+			if (collectionRequest === request) loading = false;
 		}
 	}
 
 	function handleFilterChange(params: CollectionQueryParams) {
-		loadCollection(params);
+		void navigateToCollection(params);
 	}
 
 	async function handleSelect(entry: CollectionEntry) {
@@ -166,7 +205,11 @@
 		{/if}
 	</div>
 
-	<CollectionFilterBar series_options={seriesOptions} onfilterchange={handleFilterChange} />
+	<CollectionFilterBar
+		series_options={seriesOptions}
+		value={currentParams}
+		onfilterchange={handleFilterChange}
+	/>
 
 	<div class="px-4 py-6 sm:px-6 lg:px-8">
 		<CoverGrid items={entries} {loading} onselect={handleSelect} />

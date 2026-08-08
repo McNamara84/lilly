@@ -299,6 +299,59 @@ describe('Dashboard Page', () => {
 		expect(screen.getByText('Maddrax')).toBeInTheDocument();
 	});
 
+	it('renders active series with unknown and empty totals without misleading percentages', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchCollectionStats.mockResolvedValue({
+			total_issues: null,
+			total_owned: 0,
+			total_duplicate: 0,
+			total_wanted: 0,
+			overall_progress_percent: null,
+			series_stats: [
+				{
+					series_id: 1,
+					series_name: 'Unbekannte Serie',
+					series_slug: 'unbekannt',
+					total_in_series: null,
+					owned_count: 0,
+					duplicate_count: 0,
+					wanted_count: 0,
+					progress_percent: null
+				},
+				{
+					series_id: 2,
+					series_name: 'Leere Serie',
+					series_slug: 'leer',
+					total_in_series: 0,
+					owned_count: 0,
+					duplicate_count: 0,
+					wanted_count: 0,
+					progress_percent: null
+				}
+			]
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => {
+			expect(screen.getByText('Unbekannte Serie')).toBeInTheDocument();
+		});
+		expect(screen.getByText('0 gesammelt — Gesamtzahl unbekannt')).toBeInTheDocument();
+		expect(screen.getByText('Leere Serie')).toBeInTheDocument();
+		expect(screen.getByText('Noch keine Hefte verfügbar')).toBeInTheDocument();
+		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+	});
+
 	it('renders quick links', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,

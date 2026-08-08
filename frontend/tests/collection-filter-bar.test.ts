@@ -46,7 +46,7 @@ describe('CollectionFilterBar', () => {
 		await fireEvent.change(select, { target: { value: 'maddrax' } });
 
 		expect(onfilterchange).toHaveBeenCalledWith(
-			expect.objectContaining({ series_slug: 'maddrax', page: 1 })
+			expect.objectContaining({ series_slug: 'maddrax' })
 		);
 	});
 
@@ -79,9 +79,7 @@ describe('CollectionFilterBar', () => {
 
 		await user.click(screen.getByTestId('status-filter-owned'));
 
-		expect(onfilterchange).toHaveBeenCalledWith(
-			expect.objectContaining({ status: 'owned', page: 1 })
-		);
+		expect(onfilterchange).toHaveBeenCalledWith(expect.objectContaining({ status: 'owned' }));
 	});
 
 	it('updates aria-checked when status chip is clicked', async () => {
@@ -103,7 +101,7 @@ describe('CollectionFilterBar', () => {
 
 		const sortSelect = screen.getByLabelText('Sortierung') as HTMLSelectElement;
 		expect(sortSelect).toBeInTheDocument();
-		expect(sortSelect.options).toHaveLength(4);
+		expect(sortSelect.options).toHaveLength(6);
 	});
 
 	it('fires onfilterchange when sort changes', async () => {
@@ -114,9 +112,7 @@ describe('CollectionFilterBar', () => {
 		const sortSelect = screen.getByLabelText('Sortierung');
 		await fireEvent.change(sortSelect, { target: { value: 'title' } });
 
-		expect(onfilterchange).toHaveBeenCalledWith(
-			expect.objectContaining({ sort: 'title', page: 1 })
-		);
+		expect(onfilterchange).toHaveBeenCalledWith(expect.objectContaining({ sort: 'title' }));
 	});
 
 	it('renders sort direction toggle defaulting to ascending', () => {
@@ -139,29 +135,27 @@ describe('CollectionFilterBar', () => {
 		await user.click(toggle);
 
 		expect(toggle).toHaveTextContent('↓');
-		expect(onfilterchange).toHaveBeenCalledWith(
-			expect.objectContaining({ sort_dir: 'desc', page: 1 })
-		);
+		expect(onfilterchange).toHaveBeenCalledWith(expect.objectContaining({ sort_dir: 'desc' }));
 	});
 
-	it('renders search input', () => {
+	it('renders separate metadata filters', () => {
 		render(CollectionFilterBar, {
 			props: { series_options: seriesOptions, onfilterchange }
 		});
 
-		const search = screen.getByTestId('search-input') as HTMLInputElement;
-		expect(search).toBeInTheDocument();
-		expect(search.type).toBe('search');
-		expect(search.placeholder).toBe('Suchen...');
+		expect(screen.getByLabelText('Heftnummer')).toBeInTheDocument();
+		expect(screen.getByLabelText('Zustand')).toBeInTheDocument();
+		expect(screen.getByLabelText('Titel')).toBeInTheDocument();
+		expect(screen.getByLabelText('Autor')).toBeInTheDocument();
 	});
 
-	it('fires onfilterchange on search input (debounced)', async () => {
+	it('fires onfilterchange on title input (debounced)', async () => {
 		vi.useFakeTimers();
 		render(CollectionFilterBar, {
 			props: { series_options: seriesOptions, onfilterchange }
 		});
 
-		const search = screen.getByTestId('search-input');
+		const search = screen.getByTestId('title-filter');
 		await fireEvent.input(search, { target: { value: 'Dunkle' } });
 
 		// Should not fire immediately (debounced)
@@ -172,7 +166,38 @@ describe('CollectionFilterBar', () => {
 
 		expect(onfilterchange).toHaveBeenCalledTimes(1);
 		const call = (onfilterchange as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(call.q).toBe('Dunkle');
+		expect(call.title).toBe('Dunkle');
+		vi.useRealTimers();
+	});
+
+	it('combines issue number, condition, title and author filters', async () => {
+		vi.useFakeTimers();
+		render(CollectionFilterBar, {
+			props: { series_options: seriesOptions, onfilterchange }
+		});
+
+		await fireEvent.input(screen.getByTestId('issue-number-filter'), {
+			target: { value: '42' }
+		});
+		await fireEvent.change(screen.getByTestId('condition-filter'), {
+			target: { value: 'Z2' }
+		});
+		await fireEvent.input(screen.getByTestId('title-filter'), {
+			target: { value: 'Dunkle' }
+		});
+		await fireEvent.input(screen.getByTestId('author-filter'), {
+			target: { value: 'Zybell' }
+		});
+		vi.advanceTimersByTime(300);
+
+		expect(onfilterchange).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				issue_number: 42,
+				condition: 'Z2',
+				title: 'Dunkle',
+				author: 'Zybell'
+			})
+		);
 		vi.useRealTimers();
 	});
 
@@ -185,8 +210,8 @@ describe('CollectionFilterBar', () => {
 		// Click "Alle" which is already selected — emitChange still fires
 		await user.click(screen.getByTestId('status-filter-all'));
 
-		// Default params: no series_slug, no status, no sort (default=issue_number), no sort_dir (default=asc)
-		expect(onfilterchange).toHaveBeenCalledWith({ page: 1 });
+		// Canonical defaults are omitted from the URL-backed query.
+		expect(onfilterchange).toHaveBeenCalledWith({});
 	});
 
 	it('renders with empty series_options', () => {
@@ -207,7 +232,10 @@ describe('CollectionFilterBar', () => {
 		expect(screen.getByLabelText('Status-Filter')).toBeInTheDocument();
 		expect(screen.getByLabelText('Sortierung')).toBeInTheDocument();
 		expect(screen.getByLabelText(/Aufsteigend/)).toBeInTheDocument();
-		expect(screen.getByLabelText('Suche')).toBeInTheDocument();
+		expect(screen.getByLabelText('Heftnummer')).toBeInTheDocument();
+		expect(screen.getByLabelText('Zustand')).toBeInTheDocument();
+		expect(screen.getByLabelText('Titel')).toBeInTheDocument();
+		expect(screen.getByLabelText('Autor')).toBeInTheDocument();
 	});
 
 	it('disables "Fehlend" chip when no series is selected', () => {
@@ -262,5 +290,71 @@ describe('CollectionFilterBar', () => {
 		// "Alle" should be active again
 		expect(screen.getByTestId('status-filter-all')).toHaveAttribute('aria-checked', 'true');
 		expect(screen.getByTestId('status-filter-missing')).toHaveAttribute('aria-checked', 'false');
+	});
+
+	it('initializes controls from URL-backed value props', () => {
+		render(CollectionFilterBar, {
+			props: {
+				series_options: seriesOptions,
+				value: {
+					series_slug: 'maddrax',
+					status: 'owned',
+					issue_number: 42,
+					condition: 'Z1',
+					title: 'Dunkle',
+					author: 'Zybell',
+					sort: 'author',
+					sort_dir: 'desc'
+				},
+				onfilterchange
+			}
+		});
+
+		expect(screen.getByLabelText('Serie')).toHaveValue('maddrax');
+		expect(screen.getByTestId('status-filter-owned')).toHaveAttribute('aria-checked', 'true');
+		expect(screen.getByLabelText('Heftnummer')).toHaveValue(42);
+		expect(screen.getByLabelText('Zustand')).toHaveValue('Z1');
+		expect(screen.getByLabelText('Titel')).toHaveValue('Dunkle');
+		expect(screen.getByLabelText('Autor')).toHaveValue('Zybell');
+		expect(screen.getByLabelText('Sortierung')).toHaveValue('author');
+		expect(screen.getByTestId('sort-dir-toggle')).toHaveTextContent('↓');
+	});
+
+	it('disables and clears condition when missing status is selected', async () => {
+		render(CollectionFilterBar, {
+			props: {
+				series_options: seriesOptions,
+				value: { series_slug: 'maddrax', condition: 'Z1' },
+				onfilterchange
+			}
+		});
+		const user = userEvent.setup();
+
+		await user.click(screen.getByTestId('status-filter-missing'));
+
+		expect(screen.getByTestId('condition-filter')).toBeDisabled();
+		expect(onfilterchange).toHaveBeenLastCalledWith({
+			series_slug: 'maddrax',
+			status: 'missing'
+		});
+	});
+
+	it('resets filters and sorting in one action', async () => {
+		render(CollectionFilterBar, {
+			props: {
+				series_options: seriesOptions,
+				value: { series_slug: 'maddrax', title: 'Dunkle', sort: 'author', sort_dir: 'desc' },
+				onfilterchange
+			}
+		});
+		const user = userEvent.setup();
+
+		await user.click(screen.getByTestId('reset-filters'));
+
+		expect(onfilterchange).toHaveBeenLastCalledWith({});
+		expect(screen.getByLabelText('Serie')).toHaveValue('');
+		expect(screen.getByLabelText('Titel')).toHaveValue('');
+		expect(screen.getByLabelText('Sortierung')).toHaveValue('issue_number');
+		expect(screen.getByTestId('sort-dir-toggle')).toHaveTextContent('↑');
 	});
 });

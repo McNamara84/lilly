@@ -38,6 +38,9 @@ test.describe('Collection Page Accessibility', () => {
 	});
 
 	test('filter bar labels are accessible', async ({ page }) => {
+		const advancedToggle = page.getByTestId('advanced-filter-toggle');
+		if (await advancedToggle.isVisible()) await advancedToggle.click();
+
 		// Series dropdown has an associated sr-only label
 		const seriesSelect = page.getByLabel(/serie/i);
 		await expect(seriesSelect).toBeVisible();
@@ -46,9 +49,11 @@ test.describe('Collection Page Accessibility', () => {
 		const sortSelect = page.getByLabel(/sortierung/i);
 		await expect(sortSelect).toBeVisible();
 
-		// Search input has an associated sr-only label
-		const searchInput = page.getByLabel(/suche/i);
-		await expect(searchInput).toBeVisible();
+		// Every metadata filter has a visible associated label
+		await expect(page.getByLabel('Heftnummer', { exact: true })).toBeVisible();
+		await expect(page.getByLabel(/^Zustand/i)).toBeVisible();
+		await expect(page.getByLabel('Titel', { exact: true })).toBeVisible();
+		await expect(page.getByLabel('Autor', { exact: true })).toBeVisible();
 	});
 
 	test('status filter uses radiogroup role', async ({ page }) => {
