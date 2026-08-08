@@ -20,7 +20,7 @@ export function effectiveCollectionEntry(
 	return (
 		entries
 			.filter((entry) => entry.status !== 'missing')
-			.toSorted(
+			.sort(
 				(left, right) =>
 					STATUS_PRIORITY[right.status] - STATUS_PRIORITY[left.status] || left.id - right.id
 			)[0] ?? null
@@ -38,8 +38,8 @@ export function buildSeriesGridItems(
 		else byIssue.set(entry.issue_id, [entry]);
 	}
 
-	return issues
-		.toSorted((left, right) => left.issue_number - right.issue_number || left.id - right.id)
+	return [...issues]
+		.sort((left, right) => left.issue_number - right.issue_number || left.id - right.id)
 		.map((issue) => {
 			const entry = effectiveCollectionEntry(byIssue.get(issue.id) ?? []);
 			return {

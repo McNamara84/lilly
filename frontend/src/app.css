@@ -57,7 +57,6 @@
 	--text-primary: #0f172a;
 	--text-secondary: #475569;
 	--text-tertiary: #5f6f82;
-	--color-warning: #b45309;
 	/* Keep dynamically referenced collection colors in the generated CSS. */
 	--color-condition-z0: #10b981;
 	--color-condition-z1: #34d399;
