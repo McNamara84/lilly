@@ -6,7 +6,8 @@ import AdminImportPage from '../src/routes/admin/import/+page.svelte';
 vi.mock('$lib/api/admin', () => ({
 	fetchAdapters: vi.fn(),
 	startImport: vi.fn(),
-	fetchImportHistory: vi.fn()
+	fetchImportHistory: vi.fn(),
+	fetchImportSchedule: vi.fn()
 }));
 
 vi.mock('$app/navigation', () => ({
@@ -17,7 +18,12 @@ vi.mock('$app/paths', () => ({
 	resolve: vi.fn((path: string) => path)
 }));
 
-import { fetchAdapters, startImport, fetchImportHistory } from '$lib/api/admin';
+import {
+	fetchAdapters,
+	startImport,
+	fetchImportHistory,
+	fetchImportSchedule
+} from '$lib/api/admin';
 import { goto } from '$app/navigation';
 
 const mockAdapters = [
@@ -31,9 +37,12 @@ const mockHistory = [
 		series_id: 1,
 		series_slug: 'maddrax',
 		adapter_name: 'maddrax',
+		trigger_type: 'manual' as const,
+		scheduled_for: null,
 		status: 'completed',
 		total_issues: 620,
 		imported_issues: 620,
+		failed_issues: 0,
 		error_message: null,
 		started_by: 1,
 		started_at: '2025-06-01T10:00:00Z',
@@ -44,6 +53,13 @@ const mockHistory = [
 describe('Admin Import Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.mocked(fetchImportSchedule).mockResolvedValue({
+			enabled: true,
+			schedule: '0 10 6 * * Sat *',
+			timezone: 'Europe/Berlin',
+			adapters: ['maddrax', 'john-sinclair'],
+			next_run: '2026-08-08T04:10:00Z'
+		});
 	});
 
 	it('shows loading state initially', () => {
@@ -97,9 +113,12 @@ describe('Admin Import Page', () => {
 			series_id: 1,
 			series_slug: 'maddrax',
 			adapter_name: 'maddrax',
+			trigger_type: 'manual',
+			scheduled_for: null,
 			status: 'running',
 			total_issues: 0,
 			imported_issues: 0,
+			failed_issues: 0,
 			error_message: null,
 			started_by: 1,
 			started_at: '2025-06-01T10:00:00Z',
@@ -171,5 +190,16 @@ describe('Admin Import Page', () => {
 		render(AdminImportPage);
 
 		expect(screen.getByTestId('admin-import-title')).toHaveTextContent('Import');
+	});
+
+	it('shows the enabled weekly scheduler and its timezone', async () => {
+		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
+		vi.mocked(fetchImportHistory).mockResolvedValue([]);
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('schedule-status')).toHaveTextContent('Aktiv für');
+		});
+		expect(screen.getByTestId('schedule-status')).toHaveTextContent('Europe/Berlin');
 	});
 });

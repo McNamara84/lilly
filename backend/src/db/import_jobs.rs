@@ -7,13 +7,19 @@ pub async fn create_import_job(
     pool: &MySqlPool,
     series_id: u32,
     adapter_name: &str,
-    started_by: u32,
+    started_by: Option<u32>,
+    trigger_type: &str,
+    scheduled_for: Option<chrono::NaiveDateTime>,
 ) -> Result<u32, sqlx::Error> {
     let result = sqlx::query(
-        "INSERT INTO import_jobs (series_id, adapter_name, started_by) VALUES (?, ?, ?)",
+        "INSERT INTO import_jobs \
+         (series_id, adapter_name, trigger_type, scheduled_for, started_by) \
+         VALUES (?, ?, ?, ?, ?)",
     )
     .bind(series_id)
     .bind(adapter_name)
+    .bind(trigger_type)
+    .bind(scheduled_for)
     .bind(started_by)
     .execute(pool)
     .await?;
@@ -30,7 +36,9 @@ pub async fn create_import_job_if_idle(
     pool: &MySqlPool,
     series_id: u32,
     adapter_name: &str,
-    started_by: u32,
+    started_by: Option<u32>,
+    trigger_type: &str,
+    scheduled_for: Option<chrono::NaiveDateTime>,
 ) -> Result<Option<u32>, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
@@ -54,10 +62,14 @@ pub async fn create_import_job_if_idle(
     }
 
     let result = sqlx::query(
-        "INSERT INTO import_jobs (series_id, adapter_name, started_by) VALUES (?, ?, ?)",
+        "INSERT INTO import_jobs \
+         (series_id, adapter_name, trigger_type, scheduled_for, started_by) \
+         VALUES (?, ?, ?, ?, ?)",
     )
     .bind(series_id)
     .bind(adapter_name)
+    .bind(trigger_type)
+    .bind(scheduled_for)
     .bind(started_by)
     .execute(&mut *tx)
     .await?;
@@ -72,13 +84,15 @@ pub async fn update_import_progress(
     pool: &MySqlPool,
     job_id: u32,
     imported_issues: u32,
+    failed_issues: u32,
     total_issues: u32,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE import_jobs SET imported_issues = ?, total_issues = ?, status = 'running', \
+        "UPDATE import_jobs SET imported_issues = ?, failed_issues = ?, total_issues = ?, status = 'running', \
          started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE id = ?",
     )
     .bind(imported_issues)
+    .bind(failed_issues)
     .bind(total_issues)
     .bind(job_id)
     .execute(pool)
@@ -87,10 +101,21 @@ pub async fn update_import_progress(
     Ok(())
 }
 
-pub async fn complete_import_job(pool: &MySqlPool, job_id: u32) -> Result<(), sqlx::Error> {
+pub async fn complete_import_job(
+    pool: &MySqlPool,
+    job_id: u32,
+    failed_issues: u32,
+    error_message: Option<&str>,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE import_jobs SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+        "UPDATE import_jobs SET \
+         status = IF(? > 0, 'completed_with_errors', 'completed'), \
+         failed_issues = ?, error_message = ?, completed_at = CURRENT_TIMESTAMP \
+         WHERE id = ?",
     )
+    .bind(failed_issues)
+    .bind(failed_issues)
+    .bind(error_message)
     .bind(job_id)
     .execute(pool)
     .await?;
@@ -120,8 +145,9 @@ pub async fn find_import_jobs_by_series(
     series_id: u32,
 ) -> Result<Vec<ImportJob>, sqlx::Error> {
     sqlx::query_as::<_, ImportJob>(
-        "SELECT id, series_id, adapter_name, status, total_issues, imported_issues, \
-         error_message, started_by, started_at, completed_at, created_at \
+        "SELECT id, series_id, adapter_name, trigger_type, scheduled_for, status, \
+         total_issues, imported_issues, failed_issues, error_message, started_by, \
+         started_at, completed_at, created_at \
          FROM import_jobs WHERE series_id = ? ORDER BY created_at DESC",
     )
     .bind(series_id)
@@ -147,13 +173,30 @@ pub async fn find_import_job_by_id(
     job_id: u32,
 ) -> Result<Option<ImportJob>, sqlx::Error> {
     sqlx::query_as::<_, ImportJob>(
-        "SELECT id, series_id, adapter_name, status, total_issues, imported_issues, \
-         error_message, started_by, started_at, completed_at, created_at \
+        "SELECT id, series_id, adapter_name, trigger_type, scheduled_for, status, \
+         total_issues, imported_issues, failed_issues, error_message, started_by, \
+         started_at, completed_at, created_at \
          FROM import_jobs WHERE id = ?",
     )
     .bind(job_id)
     .fetch_optional(pool)
     .await
+}
+
+pub async fn has_scheduled_job(
+    pool: &MySqlPool,
+    adapter_name: &str,
+    scheduled_for: chrono::NaiveDateTime,
+) -> Result<bool, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM import_jobs \
+         WHERE adapter_name = ? AND scheduled_for = ? AND trigger_type = 'scheduled'",
+    )
+    .bind(adapter_name)
+    .bind(scheduled_for)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0 > 0)
 }
 
 /// Marks any import jobs left in 'pending' or 'running' status as 'failed'.

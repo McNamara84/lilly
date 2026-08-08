@@ -14,6 +14,10 @@ pub struct AppConfig {
     pub admin_email: Option<String>,
     pub media_path: String,
     pub media_url_prefix: String,
+    pub import_scheduler_enabled: bool,
+    pub import_schedule: String,
+    pub import_timezone: String,
+    pub import_scheduled_adapters: Vec<String>,
 }
 
 impl AppConfig {
@@ -53,6 +57,20 @@ impl AppConfig {
             admin_email: get("ADMIN_EMAIL").filter(|s| !s.is_empty()),
             media_path: get("MEDIA_PATH").unwrap_or_else(|| "/media".to_string()),
             media_url_prefix: get("MEDIA_URL_PREFIX").unwrap_or_else(|| "/media".to_string()),
+            import_scheduler_enabled: get("IMPORT_SCHEDULER_ENABLED")
+                .unwrap_or_else(|| "false".to_string())
+                .parse()
+                .expect("IMPORT_SCHEDULER_ENABLED must be true or false"),
+            import_schedule: get("IMPORT_SCHEDULE")
+                .unwrap_or_else(|| "0 10 6 * * Sat *".to_string()),
+            import_timezone: get("IMPORT_TIMEZONE").unwrap_or_else(|| "Europe/Berlin".to_string()),
+            import_scheduled_adapters: get("IMPORT_SCHEDULED_ADAPTERS")
+                .unwrap_or_else(|| "maddrax,john-sinclair".to_string())
+                .split(',')
+                .map(str::trim)
+                .filter(|adapter| !adapter.is_empty())
+                .map(ToString::to_string)
+                .collect(),
         }
     }
 }
@@ -81,5 +99,30 @@ mod tests {
         assert!(config.admin_email.is_none());
         assert_eq!(config.media_path, "/media");
         assert_eq!(config.media_url_prefix, "/media");
+        assert!(!config.import_scheduler_enabled);
+        assert_eq!(config.import_schedule, "0 10 6 * * Sat *");
+        assert_eq!(config.import_timezone, "Europe/Berlin");
+        assert_eq!(
+            config.import_scheduled_adapters,
+            vec!["maddrax", "john-sinclair"]
+        );
+    }
+
+    #[test]
+    fn test_import_scheduler_configuration() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "IMPORT_SCHEDULER_ENABLED" => Some("true".to_string()),
+            "IMPORT_SCHEDULE" => Some("0 10 6 * * Sat *".to_string()),
+            "IMPORT_TIMEZONE" => Some("Europe/Berlin".to_string()),
+            "IMPORT_SCHEDULED_ADAPTERS" => Some("maddrax, john-sinclair, ".to_string()),
+            _ => None,
+        });
+        assert!(config.import_scheduler_enabled);
+        assert_eq!(
+            config.import_scheduled_adapters,
+            vec!["maddrax", "john-sinclair"]
+        );
     }
 }

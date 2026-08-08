@@ -3,14 +3,17 @@
 		fetchAdapters,
 		startImport,
 		fetchImportHistory,
+		fetchImportSchedule,
 		type Adapter,
-		type ImportJob
+		type ImportJob,
+		type ImportScheduleStatus
 	} from '$lib/api/admin';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 
 	let adapters = $state<Adapter[]>([]);
 	let history = $state<ImportJob[]>([]);
+	let schedule = $state<ImportScheduleStatus | null>(null);
 	let selectedAdapter = $state('');
 	let loading = $state(true);
 	let importing = $state(false);
@@ -20,9 +23,14 @@
 		loading = true;
 		error = null;
 		try {
-			const [adapterList, historyList] = await Promise.all([fetchAdapters(), fetchImportHistory()]);
+			const [adapterList, historyList, scheduleStatus] = await Promise.all([
+				fetchAdapters(),
+				fetchImportHistory(),
+				fetchImportSchedule()
+			]);
 			adapters = adapterList;
 			history = historyList;
+			schedule = scheduleStatus;
 			if (adapterList.length > 0 && !selectedAdapter) {
 				selectedAdapter = adapterList[0].name;
 			}
@@ -31,6 +39,10 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	function formatTrigger(trigger: ImportJob['trigger_type']): string {
+		return trigger === 'scheduled' ? 'Automatisch' : 'Manuell';
 	}
 
 	async function handleStartImport() {
@@ -48,7 +60,7 @@
 
 	function formatDate(dateStr: string | null): string {
 		if (!dateStr) return '–';
-		return new Date(dateStr).toLocaleString('de-DE');
+		return new Date(dateStr).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
 	}
 
 	$effect(() => {
@@ -80,6 +92,24 @@
 		>
 			{error}
 		</div>
+	{/if}
+
+	{#if schedule}
+		<section class="glass-elevated p-6 rounded-lg mb-8" data-testid="schedule-section">
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
+				Automatischer Import
+			</h2>
+			{#if schedule.enabled}
+				<p class="text-sm" style="color: var(--text-secondary);" data-testid="schedule-status">
+					Aktiv für {schedule.adapters.join(', ')}. Nächster Lauf: {formatDate(schedule.next_run)}
+					({schedule.timezone}).
+				</p>
+			{:else}
+				<p class="text-sm" style="color: var(--text-secondary);" data-testid="schedule-status">
+					Deaktiviert. Geplanter Termin: samstags um 06:10 Uhr ({schedule.timezone}).
+				</p>
+			{/if}
+		</section>
 	{/if}
 
 	<!-- Start Import Section -->
@@ -137,6 +167,7 @@
 						<tr style="border-bottom: 1px solid var(--border-default);">
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Adapter</th>
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Status</th>
+							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Auslöser</th>
 							<th class="text-center py-3 px-2" style="color: var(--text-secondary);"
 								>Fortschritt</th
 							>
@@ -154,6 +185,7 @@
 									<span
 										class="inline-block px-2 py-0.5 rounded text-xs font-medium"
 										class:text-green-700={job.status === 'completed'}
+										class:text-orange-700={job.status === 'completed_with_errors'}
 										class:text-red-700={job.status === 'failed'}
 										class:text-yellow-700={job.status === 'running'}
 										class:text-gray-700={job.status === 'pending'}
@@ -161,8 +193,11 @@
 										{job.status}
 									</span>
 								</td>
+								<td class="py-3 px-2" style="color: var(--text-secondary);">
+									{formatTrigger(job.trigger_type)}
+								</td>
 								<td class="py-3 px-2 text-center" style="color: var(--text-secondary);">
-									{job.imported_issues} / {job.total_issues}
+									{job.imported_issues + job.failed_issues} / {job.total_issues}
 								</td>
 								<td class="py-3 px-2" style="color: var(--text-secondary);">
 									{formatDate(job.started_at)}

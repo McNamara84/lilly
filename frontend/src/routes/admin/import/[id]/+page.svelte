@@ -30,9 +30,13 @@
 		try {
 			job = await fetchImportJob(jobId);
 
-			if (job.status === 'completed' || job.status === 'failed') {
+			if (
+				job.status === 'completed' ||
+				job.status === 'completed_with_errors' ||
+				job.status === 'failed'
+			) {
 				stopPolling();
-				if (job.status === 'completed') {
+				if (job.status === 'completed' || job.status === 'completed_with_errors') {
 					await loadIssues();
 				}
 			}
@@ -77,7 +81,7 @@
 
 	function progressPercent(): number {
 		if (!job || job.total_issues === 0) return 0;
-		return Math.round((job.imported_issues / job.total_issues) * 100);
+		return Math.round(((job.imported_issues + job.failed_issues) / job.total_issues) * 100);
 	}
 
 	async function handleActivate() {
@@ -140,6 +144,7 @@
 	</h1>
 	<p class="text-sm mb-6" style="color: var(--text-secondary);">
 		Adapter: {job.adapter_name}
+		· {job.trigger_type === 'scheduled' ? 'Automatischer Lauf' : 'Manueller Lauf'}
 	</p>
 
 	<!-- Status & Progress -->
@@ -150,6 +155,7 @@
 				<span
 					class="inline-block px-2 py-0.5 rounded text-xs font-medium ml-1"
 					class:text-green-700={job.status === 'completed'}
+					class:text-orange-700={job.status === 'completed_with_errors'}
 					class:text-red-700={job.status === 'failed'}
 					class:text-yellow-700={job.status === 'running'}
 					class:text-gray-700={job.status === 'pending'}
@@ -159,7 +165,8 @@
 				</span>
 			</span>
 			<span class="text-sm" style="color: var(--text-secondary);" data-testid="progress-count">
-				{job.imported_issues} / {job.total_issues} Hefte
+				{job.imported_issues + job.failed_issues} / {job.total_issues} bearbeitet ({job.imported_issues}
+				erfolgreich, {job.failed_issues} fehlgeschlagen)
 			</span>
 		</div>
 
@@ -168,7 +175,7 @@
 			class="w-full h-3 rounded-full overflow-hidden"
 			style="background-color: var(--surface-base);"
 			role="progressbar"
-			aria-valuenow={job.imported_issues}
+			aria-valuenow={job.imported_issues + job.failed_issues}
 			aria-valuemin={0}
 			aria-valuemax={job.total_issues}
 			aria-label="Import-Fortschritt"
@@ -188,7 +195,7 @@
 	</section>
 
 	<!-- Completed: Show issues & activate -->
-	{#if job.status === 'completed'}
+	{#if job.status === 'completed' || job.status === 'completed_with_errors'}
 		<section class="mb-6" data-testid="review-section">
 			<div class="flex items-center justify-between mb-4">
 				<h2 class="text-lg font-semibold" style="color: var(--text-primary);">
@@ -214,8 +221,10 @@
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Autor</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Zyklus</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Datum</th>
+								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Teil</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Zeichner</th>
 								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Cover</th>
+								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Quelle</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -233,14 +242,36 @@
 									<td class="py-3 px-2" style="color: var(--text-secondary);"
 										>{issue.published_at ?? '–'}</td
 									>
+									<td class="py-3 px-2" style="color: var(--text-secondary);">
+										{issue.part_number !== null && issue.part_total !== null
+											? `${issue.part_number} von ${issue.part_total}`
+											: '–'}
+									</td>
 									<td class="py-3 px-2" style="color: var(--text-secondary);"
 										>{issue.cover_artists.length > 0 ? issue.cover_artists.join(', ') : '–'}</td
 									>
 									<td class="py-3 px-2">
-										{#if issue.cover_local_path}
-											<span class="text-green-600 text-xs">&#10003;</span>
+										{#if issue.cover_local_path || issue.cover_url}
+											<img
+												src={issue.cover_local_path ?? issue.cover_url ?? ''}
+												alt="Cover von #{issue.issue_number}: {issue.title}"
+												class="h-16 w-auto rounded"
+											/>
 										{:else}
 											<span class="text-gray-400 text-xs">–</span>
+										{/if}
+									</td>
+									<td class="py-3 px-2">
+										{#if issue.source_wiki_url}
+											<!-- eslint-disable svelte/no-navigation-without-resolve -->
+											<a
+												href={issue.source_wiki_url}
+												target="_blank"
+												rel="noreferrer"
+												style="color: var(--color-brand-500);">Quelle</a
+											>
+										{:else}
+											<span style="color: var(--text-secondary);">–</span>
 										{/if}
 									</td>
 								</tr>

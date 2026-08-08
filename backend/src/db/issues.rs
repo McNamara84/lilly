@@ -14,8 +14,8 @@ pub async fn find_issues_by_series(
         .min(1_000_000);
 
     sqlx::query_as::<_, Issue>(
-        "SELECT id, series_id, issue_number, title, published_at, cycle, \
-         cover_url, cover_local_path, source_wiki_url, created_at \
+        "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
+         cover_url, cover_local_path, source_wiki_url, metadata_synced_at, created_at \
          FROM issues WHERE series_id = ? ORDER BY issue_number LIMIT ? OFFSET ?",
     )
     .bind(series_id)
@@ -30,8 +30,8 @@ pub async fn find_issue_by_id(
     issue_id: u32,
 ) -> Result<Option<Issue>, sqlx::Error> {
     sqlx::query_as::<_, Issue>(
-        "SELECT id, series_id, issue_number, title, published_at, cycle, \
-         cover_url, cover_local_path, source_wiki_url, created_at \
+        "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
+         cover_url, cover_local_path, source_wiki_url, metadata_synced_at, created_at \
          FROM issues WHERE id = ?",
     )
     .bind(issue_id)
@@ -57,24 +57,30 @@ pub async fn upsert_issue(
     issue_number: u32,
     title: &str,
     published_at: Option<chrono::NaiveDate>,
+    part_number: Option<u32>,
+    part_total: Option<u32>,
     cycle: Option<&str>,
     cover_url: Option<&str>,
     cover_local_path: Option<&str>,
     source_wiki_url: Option<&str>,
 ) -> Result<u32, sqlx::Error> {
     let result = sqlx::query(
-        "INSERT INTO issues (series_id, issue_number, title, published_at, cycle, \
+        "INSERT INTO issues (series_id, issue_number, title, published_at, part_number, part_total, cycle, \
          cover_url, cover_local_path, source_wiki_url) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          ON DUPLICATE KEY UPDATE title = VALUES(title), \
-         published_at = VALUES(published_at), cycle = VALUES(cycle), \
-         cover_url = VALUES(cover_url), cover_local_path = VALUES(cover_local_path), \
+         published_at = VALUES(published_at), part_number = VALUES(part_number), \
+         part_total = VALUES(part_total), cycle = VALUES(cycle), \
+         cover_url = COALESCE(VALUES(cover_url), cover_url), \
+         cover_local_path = COALESCE(VALUES(cover_local_path), cover_local_path), \
          source_wiki_url = VALUES(source_wiki_url)",
     )
     .bind(series_id)
     .bind(issue_number)
     .bind(title)
     .bind(published_at)
+    .bind(part_number)
+    .bind(part_total)
     .bind(cycle)
     .bind(cover_url)
     .bind(cover_local_path)
@@ -111,6 +117,34 @@ pub async fn find_existing_issue_numbers(
         .fetch_all(pool)
         .await?;
     Ok(rows.into_iter().map(|(n,)| n).collect())
+}
+
+/// Returns all issue numbers that still need a one-time metadata backfill.
+pub async fn find_unsynced_issue_numbers(
+    pool: &MySqlPool,
+    series_id: u32,
+) -> Result<Vec<u32>, sqlx::Error> {
+    let rows: Vec<(u32,)> = sqlx::query_as(
+        "SELECT issue_number FROM issues \
+         WHERE series_id = ? AND metadata_synced_at IS NULL \
+         ORDER BY issue_number",
+    )
+    .bind(series_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(number,)| number).collect())
+}
+
+/// Marks metadata as fully synchronized after the issue and all relations were persisted.
+pub async fn mark_issue_metadata_synced(
+    pool: &MySqlPool,
+    issue_id: u32,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE issues SET metadata_synced_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(issue_id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 // ── Normalized relation helpers ───────────────────────────────────────

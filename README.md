@@ -82,7 +82,7 @@ While generic book managers and general-purpose collector software exist, there 
 ### Series Data and Import
 - Initial series: **Maddrax – Die dunkle Zukunft der Erde** and **Geisterjäger John Sinclair**
 - Master data (issue number, title, author, publication date) imported from fan wikis ([Maddraxikon](https://de.maddraxikon.com), [Gruselroman-Wiki](https://gruselroman-wiki.de))
-- Regular sync via cronjob to automatically capture new issues
+- Regular sync via the timezone-aware backend scheduler to automatically capture new issues
 - Modular import system – additional series can be added with new adapters
 
 ### Community
@@ -195,6 +195,21 @@ Requires [Rust](https://rustup.rs/) and a running MariaDB instance.
 cd backend
 cargo run            # Start API server on http://localhost:8080
 ```
+
+### Automatic wiki imports
+
+The backend can synchronize the MVP series through the same import service used by the admin UI. Scheduled imports are disabled by default so that the initial full imports can be reviewed before automation is enabled.
+
+```dotenv
+IMPORT_SCHEDULER_ENABLED=true
+IMPORT_SCHEDULE=0 10 6 * * Sat *
+IMPORT_TIMEZONE=Europe/Berlin
+IMPORT_SCHEDULED_ADAPTERS=maddrax,john-sinclair
+```
+
+With these settings, Maddrax and the regular first edition of John Sinclair are synchronized every Saturday at 06:10 local German time. The IANA timezone keeps the local execution time stable across daylight-saving changes. After a restart, the backend reserves at most the latest missed weekly slot; `(adapter, scheduled_for)` is unique, so repeated starts cannot create the same scheduled job twice. Scheduler state and the next run are visible to administrators on the import page.
+
+For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run and review the initial imports manually, activate the new series, and only then enable the scheduler.
 
 ---
 
