@@ -57,7 +57,17 @@
 	--surface-overlay: #f1f5f9;
 	--text-primary: #0f172a;
 	--text-secondary: #475569;
-	--text-tertiary: #94a3b8;
+	--text-tertiary: #5f6f82;
+	/* Keep dynamically referenced collection colors in the generated CSS. */
+	--color-condition-z0: #10b981;
+	--color-condition-z1: #34d399;
+	--color-condition-z2: #a3e635;
+	--color-condition-z3: #facc15;
+	--color-condition-z4: #f97316;
+	--color-condition-z5: #ef4444;
+	--color-status-owned: #06b6d4;
+	--color-status-duplicate: #a855f7;
+	--color-status-wanted: #f59e0b;
 	color-scheme: light;
 }
 
@@ -70,7 +80,7 @@
 	--surface-overlay: #1a1a25;
 	--text-primary: #f1f5f9;
 	--text-secondary: #94a3b8;
-	--text-tertiary: #64748b;
+	--text-tertiary: #94a3b8;
 	color-scheme: dark;
 }
 

@@ -147,6 +147,11 @@ test.describe('Add to Collection Page Accessibility', () => {
 		const toast = page.getByTestId('toast');
 		await expect(toast).toBeVisible({ timeout: 5000 });
 		await expect(toast).toHaveAttribute('role', 'status');
+
+		// Restore the seeded collection state for the following detail-sheet tests.
+		await expect(toast).toBeHidden({ timeout: 5000 });
+		await firstCell.click();
+		await expect(toast).toBeVisible({ timeout: 5000 });
 	});
 });
 

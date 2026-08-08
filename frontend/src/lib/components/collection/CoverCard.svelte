@@ -19,8 +19,9 @@
 	const isMissing = $derived(entry.status === 'missing');
 </script>
 
+<!-- The role and tabindex are both conditional on the interactive prop. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<article
+<div
 	class="relative rounded-lg overflow-hidden {sizeClasses} {interactive ? 'cursor-pointer' : ''}"
 	class:opacity-40={isMissing}
 	style={isMissing ? 'border: 2px dashed var(--glass-border);' : ''}
@@ -50,10 +51,7 @@
 				loading="lazy"
 			/>
 		{:else}
-			<div
-				class="w-full h-full flex items-center justify-center text-sm"
-				style="color: var(--text-tertiary);"
-			>
+			<div class="w-full h-full flex items-center justify-center text-sm" style="color: #cbd5e1;">
 				#{entry.issue_number}
 			</div>
 		{/if}
@@ -105,4 +103,4 @@
 	>
 		{entry.title}
 	</p>
-</article>
+</div>

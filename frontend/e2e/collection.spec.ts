@@ -151,6 +151,11 @@ test.describe('Add to Collection', () => {
 		await expect(toast).toBeVisible({ timeout: 5000 });
 		const toastText = await toast.textContent();
 		expect(toastText).toMatch(/hinzugefügt|entfernt/);
+
+		// Restore the initial state so this test is independent of later scenarios.
+		await expect(toast).toBeHidden({ timeout: 5000 });
+		await firstCell.click();
+		await expect(toast).toBeVisible({ timeout: 5000 });
 	});
 
 	test('number cell reflects collection state after toggle', async ({ page }) => {
