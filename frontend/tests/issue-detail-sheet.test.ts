@@ -96,6 +96,16 @@ describe('IssueDetailSheet', () => {
 		expect(onclose).toHaveBeenCalled();
 	});
 
+	it('ignores keys other than Escape', async () => {
+		render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }
+		});
+
+		await fireEvent.keyDown(screen.getByTestId('detail-sheet-backdrop'), { key: 'Enter' });
+
+		expect(onclose).not.toHaveBeenCalled();
+	});
+
 	it('shows "Hinzufügen" button when no collection entry', () => {
 		render(IssueDetailSheet, {
 			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }
@@ -163,6 +173,26 @@ describe('IssueDetailSheet', () => {
 
 		const notesTextarea = screen.getByTestId('notes-textarea') as HTMLTextAreaElement;
 		expect(notesTextarea.value).toBe('My note');
+	});
+
+	it('normalizes a virtual entry with absent editable values to defaults', () => {
+		render(IssueDetailSheet, {
+			props: {
+				issue: sampleIssue,
+				collection_entry: {
+					...sampleEntry,
+					condition_grade: null,
+					status: 'missing',
+					notes: null
+				},
+				onclose,
+				onsave
+			}
+		});
+
+		expect(screen.getByTestId('condition-chip-Z2')).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByTestId('status-owned')).toHaveAttribute('aria-checked', 'true');
+		expect(screen.getByTestId('notes-textarea')).toHaveValue('');
 	});
 
 	it('renders status radio buttons', () => {

@@ -136,6 +136,22 @@ describe('series grid domain', () => {
 		expect(issues.map(({ issue_number }) => issue_number)).toEqual([3, 1, 2, 4]);
 	});
 
+	it('groups multiple entries for one issue before applying status priority', () => {
+		const result = buildSeriesGridItems(
+			[issue(10, 1)],
+			[entry(1, 10, 'owned'), entry(2, 10, 'duplicate')]
+		);
+
+		expect(result).toHaveLength(1);
+		expect(result[0]).toMatchObject({ status: 'duplicate', entry: { id: 2 } });
+	});
+
+	it('uses the issue id to order equal issue numbers deterministically', () => {
+		const result = buildSeriesGridItems([issue(20, 1), issue(10, 1)], []);
+
+		expect(result.map(({ issue: item }) => item.id)).toEqual([10, 20]);
+	});
+
 	it('defines a distinct label and abbreviation for every state', () => {
 		expect(COLLECTION_STATUS_PRESENTATION).toEqual({
 			owned: { label: 'Vorhanden', abbreviation: 'V' },

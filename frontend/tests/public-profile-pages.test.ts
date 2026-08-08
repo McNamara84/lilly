@@ -86,6 +86,15 @@ describe('Public Profile Page', () => {
 		expect(screen.getByText(/2 von 10/)).toBeInTheDocument();
 	});
 
+	it('renders a public profile without an optional location', async () => {
+		mocks.fetchPublicProfile.mockResolvedValue({ ...publicProfile, location: null });
+
+		render(PublicProfilePage);
+
+		await waitFor(() => expect(screen.getByTestId('public-profile')).toBeInTheDocument());
+		expect(screen.queryByText('Berlin')).not.toBeInTheDocument();
+	});
+
 	it('allows a public profile to keep its collection private', async () => {
 		mocks.fetchPublicCollectionStats.mockRejectedValue(
 			Object.assign(new Error('Resource not found'), { status: 404 })
@@ -117,6 +126,18 @@ describe('Public Profile Page', () => {
 		expect(screen.queryByText('Die Sammlung ist privat.')).not.toBeInTheDocument();
 	});
 
+	it('uses the fallback message for an untyped statistics failure', async () => {
+		mocks.fetchPublicCollectionStats.mockRejectedValue('untyped failure');
+
+		render(PublicProfilePage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Sammlungsstatistik konnte nicht geladen werden.'
+			)
+		);
+	});
+
 	it('uses the same not-found state for private and absent profiles', async () => {
 		mocks.fetchPublicProfile.mockRejectedValue(
 			Object.assign(new Error('Resource not found'), { status: 404 })
@@ -137,12 +158,31 @@ describe('Public Profile Page', () => {
 		expect(mocks.fetchPublicProfile).not.toHaveBeenCalled();
 	});
 
+	it('rejects unsafe numeric user ids locally', async () => {
+		mocks.page.params.id = '9007199254740992';
+
+		render(PublicProfilePage);
+
+		await waitFor(() => expect(screen.getByTestId('private-profile')).toBeInTheDocument());
+		expect(mocks.fetchPublicProfile).not.toHaveBeenCalled();
+	});
+
 	it('reports unexpected public-profile failures', async () => {
 		mocks.fetchPublicProfile.mockRejectedValue(new Error('Netzwerkfehler'));
 
 		render(PublicProfilePage);
 
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Netzwerkfehler'));
+	});
+
+	it('uses the fallback message for an untyped public-profile failure', async () => {
+		mocks.fetchPublicProfile.mockRejectedValue('untyped failure');
+
+		render(PublicProfilePage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Profil konnte nicht geladen werden.')
+		);
 	});
 });
 
@@ -188,6 +228,44 @@ describe('Public Collection Page', () => {
 		await waitFor(() => expect(screen.getAllByTestId('public-collection-entry')).toHaveLength(2));
 		expect(mocks.fetchPublicCollection).toHaveBeenNthCalledWith(1, 7, 1, 100);
 		expect(mocks.fetchPublicCollection).toHaveBeenNthCalledWith(2, 7, 2, 100);
+	});
+
+	it('stops pagination when the backend returns an empty partial page', async () => {
+		mocks.fetchPublicCollection.mockResolvedValue({ data: [], page: 1, per_page: 100, total: 5 });
+
+		render(PublicCollectionPage);
+
+		await waitFor(() => expect(screen.getByTestId('public-collection-empty')).toBeInTheDocument());
+		expect(mocks.fetchPublicCollection).toHaveBeenCalledOnce();
+	});
+
+	it('prefers local covers, falls back to remote covers and renders missing-cover placeholders', async () => {
+		mocks.fetchPublicCollection.mockResolvedValue({
+			data: [
+				collectionEntry({ cover_url: 'https://example.com/remote.jpg' }),
+				collectionEntry({
+					issue_id: 43,
+					issue_number: 43,
+					title: 'Lokales Cover',
+					cover_local_path: '/covers/local.jpg',
+					cover_url: 'https://example.com/ignored.jpg'
+				}),
+				collectionEntry({ issue_id: 44, issue_number: 44, title: 'Ohne Cover' })
+			],
+			page: 1,
+			per_page: 100,
+			total: 3
+		});
+
+		render(PublicCollectionPage);
+
+		await waitFor(() => expect(screen.getAllByTestId('public-collection-entry')).toHaveLength(3));
+		expect(screen.getByAltText(/Dunkle Zukunft/)).toHaveAttribute(
+			'src',
+			'https://example.com/remote.jpg'
+		);
+		expect(screen.getByAltText(/Lokales Cover/)).toHaveAttribute('src', '/covers/local.jpg');
+		expect(screen.getByText('#44')).toBeInTheDocument();
 	});
 
 	it('renders every persisted status and an empty note explicitly', async () => {
@@ -244,5 +322,15 @@ describe('Public Collection Page', () => {
 		mocks.fetchPublicCollection.mockRejectedValueOnce(new Error('Netzwerkfehler'));
 		render(PublicCollectionPage);
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Netzwerkfehler'));
+	});
+
+	it('uses the fallback message for an untyped public-collection failure', async () => {
+		mocks.fetchPublicCollection.mockRejectedValue('untyped failure');
+
+		render(PublicCollectionPage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Sammlung konnte nicht geladen werden.')
+		);
 	});
 });

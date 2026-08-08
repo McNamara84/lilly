@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import IssueDetailPage from '../src/routes/issues/[id]/+page.svelte';
 
@@ -213,6 +213,17 @@ describe('Issue Detail Page', () => {
 		expect(screen.getByText('Not found')).toBeInTheDocument();
 	});
 
+	it('uses the fallback message for an untyped issue failure', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockRejectedValue('untyped failure');
+
+		render(IssueDetailPage);
+
+		await waitFor(() =>
+			expect(screen.getByTestId('error-message')).toHaveTextContent('Heft nicht gefunden')
+		);
+	});
+
 	it('shows error for invalid ID', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockPage.set({ params: { id: 'abc' } });
@@ -259,6 +270,40 @@ describe('Issue Detail Page', () => {
 		expect(screen.getByRole('button', { name: 'Entfernen' })).toBeInTheDocument();
 	});
 
+	it('normalizes incomplete and virtual collection data to editable defaults', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue({
+			...sampleEntry,
+			condition_grade: null,
+			status: 'missing',
+			notes: null
+		});
+
+		render(IssueDetailPage);
+
+		await waitFor(() => expect(screen.getByText('In deiner Sammlung')).toBeInTheDocument());
+		expect(screen.getByTestId('condition-chip-Z2')).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByRole('radio', { name: 'Vorhanden' })).toHaveAttribute(
+			'aria-checked',
+			'true'
+		);
+		expect(screen.getByLabelText('Notizen')).toHaveValue('');
+	});
+
+	it('still renders the issue when the optional collection lookup fails', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockRejectedValue(new Error('lookup failed'));
+
+		render(IssueDetailPage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('heading', { level: 1, name: 'Dunkle Zukunft' })).toBeInTheDocument()
+		);
+		expect(screen.getByRole('heading', { name: 'Zur Sammlung hinzufügen' })).toBeInTheDocument();
+	});
+
 	it('calls addToCollection when add button is clicked', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
@@ -280,6 +325,31 @@ describe('Issue Detail Page', () => {
 				notes: ''
 			});
 		});
+	});
+
+	it('adds the condition and status selected by the user', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockAddToCollection.mockResolvedValue({
+			...sampleEntry,
+			condition_grade: 'Z4',
+			status: 'wanted'
+		});
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ })).toBeInTheDocument()
+		);
+		await user.click(screen.getByRole('radio', { name: 'Gesucht' }));
+		await user.click(screen.getByTestId('condition-chip-Z4'));
+		await user.click(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ }));
+
+		await waitFor(() =>
+			expect(mockAddToCollection).toHaveBeenCalledWith(
+				expect.objectContaining({ condition_grade: 'Z4', status: 'wanted' })
+			)
+		);
 	});
 
 	it('calls updateCollectionEntry when save button is clicked', async () => {
@@ -362,6 +432,21 @@ describe('Issue Detail Page', () => {
 		});
 	});
 
+	it('uses the fallback message for an untyped add failure', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockAddToCollection.mockRejectedValue('untyped failure');
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ })).toBeInTheDocument()
+		);
+		await user.click(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ }));
+
+		await waitFor(() => expect(screen.getByText('Fehler beim Hinzufügen')).toBeInTheDocument());
+	});
+
 	it('shows error when update fails', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
@@ -381,6 +466,22 @@ describe('Issue Detail Page', () => {
 		});
 	});
 
+	it('uses the fallback message for an untyped update failure', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
+		mockUpdateCollectionEntry.mockRejectedValue('untyped failure');
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: /Speichern/ })).toBeInTheDocument()
+		);
+		await user.click(screen.getByRole('button', { name: /Speichern/ }));
+
+		await waitFor(() => expect(screen.getByText('Fehler beim Speichern')).toBeInTheDocument());
+	});
+
 	it('shows error when delete fails', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
@@ -398,6 +499,22 @@ describe('Issue Detail Page', () => {
 		await waitFor(() => {
 			expect(screen.getByText('Delete failed')).toBeInTheDocument();
 		});
+	});
+
+	it('uses the fallback message for an untyped delete failure', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue(sampleEntry);
+		mockDeleteCollectionEntry.mockRejectedValue('untyped failure');
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Entfernen' })).toBeInTheDocument()
+		);
+		await user.click(screen.getByRole('button', { name: 'Entfernen' }));
+
+		await waitFor(() => expect(screen.getByText('Fehler beim Entfernen')).toBeInTheDocument());
 	});
 
 	it('renders issue without optional fields', async () => {
@@ -451,6 +568,19 @@ describe('Issue Detail Page', () => {
 			expect(screen.getByTestId('issue-detail-collection-panel')).toBeInTheDocument();
 		});
 		expect(screen.getByLabelText('Notizen')).toBeInTheDocument();
+	});
+
+	it('truncates oversized notes without splitting Unicode characters', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		render(IssueDetailPage);
+
+		await waitFor(() => expect(screen.getByLabelText('Notizen')).toBeInTheDocument());
+		const textarea = screen.getByLabelText('Notizen') as HTMLTextAreaElement;
+		await fireEvent.input(textarea, { target: { value: '📚'.repeat(10_001) } });
+
+		expect(Array.from(textarea.value)).toHaveLength(10_000);
+		expect(screen.getByText(/10000\/10000/)).toBeInTheDocument();
 	});
 
 	it('pre-fills condition grade from existing entry', async () => {

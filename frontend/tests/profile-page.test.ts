@@ -139,6 +139,27 @@ describe('Profile Page', () => {
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Speicherfehler'));
 	});
 
+	it('uses fallback messages for untyped load and update failures', async () => {
+		mockFetchOwnProfile.mockRejectedValueOnce('untyped load failure');
+		const failedLoad = render(ProfilePage);
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Profil konnte nicht geladen werden.')
+		);
+		failedLoad.unmount();
+
+		mockFetchOwnProfile.mockResolvedValueOnce({ ...profile });
+		mockUpdateVisibility.mockRejectedValueOnce('untyped update failure');
+		render(ProfilePage);
+		const user = userEvent.setup();
+		await waitFor(() => expect(screen.getByTestId('save-visibility')).toBeInTheDocument());
+		await user.click(screen.getByTestId('save-visibility'));
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Sichtbarkeit konnte nicht gespeichert werden.'
+			)
+		);
+	});
+
 	it('redirects unauthenticated users to login without requesting profile data', async () => {
 		const { goto } = await import('$app/navigation');
 		mockGetAuthState.mockReturnValue({ isAuthenticated: false, isLoading: false, user: null });
@@ -147,5 +168,16 @@ describe('Profile Page', () => {
 
 		await waitFor(() => expect(goto).toHaveBeenCalledWith('/login'));
 		expect(mockFetchOwnProfile).not.toHaveBeenCalled();
+	});
+
+	it('waits for authentication to finish before loading or redirecting', async () => {
+		const { goto } = await import('$app/navigation');
+		mockGetAuthState.mockReturnValue({ isAuthenticated: false, isLoading: true, user: null });
+
+		render(ProfilePage);
+
+		expect(goto).not.toHaveBeenCalled();
+		expect(mockFetchOwnProfile).not.toHaveBeenCalled();
+		expect(screen.getByTestId('profile-loading')).toBeInTheDocument();
 	});
 });

@@ -119,4 +119,16 @@ describe('profile API', () => {
 			status: 500
 		});
 	});
+
+	it.each([{ error: '' }, { error: 42 }, {}])(
+		'uses a generic message for an unusable error payload %#',
+		async (body) => {
+			mockFetch.mockResolvedValue(jsonResponse(body, 400));
+
+			await expect(fetchOwnProfile()).rejects.toMatchObject({
+				message: 'An unexpected error occurred',
+				status: 400
+			});
+		}
+	);
 });
