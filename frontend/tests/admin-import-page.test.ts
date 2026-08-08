@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import AdminImportPage from '../src/routes/admin/import/+page.svelte';
 
@@ -85,6 +85,7 @@ describe('Admin Import Page', () => {
 	it('populates adapter select with options', async () => {
 		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
 		vi.mocked(fetchImportHistory).mockResolvedValue([]);
+		const user = userEvent.setup();
 		render(AdminImportPage);
 
 		await waitFor(() => {
@@ -93,6 +94,22 @@ describe('Admin Import Page', () => {
 
 		const select = screen.getByTestId('adapter-select') as HTMLSelectElement;
 		expect(select.options).toHaveLength(2);
+
+		await user.selectOptions(select, 'gruselroman');
+		expect(select).toHaveValue('gruselroman');
+	});
+
+	it('does not start an import when no adapter is available', async () => {
+		vi.mocked(fetchAdapters).mockResolvedValue([]);
+		vi.mocked(fetchImportHistory).mockResolvedValue([]);
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('start-import-button')).toBeDisabled();
+		});
+
+		await fireEvent.click(screen.getByTestId('start-import-button'));
+		expect(startImport).not.toHaveBeenCalled();
 	});
 
 	it('shows error on fetch failure', async () => {
@@ -102,6 +119,16 @@ describe('Admin Import Page', () => {
 
 		await waitFor(() => {
 			expect(screen.getByTestId('error-message')).toHaveTextContent('Network error');
+		});
+	});
+
+	it('shows a generic error when loading rejects with a non-Error value', async () => {
+		vi.mocked(fetchAdapters).mockRejectedValue('unexpected');
+		vi.mocked(fetchImportHistory).mockResolvedValue([]);
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent('Failed to load data');
 		});
 	});
 
@@ -159,6 +186,25 @@ describe('Admin Import Page', () => {
 		});
 	});
 
+	it('shows a generic import error for a non-Error rejection', async () => {
+		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
+		vi.mocked(fetchImportHistory).mockResolvedValue([]);
+		vi.mocked(startImport).mockRejectedValue('unexpected');
+
+		const user = userEvent.setup();
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('start-import-button')).toBeInTheDocument();
+		});
+
+		await user.click(screen.getByTestId('start-import-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent('Import failed');
+		});
+	});
+
 	it('shows import history table', async () => {
 		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
 		vi.mocked(fetchImportHistory).mockResolvedValue(mockHistory);
@@ -170,6 +216,53 @@ describe('Admin Import Page', () => {
 
 		expect(screen.getByText('maddrax')).toBeInTheDocument();
 		expect(screen.getByText('completed')).toBeInTheDocument();
+	});
+
+	it('shows scheduled history entries and handles a missing start time', async () => {
+		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
+		vi.mocked(fetchImportHistory).mockResolvedValue([
+			{
+				...mockHistory[0],
+				id: 2,
+				trigger_type: 'scheduled',
+				scheduled_for: '2026-08-08T04:10:00Z',
+				status: 'completed_with_errors',
+				total_issues: 10,
+				imported_issues: 8,
+				failed_issues: 2,
+				started_by: null,
+				started_at: null
+			}
+		]);
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('history-table')).toBeInTheDocument();
+		});
+
+		const row = screen.getByTestId('history-row');
+		expect(row).toHaveTextContent('Automatisch');
+		expect(row).toHaveTextContent('completed_with_errors');
+		expect(row).toHaveTextContent('10 / 10');
+		expect(row).toHaveTextContent('–');
+	});
+
+	it('renders every non-completed import status in the history', async () => {
+		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
+		vi.mocked(fetchImportHistory).mockResolvedValue(
+			(['failed', 'running', 'pending'] as const).map((status, index) => ({
+				...mockHistory[0],
+				id: index + 3,
+				status
+			}))
+		);
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByText('failed')).toBeInTheDocument();
+		});
+		expect(screen.getByText('running')).toBeInTheDocument();
+		expect(screen.getByText('pending')).toBeInTheDocument();
 	});
 
 	it('shows empty history message', async () => {
@@ -200,6 +293,25 @@ describe('Admin Import Page', () => {
 		await waitFor(() => {
 			expect(screen.getByTestId('schedule-status')).toHaveTextContent('Aktiv für');
 		});
+		expect(screen.getByTestId('schedule-status')).toHaveTextContent('Europe/Berlin');
+	});
+
+	it('shows the disabled weekly scheduler with its configured time', async () => {
+		vi.mocked(fetchImportSchedule).mockResolvedValue({
+			enabled: false,
+			schedule: '0 10 6 * * Sat *',
+			timezone: 'Europe/Berlin',
+			adapters: ['maddrax', 'john-sinclair'],
+			next_run: null
+		});
+		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
+		vi.mocked(fetchImportHistory).mockResolvedValue([]);
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('schedule-status')).toHaveTextContent('Deaktiviert');
+		});
+		expect(screen.getByTestId('schedule-status')).toHaveTextContent('samstags um 06:10 Uhr');
 		expect(screen.getByTestId('schedule-status')).toHaveTextContent('Europe/Berlin');
 	});
 });

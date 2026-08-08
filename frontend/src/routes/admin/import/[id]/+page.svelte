@@ -84,10 +84,9 @@
 		return Math.round(((job.imported_issues + job.failed_issues) / job.total_issues) * 100);
 	}
 
-	async function handleActivate() {
-		if (!job) return;
+	async function handleActivate(seriesSlug: string) {
 		try {
-			await activateSeries(job.series_slug);
+			await activateSeries(seriesSlug);
 			await loadJob();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Activation failed';
@@ -95,13 +94,8 @@
 	}
 
 	$effect(() => {
-		if (invalidJobId) {
-			error = 'Invalid import job ID';
-			loading = false;
-			return;
-		}
-
 		loadJob();
+		if (invalidJobId) return;
 		startPolling();
 
 		return () => stopPolling();
@@ -202,7 +196,7 @@
 					Importierte Hefte ({issuesTotal})
 				</h2>
 				<button
-					onclick={handleActivate}
+					onclick={() => handleActivate(job!.series_slug)}
 					class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors"
 					style="background-color: var(--color-success-500); color: white;"
 					data-testid="activate-series-button"
@@ -253,7 +247,7 @@
 									<td class="py-3 px-2">
 										{#if issue.cover_local_path || issue.cover_url}
 											<img
-												src={issue.cover_local_path ?? issue.cover_url ?? ''}
+												src={issue.cover_local_path ?? issue.cover_url}
 												alt="Cover von #{issue.issue_number}: {issue.title}"
 												class="h-16 w-auto rounded"
 											/>

@@ -166,6 +166,49 @@ describe('Import Detail Page', () => {
 		expect(progressBar).toHaveAttribute('aria-label', 'Import-Fortschritt');
 	});
 
+	it('renders zero progress when the import has no issues yet', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...runningJob,
+			status: 'pending',
+			total_issues: 0,
+			imported_issues: 0
+		});
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('progress-bar')).toBeInTheDocument();
+		});
+
+		const progressFill = screen.getByTestId('progress-bar').firstElementChild;
+		expect(progressFill).toHaveStyle({ width: '0%' });
+	});
+
+	it('polls a running import and stops when it completes', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValueOnce(runningJob).mockResolvedValueOnce(completedJob);
+		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(fetchImportJob).toHaveBeenCalledTimes(1);
+		});
+
+		await vi.advanceTimersByTimeAsync(3000);
+
+		await waitFor(() => {
+			expect(fetchImportJob).toHaveBeenCalledTimes(2);
+		});
+
+		await vi.advanceTimersByTimeAsync(3000);
+		expect(fetchImportJob).toHaveBeenCalledTimes(2);
+	});
+
 	it('shows error message on failed import', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
 
@@ -277,6 +320,28 @@ describe('Import Detail Page', () => {
 		});
 	});
 
+	it('shows an issue loading error returned as an Error object', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportSeriesIssues).mockRejectedValue(new Error('Issue fetch failed'));
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent('Issue fetch failed');
+		});
+	});
+
+	it('shows a generic issue loading error for a non-Error rejection', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportSeriesIssues).mockRejectedValue('unexpected');
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent('Failed to load issues');
+		});
+	});
+
 	it('shows error for invalid job ID', async () => {
 		mockPage.set({ params: { id: 'abc' } });
 
@@ -331,6 +396,30 @@ describe('Import Detail Page', () => {
 		});
 	});
 
+	it('shows a generic activation error for a non-Error rejection', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
+		vi.mocked(activateSeries).mockRejectedValue('unexpected');
+
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('activate-series-button')).toBeInTheDocument();
+		});
+
+		await user.click(screen.getByTestId('activate-series-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent('Activation failed');
+		});
+	});
+
 	it('shows cover image, multipart position and source link', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
 		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
@@ -354,6 +443,31 @@ describe('Import Detail Page', () => {
 		);
 	});
 
+	it('uses the remote cover when no local cover is available', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
+			data: [
+				{
+					...mockIssues[0],
+					cover_local_path: null,
+					cover_url: 'https://example.test/remote-cover.jpg'
+				}
+			],
+			page: 1,
+			per_page: 50,
+			total: 1
+		});
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByAltText('Cover von #1: Der Gläserne Sarg')).toHaveAttribute(
+				'src',
+				'https://example.test/remote-cover.jpg'
+			);
+		});
+	});
+
 	it('displays adapter name', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
 		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
@@ -367,6 +481,27 @@ describe('Import Detail Page', () => {
 
 		await waitFor(() => {
 			expect(screen.getByText(/Adapter: maddrax/)).toBeInTheDocument();
+		});
+	});
+
+	it('labels scheduled imports as automatic runs', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...completedJob,
+			trigger_type: 'scheduled',
+			scheduled_for: '2026-08-08T04:10:00Z',
+			started_by: null
+		});
+		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByText(/Automatischer Lauf/)).toBeInTheDocument();
 		});
 	});
 

@@ -94,26 +94,15 @@ test.describe('Add to Collection', () => {
 	});
 
 	test('series cards are displayed after loading', async ({ page }) => {
-		// Wait for loading to finish
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
-
-		// Either series cards or empty state should be visible
-		const seriesCards = page.getByTestId('series-card');
-		const emptyState = page.getByTestId('empty-state');
-		const hasCards = (await seriesCards.count()) > 0;
-		const hasEmpty = await emptyState.isVisible().catch(() => false);
-		expect(hasCards || hasEmpty).toBeTruthy();
+		await expect(page.getByTestId('series-card').first()).toBeVisible();
 	});
 
 	test('selecting a series shows number grid and updates heading', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		// Skip if no series available
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		const seriesName = await firstCard.locator('h2').textContent();
 		await firstCard.click();
@@ -126,22 +115,15 @@ test.describe('Add to Collection', () => {
 		// Wait for grid loading
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		// Number grid or empty state should appear
-		const grid = page.getByTestId('number-grid');
-		const empty = page.getByTestId('empty-state');
-		const gridVisible = await grid.isVisible().catch(() => false);
-		const emptyVisible = await empty.isVisible().catch(() => false);
-		expect(gridVisible || emptyVisible).toBeTruthy();
+		await expect(page.getByTestId('number-grid')).toBeVisible();
+		await expect(page.getByTestId('number-cell').first()).toBeVisible();
 	});
 
 	test('back button returns to series selection', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('back-button')).toBeVisible();
@@ -154,19 +136,13 @@ test.describe('Add to Collection', () => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCell = page.getByTestId('number-cell').first();
-		if ((await firstCell.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCell).toBeVisible();
 
 		await firstCell.click();
 
@@ -181,19 +157,13 @@ test.describe('Add to Collection', () => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCell = page.getByTestId('number-cell').first();
-		if ((await firstCell.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCell).toBeVisible();
 
 		// Click to toggle (add or remove)
 		await firstCell.click();
@@ -222,20 +192,14 @@ test.describe('Collection End-to-End Workflow', () => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		// Step 2: Select a series
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const cells = page.getByTestId('number-cell');
-		if ((await cells.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(cells.first()).toBeVisible();
 
 		// Step 3: Add the first issue
 		const firstCell = cells.first();
@@ -267,13 +231,8 @@ test.describe('Collection End-to-End Workflow', () => {
 		// Wait for loading to finish
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
-		// Either cover cards are shown or the grid is empty
 		const coverCards = page.getByTestId('cover-card');
-		const count = await coverCards.count();
-		// If there are entries, they should be cover-card elements
-		if (count > 0) {
-			await expect(coverCards.first()).toBeVisible();
-		}
+		await expect(coverCards.first()).toBeVisible();
 	});
 
 	test('clicking a cover card opens the detail sheet', async ({ page }) => {
@@ -281,10 +240,7 @@ test.describe('Collection End-to-End Workflow', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 
@@ -301,10 +257,7 @@ test.describe('Collection End-to-End Workflow', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('issue-detail-sheet')).toBeVisible({ timeout: 5000 });
@@ -319,10 +272,7 @@ test.describe('Collection End-to-End Workflow', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('issue-detail-sheet')).toBeVisible({ timeout: 5000 });
@@ -337,10 +287,7 @@ test.describe('Collection End-to-End Workflow', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('issue-detail-sheet')).toBeVisible({ timeout: 5000 });

@@ -105,10 +105,7 @@ test.describe('Add to Collection Page Accessibility', () => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		// Series cards are <button> elements, so they should be focusable
 		await firstCard.focus();
@@ -119,19 +116,13 @@ test.describe('Add to Collection Page Accessibility', () => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCell = page.getByTestId('number-cell').first();
-		if ((await firstCell.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCell).toBeVisible();
 
 		const ariaLabel = await firstCell.getAttribute('aria-label');
 		expect(ariaLabel).toBeTruthy();
@@ -143,19 +134,13 @@ test.describe('Add to Collection Page Accessibility', () => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('series-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
 		const firstCell = page.getByTestId('number-cell').first();
-		if ((await firstCell.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCell).toBeVisible();
 
 		await firstCell.click();
 
@@ -179,10 +164,7 @@ test.describe('Detail Sheet Accessibility', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		const sheet = page.getByTestId('issue-detail-sheet');
@@ -196,10 +178,7 @@ test.describe('Detail Sheet Accessibility', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		const sheet = page.getByTestId('issue-detail-sheet');
@@ -213,10 +192,7 @@ test.describe('Detail Sheet Accessibility', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('issue-detail-sheet')).toBeVisible({ timeout: 5000 });
@@ -232,10 +208,7 @@ test.describe('Detail Sheet Accessibility', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		await expect(page.getByTestId('issue-detail-sheet')).toBeVisible({ timeout: 5000 });
@@ -248,10 +221,7 @@ test.describe('Detail Sheet Accessibility', () => {
 		await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
 
 		const firstCard = page.getByTestId('cover-card').first();
-		if ((await firstCard.count()) === 0) {
-			test.skip();
-			return;
-		}
+		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
 		const backdrop = page.getByTestId('detail-sheet-backdrop');
