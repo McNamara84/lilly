@@ -437,10 +437,10 @@ describe('Import Detail Page', () => {
 
 		expect(screen.getByAltText('Cover von #1: Der Gläserne Sarg')).toBeInTheDocument();
 		expect(screen.getByText('1 von 2')).toBeInTheDocument();
-		expect(screen.getByRole('link', { name: 'Quelle' })).toHaveAttribute(
-			'href',
-			'https://example.test/mx1'
-		);
+		const sourceLink = screen.getByRole('link', { name: 'Quelle' });
+		expect(sourceLink).toHaveAttribute('href', 'https://example.test/mx1');
+		expect(sourceLink).toHaveAttribute('target', '_blank');
+		expect(sourceLink).toHaveAttribute('rel', 'noopener noreferrer');
 	});
 
 	it('uses the remote cover when no local cover is available', async () => {

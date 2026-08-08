@@ -261,7 +261,7 @@
 											<a
 												href={issue.source_wiki_url}
 												target="_blank"
-												rel="noreferrer"
+												rel="noopener noreferrer"
 												style="color: var(--color-brand-500);">Quelle</a
 											>
 										{:else}
