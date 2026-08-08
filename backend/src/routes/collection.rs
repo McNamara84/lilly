@@ -315,9 +315,6 @@ async fn collection_stats(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let total_owned = stats.total_owned as u32;
 
-    let mut has_known_total = false;
-    let mut known_total_sum = 0u32;
-    let mut known_owned_sum = 0u32;
     let series_stats = series
         .iter()
         .map(|s| {
@@ -330,14 +327,6 @@ async fn collection_stats(
             let duplicate = s.duplicate_count as u32;
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let wanted = s.wanted_count as u32;
-
-            if let Some(known_total) = total {
-                has_known_total = true;
-                known_total_sum = known_total_sum.saturating_add(known_total);
-                if known_total > 0 {
-                    known_owned_sum = known_owned_sum.saturating_add(owned);
-                }
-            }
 
             SeriesStatsEntry {
                 series_id: s.series_id,
@@ -352,8 +341,7 @@ async fn collection_stats(
         })
         .collect::<Vec<_>>();
 
-    let total_issues = has_known_total.then_some(known_total_sum);
-    let overall_progress = calculate_progress(known_owned_sum, total_issues);
+    let (total_issues, overall_progress) = calculate_overall_stats(&series_stats);
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Ok(Json(CollectionStatsResponse {
@@ -380,13 +368,50 @@ fn calculate_progress(owned: u32, total: Option<u32>) -> Option<f64> {
         .map(|total| (f64::from(owned) / f64::from(total)) * 100.0)
 }
 
+fn calculate_overall_stats(series_stats: &[SeriesStatsEntry]) -> (Option<u32>, Option<f64>) {
+    if series_stats.is_empty()
+        || series_stats
+            .iter()
+            .any(|series| series.total_in_series.is_none())
+    {
+        return (None, None);
+    }
+
+    let total_issues = series_stats.iter().fold(0u32, |sum, series| {
+        sum.saturating_add(series.total_in_series.unwrap_or_default())
+    });
+    let total_owned = series_stats.iter().fold(0u32, |sum, series| {
+        if series.total_in_series.is_some_and(|total| total > 0) {
+            sum.saturating_add(series.owned_count)
+        } else {
+            sum
+        }
+    });
+    let total_issues = Some(total_issues);
+
+    (total_issues, calculate_progress(total_owned, total_issues))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{calculate_progress, resolve_series_total};
+    use super::{calculate_overall_stats, calculate_progress, resolve_series_total};
     use crate::models::collection::{
-        validate_collection_sort, validate_condition_grade, validate_sort_direction,
-        validate_status,
+        SeriesStatsEntry, validate_collection_sort, validate_condition_grade,
+        validate_sort_direction, validate_status,
     };
+
+    fn series_stats(owned_count: u32, total_in_series: Option<u32>) -> SeriesStatsEntry {
+        SeriesStatsEntry {
+            series_id: 1,
+            series_name: "Test series".to_string(),
+            series_slug: "test-series".to_string(),
+            total_in_series,
+            owned_count,
+            duplicate_count: 0,
+            wanted_count: 0,
+            progress_percent: calculate_progress(owned_count, total_in_series),
+        }
+    }
 
     #[test]
     fn test_status_filter_values() {
@@ -438,5 +463,19 @@ mod tests {
         assert_eq!(calculate_progress(50, Some(200)), Some(25.0));
         assert_eq!(calculate_progress(0, Some(0)), None);
         assert_eq!(calculate_progress(0, None), None);
+    }
+
+    #[test]
+    fn overall_stats_require_every_series_total_to_be_known() {
+        let mixed_totals = [series_stats(10, Some(10)), series_stats(0, None)];
+        assert_eq!(calculate_overall_stats(&mixed_totals), (None, None));
+
+        let known_totals = [series_stats(10, Some(10)), series_stats(5, Some(10))];
+        assert_eq!(
+            calculate_overall_stats(&known_totals),
+            (Some(20), Some(75.0))
+        );
+
+        assert_eq!(calculate_overall_stats(&[]), (None, None));
     }
 }

@@ -2,7 +2,7 @@
 	import { getAuthState } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import {
 		fetchCollection,
@@ -51,7 +51,7 @@
 				seriesLoaded = true;
 				loadSeries();
 			}
-			const currentUrl = $page.url ?? new URL('http://localhost/collection');
+			const currentUrl = page.url ?? new URL('http://localhost/collection');
 			const params = parseCollectionQuery(currentUrl.searchParams);
 			const canonicalQuery = serializeCollectionQuery(params).toString();
 			if (canonicalQuery !== currentUrl.searchParams.toString()) {
