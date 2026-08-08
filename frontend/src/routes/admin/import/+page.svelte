@@ -58,9 +58,9 @@
 		}
 	}
 
-	function formatDate(dateStr: string | null): string {
+	function formatDate(dateStr: string | null, timeZone = 'Europe/Berlin'): string {
 		if (!dateStr) return '–';
-		return new Date(dateStr).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
+		return new Date(dateStr).toLocaleString('de-DE', { timeZone });
 	}
 
 	$effect(() => {
@@ -101,12 +101,15 @@
 			</h2>
 			{#if schedule.enabled}
 				<p class="text-sm" style="color: var(--text-secondary);" data-testid="schedule-status">
-					Aktiv für {schedule.adapters.join(', ')}. Nächster Lauf: {formatDate(schedule.next_run)}
+					Aktiv für {schedule.adapters.join(', ')}. Nächster Lauf: {formatDate(
+						schedule.next_run,
+						schedule.timezone
+					)}
 					({schedule.timezone}).
 				</p>
 			{:else}
 				<p class="text-sm" style="color: var(--text-secondary);" data-testid="schedule-status">
-					Deaktiviert. Geplanter Termin: samstags um 06:10 Uhr ({schedule.timezone}).
+					Deaktiviert. Cron-Ausdruck: {schedule.schedule} ({schedule.timezone}).
 				</p>
 			{/if}
 		</section>

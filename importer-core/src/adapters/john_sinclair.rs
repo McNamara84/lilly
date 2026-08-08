@@ -320,7 +320,7 @@ impl WikiAdapter for JohnSinclairAdapter {
         );
         let response = self.client.get(url).send().await?.error_for_status()?;
         let json: serde_json::Value = response.json().await?;
-        let Some(image_url) = extract_cover_url(&json) else {
+        let Some(image_url) = extract_cover_url(&json, issue_number) else {
             return Ok(None);
         };
 
@@ -425,15 +425,32 @@ fn parse_german_date(value: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value.trim(), "%d.%m.%Y").ok()
 }
 
-fn extract_cover_url(json: &serde_json::Value) -> Option<String> {
-    for page in json["query"]["pages"].as_object()?.values() {
-        for image_info in page["imageinfo"].as_array()? {
-            if let Some(url) = image_info["url"].as_str() {
-                return Some(url.to_string());
+fn extract_cover_url(json: &serde_json::Value, issue_number: u32) -> Option<String> {
+    json["query"]["pages"]
+        .as_object()?
+        .values()
+        .find_map(|page| {
+            let title = page["title"].as_str()?;
+            if !is_issue_cover_title(title, issue_number) {
+                return None;
             }
-        }
-    }
-    None
+            page["imageinfo"]
+                .as_array()?
+                .iter()
+                .find_map(|image_info| image_info["url"].as_str().map(ToString::to_string))
+        })
+}
+
+fn is_issue_cover_title(title: &str, issue_number: u32) -> bool {
+    let file_name = title.rsplit(':').next().unwrap_or(title);
+    let stem = file_name
+        .rsplit_once('.')
+        .map_or(file_name, |(stem, _extension)| stem);
+    let normalized = stem
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>();
+    normalized.eq_ignore_ascii_case(&format!("js{issue_number:04}"))
 }
 
 #[cfg(test)]
@@ -543,20 +560,47 @@ mod tests {
     }
 
     #[test]
-    fn cover_url_is_extracted_without_wiki_license_metadata() {
+    fn cover_url_is_selected_by_issue_specific_file_title() {
         let cover = serde_json::json!({
-            "query": { "pages": { "1": { "imageinfo": [{
-                "url": "https://example.test/cover.jpg"
-            }] } } }
+            "query": { "pages": {
+                "1": {
+                    "title": "Datei:Gruselroman-Wiki Logo.png",
+                    "imageinfo": [{ "url": "https://example.test/logo.png" }]
+                },
+                "2": {
+                    "title": "Datei:JS 2391.jpg",
+                    "imageinfo": [{ "url": "https://example.test/cover.jpg" }]
+                },
+                "3": {
+                    "title": "Datei:JS 2392.jpg",
+                    "imageinfo": [{ "url": "https://example.test/other-cover.jpg" }]
+                }
+            } }
         });
         assert_eq!(
-            extract_cover_url(&cover).as_deref(),
+            extract_cover_url(&cover, 2391).as_deref(),
             Some("https://example.test/cover.jpg")
         );
         assert_eq!(
-            extract_cover_url(&serde_json::json!({ "query": { "pages": {} } })),
+            extract_cover_url(
+                &serde_json::json!({ "query": { "pages": {
+                    "1": {
+                        "title": "Datei:Gruselroman-Wiki Logo.png",
+                        "imageinfo": [{ "url": "https://example.test/logo.png" }]
+                    }
+                } } }),
+                2391,
+            ),
             None
         );
+    }
+
+    #[test]
+    fn cover_title_matching_normalizes_historical_file_names() {
+        assert!(is_issue_cover_title("Datei:Js0001.jpg", 1));
+        assert!(is_issue_cover_title("Datei:JS 2391.jpg", 2391));
+        assert!(!is_issue_cover_title("Datei:JS 2392.jpg", 2391));
+        assert!(!is_issue_cover_title("Datei:Logo.png", 2391));
     }
 
     #[test]

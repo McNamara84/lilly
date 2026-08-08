@@ -296,10 +296,29 @@ describe('Admin Import Page', () => {
 		expect(screen.getByTestId('schedule-status')).toHaveTextContent('Europe/Berlin');
 	});
 
-	it('shows the disabled weekly scheduler with its configured time', async () => {
+	it('formats the next run in the configured scheduler timezone', async () => {
+		vi.mocked(fetchImportSchedule).mockResolvedValue({
+			enabled: true,
+			schedule: '0 10 6 * * Sat *',
+			timezone: 'UTC',
+			adapters: ['john-sinclair'],
+			next_run: '2026-08-08T04:10:00Z'
+		});
+		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
+		vi.mocked(fetchImportHistory).mockResolvedValue([]);
+		render(AdminImportPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('schedule-status')).toHaveTextContent('UTC');
+		});
+		expect(screen.getByTestId('schedule-status')).toHaveTextContent('04:10:00');
+		expect(screen.getByTestId('schedule-status')).not.toHaveTextContent('06:10:00');
+	});
+
+	it('shows the disabled scheduler with its configured cron expression', async () => {
 		vi.mocked(fetchImportSchedule).mockResolvedValue({
 			enabled: false,
-			schedule: '0 10 6 * * Sat *',
+			schedule: '0 30 9 * * Mon-Fri *',
 			timezone: 'Europe/Berlin',
 			adapters: ['maddrax', 'john-sinclair'],
 			next_run: null
@@ -311,7 +330,8 @@ describe('Admin Import Page', () => {
 		await waitFor(() => {
 			expect(screen.getByTestId('schedule-status')).toHaveTextContent('Deaktiviert');
 		});
-		expect(screen.getByTestId('schedule-status')).toHaveTextContent('samstags um 06:10 Uhr');
+		expect(screen.getByTestId('schedule-status')).toHaveTextContent('0 30 9 * * Mon-Fri *');
+		expect(screen.getByTestId('schedule-status')).not.toHaveTextContent('samstags um 06:10 Uhr');
 		expect(screen.getByTestId('schedule-status')).toHaveTextContent('Europe/Berlin');
 	});
 });

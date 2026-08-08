@@ -331,35 +331,26 @@ async fn persist_issue(
     part_total: Option<u32>,
     cover_local_path: Option<&str>,
 ) -> Result<(), anyhow::Error> {
-    issues::upsert_issue(
+    issues::replace_issue_metadata(
         &state.pool,
-        series_id,
-        details.issue_number,
-        &details.title,
-        details.published_at,
-        part_number,
-        part_total,
-        details.cycle.as_deref(),
-        None,
-        cover_local_path,
-        details.source_wiki_url.as_deref(),
+        &issues::IssueMetadataUpdate {
+            series_id,
+            issue_number: details.issue_number,
+            title: &details.title,
+            published_at: details.published_at,
+            part_number,
+            part_total,
+            cycle: details.cycle.as_deref(),
+            cover_url: None,
+            cover_local_path,
+            source_wiki_url: details.source_wiki_url.as_deref(),
+            authors: &details.authors,
+            cover_artists: &details.cover_artists,
+            keywords: &details.keywords,
+            notes: &details.notes,
+        },
     )
     .await?;
-
-    let issue_id = issues::find_issue_id(&state.pool, series_id, details.issue_number)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Upserted issue could not be resolved"))?;
-    issues::set_issue_persons(&state.pool, issue_id, &details.authors, "author").await?;
-    issues::set_issue_persons(
-        &state.pool,
-        issue_id,
-        &details.cover_artists,
-        "cover_artist",
-    )
-    .await?;
-    issues::set_issue_keywords(&state.pool, issue_id, &details.keywords).await?;
-    issues::set_issue_notes(&state.pool, issue_id, &details.notes).await?;
-    issues::mark_issue_metadata_synced(&state.pool, issue_id).await?;
     Ok(())
 }
 
