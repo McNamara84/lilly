@@ -424,6 +424,7 @@ pub async fn get_series_stats(
          LEFT JOIN collection_entries ce ON ce.issue_id = i.id AND ce.user_id = ?
          WHERE s.active = TRUE
          GROUP BY s.id, s.name, s.slug, s.total_issues
+         HAVING COUNT(ce.id) > 0
          ORDER BY owned_count DESC, s.name ASC",
     )
     .bind(user_id)

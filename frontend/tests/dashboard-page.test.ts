@@ -98,6 +98,7 @@ describe('Dashboard Page', () => {
 			expect(screen.getByTestId('empty-state')).toBeInTheDocument();
 		});
 		expect(screen.getByText(/Deine Sammlung ist noch leer/i)).toBeInTheDocument();
+		expect(screen.queryByTestId('series-progress-section')).not.toBeInTheDocument();
 	});
 
 	it('renders logout button', () => {
@@ -299,7 +300,7 @@ describe('Dashboard Page', () => {
 		expect(screen.getByText('Maddrax')).toBeInTheDocument();
 	});
 
-	it('renders active series with unknown and empty totals without misleading percentages', async () => {
+	it('renders progress for a series containing only wanted entries', async () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
 			user: {
@@ -312,31 +313,21 @@ describe('Dashboard Page', () => {
 			isLoading: false
 		});
 		mockFetchCollectionStats.mockResolvedValue({
-			total_issues: null,
+			total_issues: 1,
 			total_owned: 0,
 			total_duplicate: 0,
-			total_wanted: 0,
-			overall_progress_percent: null,
+			total_wanted: 1,
+			overall_progress_percent: 0,
 			series_stats: [
 				{
 					series_id: 1,
-					series_name: 'Unbekannte Serie',
-					series_slug: 'unbekannt',
-					total_in_series: null,
+					series_name: 'Maddrax',
+					series_slug: 'maddrax',
+					total_in_series: 1,
 					owned_count: 0,
 					duplicate_count: 0,
-					wanted_count: 0,
-					progress_percent: null
-				},
-				{
-					series_id: 2,
-					series_name: 'Leere Serie',
-					series_slug: 'leer',
-					total_in_series: 0,
-					owned_count: 0,
-					duplicate_count: 0,
-					wanted_count: 0,
-					progress_percent: null
+					wanted_count: 1,
+					progress_percent: 0
 				}
 			]
 		});
@@ -344,12 +335,10 @@ describe('Dashboard Page', () => {
 		render(DashboardPage);
 
 		await waitFor(() => {
-			expect(screen.getByText('Unbekannte Serie')).toBeInTheDocument();
+			expect(screen.getByText('Maddrax')).toBeInTheDocument();
 		});
-		expect(screen.getByText('0 gesammelt — Gesamtzahl unbekannt')).toBeInTheDocument();
-		expect(screen.getByText('Leere Serie')).toBeInTheDocument();
-		expect(screen.getByText('Noch keine Hefte verfügbar')).toBeInTheDocument();
-		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+		expect(screen.getByText('0 von 1 — 0.0%')).toBeInTheDocument();
+		expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
 	});
 
 	it('renders quick links', () => {

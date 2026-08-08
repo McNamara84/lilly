@@ -388,6 +388,59 @@ test.describe('Collection End-to-End Workflow', () => {
 			await changeFirstEntryStatus('owned');
 		}
 	});
+
+	test('empty collection does not show progress for unrelated active series', async ({ page }) => {
+		type SnapshotEntry = {
+			id: number;
+			issue_id: number;
+			copy_number: number | null;
+			condition_grade: string | null;
+			status: 'owned' | 'duplicate' | 'wanted';
+			notes: string | null;
+		};
+
+		const collectionResponse = await page.request.get('/api/v1/me/collection?per_page=100');
+		expect(collectionResponse.ok()).toBe(true);
+		const snapshot = (await collectionResponse.json()) as { data: SnapshotEntry[] };
+		expect(snapshot.data.length).toBeGreaterThan(0);
+
+		const deletedEntries: SnapshotEntry[] = [];
+		try {
+			for (const entry of snapshot.data) {
+				const deleteResponse = await page.request.delete(`/api/v1/me/collection/${entry.id}`);
+				if (deleteResponse.ok()) deletedEntries.push(entry);
+				expect(deleteResponse.ok()).toBe(true);
+			}
+
+			const statsResponse = await page.request.get('/api/v1/me/collection/stats');
+			expect(statsResponse.ok()).toBe(true);
+			const stats = (await statsResponse.json()) as {
+				total_issues: number | null;
+				overall_progress_percent: number | null;
+				series_stats: unknown[];
+			};
+			expect(stats.total_issues).toBeNull();
+			expect(stats.overall_progress_percent).toBeNull();
+			expect(stats.series_stats).toEqual([]);
+
+			await page.goto('/');
+			await expect(page.getByTestId('empty-state')).toBeVisible();
+			await expect(page.getByTestId('series-progress-section')).toHaveCount(0);
+		} finally {
+			for (const entry of deletedEntries) {
+				const restoreResponse = await page.request.post('/api/v1/me/collection', {
+					data: {
+						issue_id: entry.issue_id,
+						copy_number: entry.copy_number ?? 1,
+						condition_grade: entry.condition_grade ?? 'Z1',
+						status: entry.status,
+						notes: entry.notes
+					}
+				});
+				expect(restoreResponse.ok()).toBe(true);
+			}
+		}
+	});
 });
 
 // ---------------------------------------------------------------------------
