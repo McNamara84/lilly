@@ -23,7 +23,8 @@
 	let wantedTotal = $state(0);
 	let loadingOffers = $state(true);
 	let loadingWanted = $state(true);
-	let error = $state<string | null>(null);
+	let offersError = $state<string | null>(null);
+	let wantedError = $state<string | null>(null);
 	let announcement = $state('');
 	let loaded = false;
 
@@ -38,14 +39,14 @@
 
 	async function loadOffers(page: number) {
 		loadingOffers = true;
-		error = null;
+		offersError = null;
 		try {
 			const result = await fetchTradeOffers({ page, per_page: PER_PAGE });
 			offers = result.data;
 			offersPage = result.page;
 			offersTotal = result.total;
 		} catch (cause) {
-			error =
+			offersError =
 				cause instanceof Error ? cause.message : 'Tauschangebote konnten nicht geladen werden.';
 		} finally {
 			loadingOffers = false;
@@ -54,40 +55,42 @@
 
 	async function loadWanted(page: number) {
 		loadingWanted = true;
-		error = null;
+		wantedError = null;
 		try {
 			const result = await fetchWantedEntries({ page, per_page: PER_PAGE });
 			wanted = result.data;
 			wantedPage = result.page;
 			wantedTotal = result.total;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Wunschliste konnte nicht geladen werden.';
+			wantedError =
+				cause instanceof Error ? cause.message : 'Wunschliste konnte nicht geladen werden.';
 		} finally {
 			loadingWanted = false;
 		}
 	}
 
 	async function deactivateOffer(offer: TradeOffer) {
-		error = null;
+		offersError = null;
 		try {
 			await updateCollectionEntry(offer.entry_id, { status: 'owned' });
 			offers = offers.filter((candidate) => candidate.entry_id !== offer.entry_id);
 			offersTotal = Math.max(0, offersTotal - 1);
 			announcement = `Heft #${offer.issue_number} ist nicht mehr tauschbar.`;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Angebot konnte nicht entfernt werden.';
+			offersError =
+				cause instanceof Error ? cause.message : 'Angebot konnte nicht entfernt werden.';
 		}
 	}
 
 	async function removeWanted(entry: WantedEntry) {
-		error = null;
+		wantedError = null;
 		try {
 			await deleteWantedEntry(entry.entry_id);
 			wanted = wanted.filter((candidate) => candidate.entry_id !== entry.entry_id);
 			wantedTotal = Math.max(0, wantedTotal - 1);
 			announcement = `Heft #${entry.issue_number} wurde von der Wunschliste entfernt.`;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Wunsch konnte nicht entfernt werden.';
+			wantedError = cause instanceof Error ? cause.message : 'Wunsch konnte nicht entfernt werden.';
 		}
 	}
 
@@ -151,9 +154,13 @@
 		</button>
 	</div>
 
-	{#if error}
+	{#if activeTab === 'offers' && offersError}
 		<div class="glass-elevated mb-4 rounded-lg p-4" role="alert" data-testid="trades-error">
-			<p style="color: var(--color-error);">{error}</p>
+			<p style="color: var(--color-error);">{offersError}</p>
+		</div>
+	{:else if activeTab === 'wanted' && wantedError}
+		<div class="glass-elevated mb-4 rounded-lg p-4" role="alert" data-testid="trades-error">
+			<p style="color: var(--color-error);">{wantedError}</p>
 		</div>
 	{/if}
 

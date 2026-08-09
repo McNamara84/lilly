@@ -4,6 +4,7 @@
 	import { getAuthState } from '$lib/stores/auth.svelte';
 	import { fetchSeries, type Series } from '$lib/api/series';
 	import { addWantedBulk, fetchWantedCandidates, type WantedCandidate } from '$lib/api/trades';
+	import { onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 
 	const auth = getAuthState();
@@ -22,6 +23,7 @@
 	let error = $state<string | null>(null);
 	let announcement = $state('');
 	let loaded = false;
+	let candidateRequest: AbortController | null = null;
 
 	const availableCandidates = $derived(candidates.filter((candidate) => !candidate.is_wanted));
 
@@ -47,6 +49,7 @@
 	}
 
 	async function selectSeries(slug: string) {
+		cancelCandidateRequest();
 		selectedSeriesSlug = slug;
 		selectedIds.clear();
 		candidates = [];
@@ -57,25 +60,43 @@
 
 	async function loadCandidates(nextPage: number) {
 		if (!selectedSeriesSlug) return;
+		cancelCandidateRequest();
+		const controller = new AbortController();
+		const requestedSeriesSlug = selectedSeriesSlug;
+		candidateRequest = controller;
 		loadingCandidates = true;
 		error = null;
 		try {
-			const result = await fetchWantedCandidates({
-				series_slug: selectedSeriesSlug,
-				q: search.trim() || undefined,
-				page: nextPage,
-				per_page: PER_PAGE
-			});
+			const result = await fetchWantedCandidates(
+				{
+					series_slug: requestedSeriesSlug,
+					q: search.trim() || undefined,
+					page: nextPage,
+					per_page: PER_PAGE
+				},
+				controller.signal
+			);
+			if (candidateRequest !== controller || selectedSeriesSlug !== requestedSeriesSlug) return;
 			candidates = result.data;
 			page = result.page;
 			total = result.total;
 			selectedIds.clear();
 		} catch (cause) {
+			if (controller.signal.aborted || candidateRequest !== controller) return;
 			error =
 				cause instanceof Error ? cause.message : 'Fehlende Hefte konnten nicht geladen werden.';
 		} finally {
-			loadingCandidates = false;
+			if (candidateRequest === controller) {
+				candidateRequest = null;
+				loadingCandidates = false;
+			}
 		}
+	}
+
+	function cancelCandidateRequest() {
+		candidateRequest?.abort();
+		candidateRequest = null;
+		loadingCandidates = false;
 	}
 
 	function toggleCandidate(issueId: number) {
@@ -122,6 +143,8 @@
 		event.preventDefault();
 		void loadCandidates(1);
 	}
+
+	onDestroy(cancelCandidateRequest);
 </script>
 
 <svelte:head>

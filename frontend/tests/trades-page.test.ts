@@ -210,8 +210,13 @@ describe('Trades page', () => {
 	it('shows API and mutation errors without removing entries', async () => {
 		mocks.fetchTradeOffers.mockRejectedValueOnce(new Error('Angebotsfehler'));
 		render(TradesPage);
+		const user = userEvent.setup();
 
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Angebotsfehler'));
+		await user.click(screen.getByTestId('wanted-tab'));
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		await user.click(screen.getByTestId('offers-tab'));
+		expect(screen.getByRole('alert')).toHaveTextContent('Angebotsfehler');
 	});
 
 	it('uses fallback messages for untyped list failures', async () => {
@@ -233,7 +238,11 @@ describe('Trades page', () => {
 		});
 		mocks.fetchWantedEntries.mockRejectedValueOnce('untyped wanted failure');
 		render(TradesPage);
+		const user = userEvent.setup();
 
+		await waitFor(() => expect(mocks.fetchWantedEntries).toHaveBeenCalled());
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		await user.click(screen.getByTestId('wanted-tab'));
 		await waitFor(() =>
 			expect(screen.getByRole('alert')).toHaveTextContent(
 				'Wunschliste konnte nicht geladen werden.'
@@ -244,8 +253,25 @@ describe('Trades page', () => {
 	it('reports wanted list errors from the API', async () => {
 		mocks.fetchWantedEntries.mockRejectedValueOnce(new Error('Wunschlistenfehler'));
 		render(TradesPage);
+		const user = userEvent.setup();
 
+		await waitFor(() => expect(mocks.fetchWantedEntries).toHaveBeenCalled());
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		await user.click(screen.getByTestId('wanted-tab'));
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Wunschlistenfehler'));
+	});
+
+	it('keeps concurrent tab failures separate', async () => {
+		mocks.fetchTradeOffers.mockRejectedValueOnce(new Error('Angebotsfehler'));
+		mocks.fetchWantedEntries.mockRejectedValueOnce(new Error('Wunschlistenfehler'));
+		render(TradesPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Angebotsfehler'));
+		await user.click(screen.getByTestId('wanted-tab'));
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Wunschlistenfehler'));
+		await user.click(screen.getByTestId('offers-tab'));
+		expect(screen.getByRole('alert')).toHaveTextContent('Angebotsfehler');
 	});
 
 	it.each([
@@ -261,6 +287,8 @@ describe('Trades page', () => {
 
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(expectedMessage));
 		expect(screen.getByTestId('offer-card')).toBeInTheDocument();
+		await user.click(screen.getByTestId('wanted-tab'));
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 	});
 
 	it('keeps a wanted entry when deletion fails', async () => {
@@ -274,6 +302,8 @@ describe('Trades page', () => {
 
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Löschfehler'));
 		expect(screen.getByTestId('wanted-card')).toBeInTheDocument();
+		await user.click(screen.getByTestId('offers-tab'));
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 	});
 
 	it('uses the fallback message for an untyped wanted deletion failure', async () => {

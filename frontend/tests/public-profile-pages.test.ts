@@ -277,6 +277,7 @@ describe('Public Collection Page', () => {
 					issue_number: 43,
 					title: 'Gesuchtes Heft',
 					status: 'wanted',
+					condition_grade: null,
 					notes: ''
 				})
 			],
@@ -288,7 +289,8 @@ describe('Public Collection Page', () => {
 		render(PublicCollectionPage);
 
 		await waitFor(() => expect(screen.getByText('Doppelt/Tauschbar · Z2')).toBeInTheDocument());
-		expect(screen.getByText('Gesucht · Z2')).toBeInTheDocument();
+		expect(screen.getByText('Gesucht')).toBeInTheDocument();
+		expect(screen.queryByText(/Gesucht ·/)).not.toBeInTheDocument();
 		expect(screen.getAllByText('Keine öffentliche Notiz.')).toHaveLength(2);
 	});
 

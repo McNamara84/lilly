@@ -376,8 +376,7 @@ mod tests {
             .connect(&database_url)
             .await
             .expect("test database must be reachable");
-        sqlx::migrate!("./migrations")
-            .run(&pool)
+        crate::db::migrate_test_database(&pool)
             .await
             .expect("test migrations must succeed");
 

@@ -39,6 +39,13 @@ const series = {
 	source_url: null
 };
 
+const secondSeries = {
+	...series,
+	id: 2,
+	name: 'John Sinclair',
+	slug: 'john-sinclair'
+};
+
 const newCandidate = {
 	issue_id: 1,
 	issue_number: 1,
@@ -111,12 +118,15 @@ describe('Wanted add page', () => {
 		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
 
 		await waitFor(() => expect(screen.getAllByTestId('candidate-item')).toHaveLength(2));
-		expect(mocks.fetchWantedCandidates).toHaveBeenCalledWith({
-			series_slug: 'maddrax',
-			q: undefined,
-			page: 1,
-			per_page: 50
-		});
+		expect(mocks.fetchWantedCandidates).toHaveBeenCalledWith(
+			{
+				series_slug: 'maddrax',
+				q: undefined,
+				page: 1,
+				per_page: 50
+			},
+			expect.any(AbortSignal)
+		);
 		expect(screen.getByRole('checkbox', { name: /Bereits gesucht/ })).toBeDisabled();
 		expect(screen.getByText('Bereits auf der Wunschliste')).toBeInTheDocument();
 	});
@@ -135,6 +145,78 @@ describe('Wanted add page', () => {
 		expect(screen.queryByTestId('candidate-list')).not.toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Suchen' })).toBeDisabled();
 		expect(mocks.fetchWantedCandidates).toHaveBeenCalledOnce();
+	});
+
+	it('ignores an older candidate response after selecting a different series', async () => {
+		const firstRequest = deferred<{
+			data: Array<typeof newCandidate>;
+			page: number;
+			per_page: number;
+			total: number;
+		}>();
+		const secondRequest = deferred<{
+			data: Array<typeof newCandidate>;
+			page: number;
+			per_page: number;
+			total: number;
+		}>();
+		const secondCandidate = {
+			...newCandidate,
+			issue_id: 9,
+			issue_number: 9,
+			title: 'Aktuelle Auswahl',
+			series_id: 2,
+			series_name: 'John Sinclair',
+			series_slug: 'john-sinclair'
+		};
+		mocks.fetchSeries.mockResolvedValueOnce([series, secondSeries]);
+		mocks.fetchWantedCandidates
+			.mockReturnValueOnce(firstRequest.promise)
+			.mockReturnValueOnce(secondRequest.promise);
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+		await waitFor(() => expect(mocks.fetchWantedCandidates).toHaveBeenCalledTimes(1));
+		const firstSignal = mocks.fetchWantedCandidates.mock.calls[0][1] as AbortSignal;
+
+		await user.selectOptions(screen.getByLabelText('Serie'), 'john-sinclair');
+		await waitFor(() => expect(mocks.fetchWantedCandidates).toHaveBeenCalledTimes(2));
+		expect(firstSignal.aborted).toBe(true);
+
+		firstRequest.resolve({ data: [newCandidate], page: 1, per_page: 50, total: 1 });
+		await firstRequest.promise;
+		expect(screen.queryByText('Neuer Wunsch')).not.toBeInTheDocument();
+
+		secondRequest.resolve({ data: [secondCandidate], page: 1, per_page: 50, total: 1 });
+		await waitFor(() => expect(screen.getByText('Aktuelle Auswahl')).toBeInTheDocument());
+		expect(screen.getByLabelText('Serie')).toHaveValue('john-sinclair');
+	});
+
+	it('does not repopulate candidates when a series is deselected during loading', async () => {
+		const pending = deferred<{
+			data: Array<typeof newCandidate>;
+			page: number;
+			per_page: number;
+			total: number;
+		}>();
+		mocks.fetchWantedCandidates.mockReturnValueOnce(pending.promise);
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+		await waitFor(() => expect(mocks.fetchWantedCandidates).toHaveBeenCalledOnce());
+		const signal = mocks.fetchWantedCandidates.mock.calls[0][1] as AbortSignal;
+
+		await user.selectOptions(screen.getByLabelText('Serie'), '');
+		expect(signal.aborted).toBe(true);
+		pending.resolve({ data: [newCandidate], page: 1, per_page: 50, total: 1 });
+		await pending.promise;
+
+		expect(screen.queryByTestId('candidate-list')).not.toBeInTheDocument();
+		expect(screen.queryByText('Neuer Wunsch')).not.toBeInTheDocument();
 	});
 
 	it('adds an individual candidate and marks it as already wanted', async () => {
@@ -236,12 +318,15 @@ describe('Wanted add page', () => {
 		await user.click(screen.getByRole('button', { name: 'Suchen' }));
 
 		await waitFor(() =>
-			expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith({
-				series_slug: 'maddrax',
-				q: 'Zybell',
-				page: 1,
-				per_page: 50
-			})
+			expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith(
+				{
+					series_slug: 'maddrax',
+					q: 'Zybell',
+					page: 1,
+					per_page: 50
+				},
+				expect.any(AbortSignal)
+			)
 		);
 	});
 
@@ -264,21 +349,27 @@ describe('Wanted add page', () => {
 		await user.click(screen.getByRole('button', { name: 'Weiter' }));
 
 		await waitFor(() => expect(screen.getByText('Seite 2')).toBeInTheDocument());
-		expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith({
-			series_slug: 'maddrax',
-			q: undefined,
-			page: 2,
-			per_page: 50
-		});
+		expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith(
+			{
+				series_slug: 'maddrax',
+				q: undefined,
+				page: 2,
+				per_page: 50
+			},
+			expect.any(AbortSignal)
+		);
 		await user.click(screen.getByRole('button', { name: 'Zurück' }));
 
 		await waitFor(() => expect(screen.getByText('Neuer Wunsch')).toBeInTheDocument());
-		expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith({
-			series_slug: 'maddrax',
-			q: undefined,
-			page: 1,
-			per_page: 50
-		});
+		expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith(
+			{
+				series_slug: 'maddrax',
+				q: undefined,
+				page: 1,
+				per_page: 50
+			},
+			expect.any(AbortSignal)
+		);
 	});
 
 	it('shows an empty result for a selected series', async () => {
