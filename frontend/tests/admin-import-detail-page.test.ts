@@ -561,6 +561,10 @@ describe('Import Detail Page', () => {
 		});
 
 		expect(screen.getByText('Importierte Hefte (2)')).toBeInTheDocument();
+		expect(screen.getByTestId('sample-numbers')).toHaveTextContent(
+			'Angeheftete Stichprobe: #1, #2'
+		);
+		expect(screen.getByTestId('reference-checks')).toHaveTextContent('Timothy Stahl · 2000-02-08');
 	});
 
 	it('shows error when activation fails', async () => {

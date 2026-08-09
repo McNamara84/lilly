@@ -420,4 +420,43 @@ mod tests {
         wrong_host.source.source_url = "https://other.test/wiki/Issue_1".to_string();
         assert!(normalize_and_validate_issue(descriptor, 1, wrong_host).is_err());
     }
+
+    #[test]
+    fn reference_validation_accepts_exact_and_unpinned_records() {
+        let reference = ReferenceRecord {
+            issue_number: 1,
+            title: "Test title",
+            authors: &["Author"],
+            published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        };
+        let issue = normalize_and_validate_issue(
+            MockAdapter.source_descriptor(),
+            1,
+            valid_issue(),
+        )
+        .unwrap();
+        assert!(validate_reference_record(&[reference.clone()], &issue).is_ok());
+
+        let mut unpinned = issue;
+        unpinned.issue_number = 2;
+        assert!(validate_reference_record(&[reference], &unpinned).is_ok());
+    }
+
+    #[test]
+    fn reference_validation_rejects_a_metadata_difference() {
+        let reference = ReferenceRecord {
+            issue_number: 1,
+            title: "Different title",
+            authors: &["Author"],
+            published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        };
+        let issue = normalize_and_validate_issue(
+            MockAdapter.source_descriptor(),
+            1,
+            valid_issue(),
+        )
+        .unwrap();
+        let error = validate_reference_record(&[reference], &issue).unwrap_err();
+        assert!(error.to_string().contains("Reference issue 1 differs"));
+    }
 }

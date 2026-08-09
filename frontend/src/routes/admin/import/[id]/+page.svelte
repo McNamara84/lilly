@@ -385,8 +385,13 @@
 					{reviewSummary.outcomes.unchanged} unverändert, {reviewSummary.outcomes.skipped}
 					übersprungen, {reviewSummary.outcomes.failed} fehlgeschlagen
 				</p>
+				<p class="mt-1 text-sm" style="color: var(--text-secondary);" data-testid="sample-numbers">
+					Angeheftete Stichprobe: {reviewSummary.sample_issue_numbers
+						.map((number) => `#${number}`)
+						.join(', ') || '–'}
+				</p>
 
-				{#if reviewSummary.eligibility.reasons.length > 0}
+				{#if !reviewSummary.series_active && reviewSummary.eligibility.reasons.length > 0}
 					<ul
 						class="mt-4 p-3 rounded text-sm list-disc pl-8"
 						style="background-color: var(--color-error-100); color: var(--color-error-700);"
@@ -441,6 +446,9 @@
 							>
 								{check.status === 'passed' ? 'bestanden' : 'fehlgeschlagen'}
 							</span>
+							<br /><small
+								>{check.expected_authors.join(', ')} · {check.expected_published_at}</small
+							>
 						</li>
 					{/each}
 				</ul>
@@ -470,6 +478,7 @@
 						><option value="unchanged">Unverändert</option><option value="skipped"
 							>Übersprungen</option
 						><option value="failed">Fehlgeschlagen</option>
+						<option value="not_processed">Nicht verarbeitet</option>
 					</select>
 				</label>
 				<label class="text-sm">
@@ -485,11 +494,13 @@
 					<select class="w-full p-2 rounded" bind:value={coverFilter}>
 						<option value="">Alle</option><option value="imported">Importiert</option><option
 							value="reused">Vorhanden</option
-						><option value="missing_at_source">Nicht in Quelle</option><option value="fetch_failed"
-							>Abruf fehlgeschlagen</option
-						><option value="invalid">Ungültig</option><option value="storage_failed"
-							>Speichern fehlgeschlagen</option
-						><option value="not_checked">Nicht geprüft</option>
+						><option value="missing_at_source">Nicht in Quelle</option><option value="not_permitted"
+							>Nicht erlaubt</option
+						><option value="fetch_failed">Abruf fehlgeschlagen</option><option value="invalid"
+							>Ungültig</option
+						><option value="storage_failed">Speichern fehlgeschlagen</option><option
+							value="not_checked">Nicht geprüft</option
+						>
 					</select>
 				</label>
 				<div class="flex flex-col justify-end gap-2 text-sm">

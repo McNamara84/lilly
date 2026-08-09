@@ -214,7 +214,7 @@ With these settings, Maddrax and the regular first edition of John Sinclair are 
 
 The start request returns a persistent job with HTTP 202 before wiki access begins. Administrators can cancel active jobs; jobs interrupted by a backend restart remain visible and can be retried as linked, idempotent full scans. The detail page polls MariaDB-backed progress every three seconds and exposes record-level error context.
 
-For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run and review both initial imports manually, verify the six documented reference issues, activate the new series, run an unchanged second synchronization, and only then enable the scheduler. See [Import sources and mapping contract](docs/import-sources.md) for source identities, mappings and recovery behavior.
+For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run both initial imports manually, review their complete job-specific result lists and pinned reference samples, acknowledge non-blocking warnings where appropriate, and publish each series from that import review. Activation and later deactivation are audited with the acting administrator; blocking or incomplete results cannot be published. Run an unchanged second synchronization before enabling the scheduler. See [Import sources and mapping contract](docs/import-sources.md) for source identities, mappings and recovery behavior.
 
 ---
 
