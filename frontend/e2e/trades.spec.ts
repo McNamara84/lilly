@@ -72,7 +72,8 @@ test.describe('Trade lists', () => {
 			await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 5000 });
 
 			await page.goto('/trades');
-			const offer = page.getByTestId('offer-card');
+			const offer = page.getByTestId('offer-card').filter({ hasText: 'Der Gott aus dem Eis' });
+			await expect(offer).toHaveCount(1);
 			await expect(offer).toContainText('Der Gott aus dem Eis');
 			await expect(offer).toContainText('Zustand');
 			await offer.getByRole('button', { name: 'Nicht mehr tauschbar' }).click();
@@ -82,7 +83,10 @@ test.describe('Trade lists', () => {
 			await page.goto('/trades/wanted/add');
 			await expect(page.getByTestId('series-select')).toBeVisible();
 			await page.getByTestId('series-select').selectOption('maddrax');
-			const candidate = page.getByTestId('candidate-item');
+			const candidate = page
+				.getByTestId('candidate-item')
+				.filter({ hasText: 'Der Gott aus dem Eis' });
+			await expect(candidate).toHaveCount(1);
 			await expect(candidate).toContainText('Der Gott aus dem Eis');
 			await candidate.getByRole('checkbox').check();
 			await page.getByTestId('add-selection').click();
@@ -90,7 +94,8 @@ test.describe('Trade lists', () => {
 
 			await page.goto('/trades');
 			await page.getByTestId('wanted-tab').click();
-			const wanted = page.getByTestId('wanted-card');
+			const wanted = page.getByTestId('wanted-card').filter({ hasText: 'Der Gott aus dem Eis' });
+			await expect(wanted).toHaveCount(1);
 			await expect(wanted).toContainText('Der Gott aus dem Eis');
 			await wanted.getByRole('link', { name: 'Als vorhanden markieren' }).click();
 

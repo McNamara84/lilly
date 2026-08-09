@@ -117,6 +117,32 @@ describe('Trades page', () => {
 		await waitFor(() => expect(mocks.deleteWantedEntry).toHaveBeenCalledWith(20));
 		expect(screen.getByTestId('wanted-empty')).toBeInTheDocument();
 		expect(screen.getByText(/wurde von der Wunschliste entfernt/)).toBeInTheDocument();
+		await user.click(screen.getByTestId('offers-tab'));
+		expect(screen.getByTestId('offers-list')).toBeInTheDocument();
+	});
+
+	it('renders cover fallbacks, local wanted covers and additional wanted copies', async () => {
+		mocks.fetchTradeOffers.mockResolvedValue({
+			data: [{ ...offer, cover_url: null, cover_local_path: null }],
+			page: 1,
+			per_page: 24,
+			total: 1
+		});
+		mocks.fetchWantedEntries.mockResolvedValue({
+			data: [{ ...wanted, cover_local_path: '/covers/wanted.jpg', copy_number: 3 }],
+			page: 1,
+			per_page: 24,
+			total: 1
+		});
+		render(TradesPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('offer-card')).toBeInTheDocument());
+		expect(screen.getByTestId('offer-card').querySelector('img')).toBeNull();
+		await user.click(screen.getByTestId('wanted-tab'));
+		const wantedCard = screen.getByTestId('wanted-card');
+		expect(wantedCard.querySelector('img')).toHaveAttribute('src', '/covers/wanted.jpg');
+		expect(wantedCard).toHaveTextContent('Exemplar 3');
 	});
 
 	it('deactivates an offer by changing the existing entry to owned', async () => {
@@ -133,7 +159,7 @@ describe('Trades page', () => {
 		expect(screen.getByText(/ist nicht mehr tauschbar/)).toBeInTheDocument();
 	});
 
-	it('loads the next offer page', async () => {
+	it('loads the next and previous offer pages', async () => {
 		mocks.fetchTradeOffers
 			.mockResolvedValueOnce({ data: [offer], page: 1, per_page: 24, total: 25 })
 			.mockResolvedValueOnce({
@@ -141,7 +167,8 @@ describe('Trades page', () => {
 				page: 2,
 				per_page: 24,
 				total: 25
-			});
+			})
+			.mockResolvedValueOnce({ data: [offer], page: 1, per_page: 24, total: 25 });
 		render(TradesPage);
 		const user = userEvent.setup();
 
@@ -150,6 +177,34 @@ describe('Trades page', () => {
 
 		await waitFor(() => expect(screen.getByText('Seite 2')).toBeInTheDocument());
 		expect(mocks.fetchTradeOffers).toHaveBeenLastCalledWith({ page: 2, per_page: 24 });
+
+		await user.click(screen.getByRole('button', { name: 'Zurück' }));
+		await waitFor(() => expect(screen.getByText('Dunkle Zukunft')).toBeInTheDocument());
+		expect(mocks.fetchTradeOffers).toHaveBeenLastCalledWith({ page: 1, per_page: 24 });
+	});
+
+	it('loads the next and previous wanted pages', async () => {
+		mocks.fetchWantedEntries
+			.mockResolvedValueOnce({ data: [wanted], page: 1, per_page: 24, total: 25 })
+			.mockResolvedValueOnce({
+				data: [{ ...wanted, entry_id: 21, issue_id: 8, issue_number: 8, title: 'Wunsch Seite 2' }],
+				page: 2,
+				per_page: 24,
+				total: 25
+			})
+			.mockResolvedValueOnce({ data: [wanted], page: 1, per_page: 24, total: 25 });
+		render(TradesPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('offers-list')).toBeInTheDocument());
+		await user.click(screen.getByTestId('wanted-tab'));
+		await user.click(screen.getByRole('button', { name: 'Weiter' }));
+		await waitFor(() => expect(screen.getByText('Wunsch Seite 2')).toBeInTheDocument());
+		expect(mocks.fetchWantedEntries).toHaveBeenLastCalledWith({ page: 2, per_page: 24 });
+
+		await user.click(screen.getByRole('button', { name: 'Zurück' }));
+		await waitFor(() => expect(screen.getByText('Gesuchtes Heft')).toBeInTheDocument());
+		expect(mocks.fetchWantedEntries).toHaveBeenLastCalledWith({ page: 1, per_page: 24 });
 	});
 
 	it('shows API and mutation errors without removing entries', async () => {
@@ -157,6 +212,55 @@ describe('Trades page', () => {
 		render(TradesPage);
 
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Angebotsfehler'));
+	});
+
+	it('uses fallback messages for untyped list failures', async () => {
+		mocks.fetchTradeOffers.mockRejectedValueOnce('untyped offer failure');
+		const offersView = render(TradesPage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Tauschangebote konnten nicht geladen werden.'
+			)
+		);
+		offersView.unmount();
+
+		mocks.fetchTradeOffers.mockResolvedValueOnce({
+			data: [offer],
+			page: 1,
+			per_page: 24,
+			total: 1
+		});
+		mocks.fetchWantedEntries.mockRejectedValueOnce('untyped wanted failure');
+		render(TradesPage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Wunschliste konnte nicht geladen werden.'
+			)
+		);
+	});
+
+	it('reports wanted list errors from the API', async () => {
+		mocks.fetchWantedEntries.mockRejectedValueOnce(new Error('Wunschlistenfehler'));
+		render(TradesPage);
+
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Wunschlistenfehler'));
+	});
+
+	it.each([
+		[new Error('Deaktivierungsfehler'), 'Deaktivierungsfehler'],
+		['untyped failure', 'Angebot konnte nicht entfernt werden.']
+	])('keeps an offer when deactivation fails with %s', async (cause, expectedMessage) => {
+		mocks.updateCollectionEntry.mockRejectedValueOnce(cause);
+		render(TradesPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('offer-card')).toBeInTheDocument());
+		await user.click(screen.getByRole('button', { name: 'Nicht mehr tauschbar' }));
+
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(expectedMessage));
+		expect(screen.getByTestId('offer-card')).toBeInTheDocument();
 	});
 
 	it('keeps a wanted entry when deletion fails', async () => {
@@ -169,6 +273,21 @@ describe('Trades page', () => {
 		await user.click(screen.getByRole('button', { name: 'Entfernen' }));
 
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Löschfehler'));
+		expect(screen.getByTestId('wanted-card')).toBeInTheDocument();
+	});
+
+	it('uses the fallback message for an untyped wanted deletion failure', async () => {
+		mocks.deleteWantedEntry.mockRejectedValueOnce('untyped failure');
+		render(TradesPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('offers-list')).toBeInTheDocument());
+		await user.click(screen.getByTestId('wanted-tab'));
+		await user.click(screen.getByRole('button', { name: 'Entfernen' }));
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Wunsch konnte nicht entfernt werden.')
+		);
 		expect(screen.getByTestId('wanted-card')).toBeInTheDocument();
 	});
 

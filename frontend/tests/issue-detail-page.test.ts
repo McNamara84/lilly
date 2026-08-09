@@ -375,6 +375,32 @@ describe('Issue Detail Page', () => {
 		});
 	});
 
+	it('updates a conditionless wanted entry without inventing a physical condition', async () => {
+		const wantedEntry = {
+			...sampleEntry,
+			condition_grade: null,
+			status: 'wanted'
+		};
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue(wantedEntry);
+		mockUpdateCollectionEntry.mockResolvedValue(wantedEntry);
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('wanted-condition-hint')).toBeInTheDocument());
+		expect(screen.queryByTestId('condition-chips')).not.toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Speichern' }));
+
+		await waitFor(() =>
+			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(1, {
+				condition_grade: undefined,
+				status: 'wanted',
+				notes: 'Test note'
+			})
+		);
+	});
+
 	it('sends an empty note explicitly when clearing an existing note', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);

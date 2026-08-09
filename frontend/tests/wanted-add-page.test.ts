@@ -75,6 +75,14 @@ function authenticatedState() {
 	};
 }
 
+function deferred<T>() {
+	let resolve!: (value: T | PromiseLike<T>) => void;
+	const promise = new Promise<T>((complete) => {
+		resolve = complete;
+	});
+	return { promise, resolve };
+}
+
 describe('Wanted add page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -113,6 +121,22 @@ describe('Wanted add page', () => {
 		expect(screen.getByText('Bereits auf der Wunschliste')).toBeInTheDocument();
 	});
 
+	it('clears candidates and selection when the series is deselected', async () => {
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+		await waitFor(() => expect(screen.getByTestId('candidate-list')).toBeInTheDocument());
+		await user.click(screen.getByRole('checkbox', { name: /Neuer Wunsch/ }));
+
+		await user.selectOptions(screen.getByLabelText('Serie'), '');
+
+		expect(screen.queryByTestId('candidate-list')).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Suchen' })).toBeDisabled();
+		expect(mocks.fetchWantedCandidates).toHaveBeenCalledOnce();
+	});
+
 	it('adds an individual candidate and marks it as already wanted', async () => {
 		render(WantedAddPage);
 		const user = userEvent.setup();
@@ -128,6 +152,38 @@ describe('Wanted add page', () => {
 		await waitFor(() => expect(mocks.addWantedBulk).toHaveBeenCalledWith([1]));
 		expect(screen.getByRole('checkbox', { name: /Neuer Wunsch/ })).toBeDisabled();
 		expect(screen.getByText(/1 Hefte zur Wunschliste hinzugefügt/)).toBeInTheDocument();
+	});
+
+	it('shows the saving state and handles an idempotent unchanged result', async () => {
+		const pending = deferred<{
+			created: never[];
+			unchanged: Array<{ issue_id: number; entry_id: number }>;
+			rejected: never[];
+		}>();
+		mocks.addWantedBulk.mockReturnValueOnce(pending.promise);
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+		await waitFor(() =>
+			expect(screen.getByRole('checkbox', { name: /Neuer Wunsch/ })).toBeEnabled()
+		);
+		await user.click(screen.getByRole('checkbox', { name: /Neuer Wunsch/ }));
+		await user.click(screen.getByTestId('add-selection'));
+
+		expect(screen.getByTestId('add-selection')).toHaveTextContent('Speichere …');
+		expect(screen.getByTestId('add-selection')).toBeDisabled();
+		pending.resolve({
+			created: [],
+			unchanged: [{ issue_id: 1, entry_id: 11 }],
+			rejected: []
+		});
+
+		await waitFor(() =>
+			expect(screen.getByRole('checkbox', { name: /Neuer Wunsch/ })).toBeDisabled()
+		);
+		expect(screen.getByText(/1 bereits vorhanden/)).toBeInTheDocument();
 	});
 
 	it('selects and deselects all available candidates on the current page', async () => {
@@ -150,6 +206,25 @@ describe('Wanted add page', () => {
 		expect(screen.getByTestId('add-selection')).toBeDisabled();
 	});
 
+	it('keeps bulk selection empty when all visible candidates are already wanted', async () => {
+		mocks.fetchWantedCandidates.mockResolvedValue({
+			data: [existingCandidate],
+			page: 1,
+			per_page: 50,
+			total: 1
+		});
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+		await waitFor(() => expect(screen.getByTestId('toggle-all')).toBeInTheDocument());
+		await user.click(screen.getByTestId('toggle-all'));
+
+		expect(screen.getByTestId('add-selection')).toBeDisabled();
+		expect(mocks.addWantedBulk).not.toHaveBeenCalled();
+	});
+
 	it('searches candidates and resets to the first page', async () => {
 		render(WantedAddPage);
 		const user = userEvent.setup();
@@ -168,6 +243,72 @@ describe('Wanted add page', () => {
 				per_page: 50
 			})
 		);
+	});
+
+	it('loads the next and previous candidate pages', async () => {
+		mocks.fetchWantedCandidates
+			.mockResolvedValueOnce({ data: [newCandidate], page: 1, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({
+				data: [{ ...newCandidate, issue_id: 51, issue_number: 51, title: 'Seite 2' }],
+				page: 2,
+				per_page: 50,
+				total: 51
+			})
+			.mockResolvedValueOnce({ data: [newCandidate], page: 1, per_page: 50, total: 51 });
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Weiter' })).toBeEnabled());
+		await user.click(screen.getByRole('button', { name: 'Weiter' }));
+
+		await waitFor(() => expect(screen.getByText('Seite 2')).toBeInTheDocument());
+		expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith({
+			series_slug: 'maddrax',
+			q: undefined,
+			page: 2,
+			per_page: 50
+		});
+		await user.click(screen.getByRole('button', { name: 'Zurück' }));
+
+		await waitFor(() => expect(screen.getByText('Neuer Wunsch')).toBeInTheDocument());
+		expect(mocks.fetchWantedCandidates).toHaveBeenLastCalledWith({
+			series_slug: 'maddrax',
+			q: undefined,
+			page: 1,
+			per_page: 50
+		});
+	});
+
+	it('shows an empty result for a selected series', async () => {
+		mocks.fetchWantedCandidates.mockResolvedValueOnce({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+
+		await waitFor(() => expect(screen.getByTestId('candidates-empty')).toBeInTheDocument());
+	});
+
+	it.each([
+		[new Error('Kandidatenfehler'), 'Kandidatenfehler'],
+		['untyped failure', 'Fehlende Hefte konnten nicht geladen werden.']
+	])('reports candidate loading failures from %s', async (cause, expectedMessage) => {
+		mocks.fetchWantedCandidates.mockRejectedValueOnce(cause);
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(expectedMessage));
 	});
 
 	it('removes concurrently owned rejections from the candidate list', async () => {
@@ -202,6 +343,15 @@ describe('Wanted add page', () => {
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Serienfehler'));
 	});
 
+	it('uses the fallback message for an untyped series failure', async () => {
+		mocks.fetchSeries.mockRejectedValueOnce('untyped failure');
+		render(WantedAddPage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Serien konnten nicht geladen werden.')
+		);
+	});
+
 	it('keeps the selection when bulk persistence fails', async () => {
 		mocks.addWantedBulk.mockRejectedValueOnce(new Error('Speicherfehler'));
 		render(WantedAddPage);
@@ -216,6 +366,27 @@ describe('Wanted add page', () => {
 		await user.click(screen.getByTestId('add-selection'));
 
 		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Speicherfehler'));
+		expect(screen.getByTestId('add-selection')).toHaveTextContent('1 ausgewählte hinzufügen');
+	});
+
+	it('uses the fallback message for an untyped bulk persistence failure', async () => {
+		mocks.addWantedBulk.mockRejectedValueOnce('untyped failure');
+		render(WantedAddPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('series-select')).toBeInTheDocument());
+		await user.selectOptions(screen.getByLabelText('Serie'), 'maddrax');
+		await waitFor(() =>
+			expect(screen.getByRole('checkbox', { name: /Neuer Wunsch/ })).toBeEnabled()
+		);
+		await user.click(screen.getByRole('checkbox', { name: /Neuer Wunsch/ }));
+		await user.click(screen.getByTestId('add-selection'));
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Wünsche konnten nicht gespeichert werden.'
+			)
+		);
 		expect(screen.getByTestId('add-selection')).toHaveTextContent('1 ausgewählte hinzufügen');
 	});
 
