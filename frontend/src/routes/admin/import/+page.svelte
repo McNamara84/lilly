@@ -187,9 +187,10 @@
 							<tr style="border-bottom: 1px solid var(--border-default);" data-testid="history-row">
 								<td class="py-3 px-2" style="color: var(--text-primary);">
 									{job.adapter_name}
-									{#if job.source_key}<span class="block text-xs" style="color: var(--text-secondary);"
-										>{job.source_key}</span
-									>{/if}
+									{#if job.source_key}<span
+											class="block text-xs"
+											style="color: var(--text-secondary);">{job.source_key}</span
+										>{/if}
 								</td>
 								<td class="py-3 px-2">
 									<span
@@ -206,8 +207,8 @@
 								<td class="py-3 px-2" style="color: var(--text-secondary);">
 									{formatTrigger(job.trigger_type)}
 									{#if job.retry_of_job_id}<span class="block text-xs"
-										>Retry von #{job.retry_of_job_id}</span
-									>{/if}
+											>Retry von #{job.retry_of_job_id}</span
+										>{/if}
 								</td>
 								<td class="py-3 px-2 text-center" style="color: var(--text-secondary);">
 									{processedCount(job)} / {job.total_issues}

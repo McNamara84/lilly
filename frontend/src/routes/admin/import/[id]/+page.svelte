@@ -282,15 +282,13 @@
 
 	{#if jobErrors.length > 0}
 		<section class="glass-elevated p-6 rounded-lg mb-6" data-testid="job-errors-section">
-			<h2 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
-				Fehlerkontext
-			</h2>
+			<h2 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Fehlerkontext</h2>
 			<ul class="space-y-2 text-sm">
 				{#each jobErrors as item (item.id)}
 					<li style="color: var(--color-error-700);">
 						{item.issue_number === null ? 'Lauf' : `Heft #${item.issue_number}`}
-						({item.source_key}{item.source_record_id ? `:${item.source_record_id}` : ''})
-						[{item.stage}]: {item.message}
+						({item.source_key}{item.source_record_id ? `:${item.source_record_id}` : ''}) [{item.stage}]:
+						{item.message}
 					</li>
 				{/each}
 			</ul>
@@ -299,15 +297,13 @@
 					<button
 						onclick={() => changeErrorsPage(jobErrorsPage - 1)}
 						disabled={jobErrorsPage <= 1}
-						data-testid="previous-errors-page"
-					>Zurück</button
+						data-testid="previous-errors-page">Zurück</button
 					>
 					<span>Seite {jobErrorsPage}</span>
 					<button
 						onclick={() => changeErrorsPage(jobErrorsPage + 1)}
 						disabled={jobErrorsPage * 50 >= jobErrorsTotal}
-						data-testid="next-errors-page"
-					>Weiter</button
+						data-testid="next-errors-page">Weiter</button
 					>
 				</div>
 			{/if}

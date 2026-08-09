@@ -580,6 +580,23 @@ describe('Import Detail Page', () => {
 		});
 	});
 
+	it.each([
+		[new Error('Cancellation rejected'), 'Cancellation rejected'],
+		['unexpected', 'Cancellation failed']
+	])('shows a cancellation error when the request fails', async (rejection, message) => {
+		vi.mocked(fetchImportJob).mockResolvedValue(runningJob);
+		vi.mocked(cancelImport).mockRejectedValue(rejection);
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('cancel-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('cancel-import-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent(message);
+		});
+	});
+
 	it('starts a linked retry and navigates to the new job', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
 		vi.mocked(retryImport).mockResolvedValue({
@@ -598,19 +615,53 @@ describe('Import Detail Page', () => {
 		expect(goto).toHaveBeenCalledWith('/admin/import/6');
 	});
 
+	it.each([
+		[new Error('Retry rejected'), 'Retry rejected'],
+		['unexpected', 'Retry failed']
+	])('shows a retry error when the request fails', async (rejection, message) => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(retryImport).mockRejectedValue(rejection);
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('retry-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('retry-import-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent(message);
+		});
+		expect(goto).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[new Error('Error context unavailable'), 'Error context unavailable'],
+		['unexpected', 'Failed to load import errors']
+	])('shows an error when loading persisted error context fails', async (rejection, message) => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(fetchImportErrors).mockRejectedValue(rejection);
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent(message);
+		});
+	});
+
 	it('shows persisted issue-level error context', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
 		vi.mocked(fetchImportErrors).mockResolvedValue({
-			data: [{
-				id: 1,
-				job_id: 5,
-				source_key: 'maddraxikon',
-				issue_number: 409,
-				source_record_id: 'Quelle:MX409',
-				stage: 'validate',
-				message: 'missing author',
-				created_at: '2026-08-09T10:00:00Z'
-			}],
+			data: [
+				{
+					id: 1,
+					job_id: 5,
+					source_key: 'maddraxikon',
+					issue_number: 409,
+					source_record_id: 'Quelle:MX409',
+					stage: 'validate',
+					message: 'missing author',
+					created_at: '2026-08-09T10:00:00Z'
+				}
+			],
 			page: 1,
 			per_page: 50,
 			total: 1
@@ -621,6 +672,64 @@ describe('Import Detail Page', () => {
 		expect(screen.getByTestId('job-errors-section')).toHaveTextContent(
 			'Heft #409 (maddraxikon:Quelle:MX409) [validate]: missing author'
 		);
+	});
+
+	it('paginates persisted error context in both directions', async () => {
+		const runError = {
+			id: 1,
+			job_id: 5,
+			source_key: 'maddraxikon',
+			issue_number: null,
+			source_record_id: null,
+			stage: 'fetch',
+			message: 'wiki unavailable',
+			created_at: '2026-08-09T10:00:00Z'
+		};
+		const issueError = {
+			...runError,
+			id: 51,
+			issue_number: 695,
+			message: 'invalid issue'
+		};
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(fetchImportErrors)
+			.mockResolvedValueOnce({ data: [runError], page: 1, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [issueError], page: 2, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [runError], page: 1, per_page: 50, total: 51 });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('job-errors-section')).toHaveTextContent('Lauf'));
+		expect(screen.getByTestId('previous-errors-page')).toBeDisabled();
+		expect(screen.getByTestId('next-errors-page')).toBeEnabled();
+
+		await user.click(screen.getByTestId('next-errors-page'));
+		await waitFor(() => {
+			expect(fetchImportErrors).toHaveBeenLastCalledWith(5, 2);
+			expect(screen.getByTestId('job-errors-section')).toHaveTextContent('Heft #695');
+			expect(screen.getByText('Seite 2')).toBeInTheDocument();
+		});
+		expect(screen.getByTestId('previous-errors-page')).toBeEnabled();
+		expect(screen.getByTestId('next-errors-page')).toBeDisabled();
+
+		await user.click(screen.getByTestId('previous-errors-page'));
+		await waitFor(() => {
+			expect(fetchImportErrors).toHaveBeenLastCalledWith(5, 1);
+			expect(screen.getByText('Seite 1')).toBeInTheDocument();
+		});
+	});
+
+	it('shows source, retry origin and last update metadata', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...failedJob,
+			retry_of_job_id: 4
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('import-title')).toBeInTheDocument());
+		expect(screen.getByText(/Quelle: maddraxikon/)).toBeInTheDocument();
+		expect(screen.getByText(/Wiederholung von #4/)).toBeInTheDocument();
+		expect(screen.getByText(/Zuletzt aktualisiert:/)).toBeInTheDocument();
 	});
 
 	it.each(['cancelled', 'interrupted'])('treats %s as terminal', async (status) => {
