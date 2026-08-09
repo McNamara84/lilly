@@ -35,6 +35,7 @@
 
 	const issueId = $derived(Number($page.params.id));
 	const isInCollection = $derived(entry !== null && entry.id > 0);
+	const needsCondition = $derived(status !== 'wanted' || entry?.condition_grade != null);
 	const noteLength = $derived(countCollectionNoteCharacters(notes));
 
 	$effect(() => {
@@ -90,7 +91,7 @@
 		try {
 			entry = await addToCollection({
 				issue_id: issue.id,
-				condition_grade: conditionGrade,
+				condition_grade: needsCondition ? conditionGrade : undefined,
 				status,
 				notes
 			});
@@ -106,7 +107,7 @@
 		saving = true;
 		try {
 			entry = await updateCollectionEntry(entry.id, {
-				condition_grade: conditionGrade,
+				condition_grade: needsCondition ? conditionGrade : undefined,
 				status,
 				notes
 			});
@@ -242,8 +243,18 @@
 					</div>
 
 					<!-- Condition -->
-					<p class="text-xs mb-2" style="color: var(--text-tertiary);">Zustand</p>
-					<ConditionChips value={conditionGrade} onchange={(g) => (conditionGrade = g)} />
+					{#if needsCondition}
+						<p class="text-xs mb-2" style="color: var(--text-tertiary);">Zustand</p>
+						<ConditionChips value={conditionGrade} onchange={(g) => (conditionGrade = g)} />
+					{:else}
+						<p
+							class="text-xs"
+							style="color: var(--text-tertiary);"
+							data-testid="wanted-condition-hint"
+						>
+							Ein Zustand wird erst benötigt, sobald du ein Exemplar besitzt oder anbietest.
+						</p>
+					{/if}
 
 					<!-- Notes -->
 					<label

@@ -100,7 +100,11 @@
 									{entry.series_name} #{entry.issue_number}
 								</p>
 								<h2 class="font-semibold">{entry.title}</h2>
-								<p class="mt-2 text-xs">{statusLabel(entry.status)} · {entry.condition_grade}</p>
+								<p class="mt-2 text-xs">
+									{statusLabel(entry.status)}{entry.condition_grade
+										? ` · ${entry.condition_grade}`
+										: ''}
+								</p>
 							</div>
 						</div>
 						<div class="mt-4 border-t pt-3" style="border-color: var(--glass-border);">

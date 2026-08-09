@@ -327,7 +327,7 @@ describe('Issue Detail Page', () => {
 		});
 	});
 
-	it('adds the condition and status selected by the user', async () => {
+	it('adds a wanted entry without inventing a physical condition', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
 		mockAddToCollection.mockResolvedValue({
@@ -342,12 +342,12 @@ describe('Issue Detail Page', () => {
 			expect(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ })).toBeInTheDocument()
 		);
 		await user.click(screen.getByRole('radio', { name: 'Gesucht' }));
-		await user.click(screen.getByTestId('condition-chip-Z4'));
+		expect(screen.getByTestId('wanted-condition-hint')).toBeInTheDocument();
 		await user.click(screen.getByRole('button', { name: /Zur Sammlung hinzufügen/ }));
 
 		await waitFor(() =>
 			expect(mockAddToCollection).toHaveBeenCalledWith(
-				expect.objectContaining({ condition_grade: 'Z4', status: 'wanted' })
+				expect.objectContaining({ condition_grade: undefined, status: 'wanted' })
 			)
 		);
 	});
@@ -373,6 +373,32 @@ describe('Issue Detail Page', () => {
 				notes: 'Test note'
 			});
 		});
+	});
+
+	it('updates a conditionless wanted entry without inventing a physical condition', async () => {
+		const wantedEntry = {
+			...sampleEntry,
+			condition_grade: null,
+			status: 'wanted'
+		};
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue(wantedEntry);
+		mockUpdateCollectionEntry.mockResolvedValue(wantedEntry);
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('wanted-condition-hint')).toBeInTheDocument());
+		expect(screen.queryByTestId('condition-chips')).not.toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Speichern' }));
+
+		await waitFor(() =>
+			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(1, {
+				condition_grade: undefined,
+				status: 'wanted',
+				notes: 'Test note'
+			})
+		);
 	});
 
 	it('sends an empty note explicitly when clearing an existing note', async () => {

@@ -12,7 +12,7 @@ pub struct CollectionEntry {
     pub user_id: u32,
     pub issue_id: u32,
     pub copy_number: u8,
-    pub condition_grade: String,
+    pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
     pub created_at: chrono::NaiveDateTime,
@@ -26,7 +26,7 @@ pub struct CollectionEntry {
 #[derive(Debug, Deserialize, Validate)]
 pub struct AddCollectionEntryRequest {
     pub issue_id: u32,
-    pub condition_grade: String,
+    pub condition_grade: Option<String>,
     pub status: Option<String>,
     pub notes: Option<String>,
     pub copy_number: Option<u8>,
@@ -129,7 +129,7 @@ pub struct CollectionEntryRow {
     pub user_id: u32,
     pub issue_id: u32,
     pub copy_number: u8,
-    pub condition_grade: String,
+    pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
     pub created_at: chrono::NaiveDateTime,
@@ -156,7 +156,7 @@ impl From<&CollectionEntryRow> for CollectionEntryResponse {
             cover_url: r.cover_url.clone(),
             cover_local_path: r.cover_local_path.clone(),
             copy_number: Some(r.copy_number),
-            condition_grade: Some(r.condition_grade.clone()),
+            condition_grade: r.condition_grade.clone(),
             status: r.status.clone(),
             notes: r.notes.clone(),
             created_at: Some(r.created_at),
@@ -200,6 +200,25 @@ pub fn validate_status(status: &str) -> Result<(), String> {
             "Invalid status '{status}'. Must be one of: owned, duplicate, wanted"
         ))
     }
+}
+
+pub fn validate_status_condition(
+    status: &str,
+    condition_grade: Option<&str>,
+) -> Result<(), String> {
+    validate_status(status)?;
+
+    if let Some(grade) = condition_grade {
+        validate_condition_grade(grade)?;
+    }
+
+    if status != "wanted" && condition_grade.is_none() {
+        return Err(format!(
+            "condition_grade is required when status is '{status}'"
+        ));
+    }
+
+    Ok(())
 }
 
 /// Validate and normalize a personal collection note without changing its
@@ -290,6 +309,22 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_status_condition_accepts_valid_combinations() {
+        assert!(validate_status_condition("owned", Some("Z0")).is_ok());
+        assert!(validate_status_condition("duplicate", Some("Z4")).is_ok());
+        assert!(validate_status_condition("wanted", None).is_ok());
+        assert!(validate_status_condition("wanted", Some("Z2")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_status_condition_rejects_invalid_combinations() {
+        assert!(validate_status_condition("owned", None).is_err());
+        assert!(validate_status_condition("duplicate", None).is_err());
+        assert!(validate_status_condition("wanted", Some("Z5")).is_err());
+        assert!(validate_status_condition("missing", None).is_err());
+    }
+
+    #[test]
     fn test_normalize_collection_note_preserves_unicode_and_line_breaks() {
         let note = "  Erste Zeile\r\nZweite Zeile 🟡  ";
         assert_eq!(normalize_collection_note(Some(note)), Ok(Some(note)));
@@ -344,7 +379,7 @@ mod tests {
             user_id: 10,
             issue_id: 100,
             copy_number: 1,
-            condition_grade: "Z2".to_string(),
+            condition_grade: Some("Z2".to_string()),
             status: "owned".to_string(),
             notes: Some("Nice copy".to_string()),
             created_at: chrono::NaiveDateTime::default(),
@@ -384,7 +419,7 @@ mod tests {
         let json = r#"{"issue_id": 42, "condition_grade": "Z1"}"#;
         let req: AddCollectionEntryRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.issue_id, 42);
-        assert_eq!(req.condition_grade, "Z1");
+        assert_eq!(req.condition_grade.as_deref(), Some("Z1"));
         assert!(req.status.is_none());
         assert!(req.copy_number.is_none());
     }

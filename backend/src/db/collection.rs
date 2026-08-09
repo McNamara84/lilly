@@ -81,7 +81,7 @@ pub async fn add_entry(
     user_id: u32,
     issue_id: u32,
     copy_number: u8,
-    condition_grade: &str,
+    condition_grade: Option<&str>,
     status: &str,
     notes: Option<&str>,
 ) -> Result<u32, sqlx::Error> {

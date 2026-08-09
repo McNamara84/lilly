@@ -12,6 +12,7 @@ pub mod collection;
 pub mod health;
 pub mod profiles;
 pub mod series;
+pub mod trades;
 
 #[derive(Clone)]
 pub struct AppState {

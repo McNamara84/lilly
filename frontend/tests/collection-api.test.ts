@@ -203,6 +203,19 @@ describe('Collection API', () => {
 				addToCollection({ issue_id: 42, condition_grade: 'invalid' as never })
 			).rejects.toThrow('Invalid condition_grade');
 		});
+
+		it('allows a wanted entry without a condition grade', async () => {
+			mockFetch.mockResolvedValue(
+				jsonResponse({ ...sampleEntry, status: 'wanted', condition_grade: null }, 201)
+			);
+
+			await addToCollection({ issue_id: 42, status: 'wanted' });
+
+			expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({
+				issue_id: 42,
+				status: 'wanted'
+			});
+		});
 	});
 
 	describe('updateCollectionEntry', () => {
