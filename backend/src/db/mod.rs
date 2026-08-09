@@ -1,6 +1,7 @@
 pub mod collection;
 pub mod demo;
 pub mod import_jobs;
+pub mod import_review;
 pub mod issues;
 pub mod profiles;
 pub mod refresh_tokens;

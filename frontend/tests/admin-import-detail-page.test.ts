@@ -38,19 +38,23 @@ vi.mock('$app/navigation', () => ({
 vi.mock('$lib/api/admin', () => ({
 	fetchImportJob: vi.fn(),
 	fetchImportSeriesIssues: vi.fn(),
+	fetchImportReviewItems: vi.fn(),
+	fetchImportReviewSummary: vi.fn(),
 	fetchImportErrors: vi.fn(),
 	cancelImport: vi.fn(),
 	retryImport: vi.fn(),
-	activateSeries: vi.fn()
+	activateImport: vi.fn()
 }));
 
 import {
 	fetchImportJob,
 	fetchImportSeriesIssues,
+	fetchImportReviewItems,
+	fetchImportReviewSummary,
 	fetchImportErrors,
 	cancelImport,
 	retryImport,
-	activateSeries
+	activateImport
 } from '$lib/api/admin';
 import { goto } from '$app/navigation';
 
@@ -133,6 +137,68 @@ const mockIssues = [
 	}
 ];
 
+const reviewSummary = {
+	job_id: 5,
+	series_id: 1,
+	series_name: 'Maddrax',
+	series_slug: 'maddrax',
+	series_active: false,
+	job_status: 'completed',
+	outcomes: {
+		total: 2,
+		not_processed: 0,
+		created: 2,
+		updated: 0,
+		unchanged: 0,
+		skipped: 0,
+		failed: 0
+	},
+	warning_count: 0,
+	blocking_count: 0,
+	eligibility: { eligible: true, requires_acknowledgement: false, reasons: [] },
+	reference_checks: [
+		{
+			issue_number: 1,
+			expected_title: 'Der Gläserne Sarg',
+			expected_authors: ['Timothy Stahl'],
+			expected_published_at: '2000-02-08',
+			status: 'passed' as const,
+			message: null
+		}
+	],
+	sample_issue_numbers: [1, 2],
+	last_publication_event: null
+};
+
+function asReviewItem(issue: (typeof mockIssues)[number]) {
+	return {
+		id: issue.id,
+		job_id: 5,
+		issue_id: issue.id,
+		issue_number: issue.issue_number,
+		outcome: 'created' as const,
+		severity: 'info' as const,
+		stage: 'complete',
+		message: null,
+		source_key: 'maddraxikon',
+		source_record_id: `Quelle:MX${issue.issue_number}`,
+		source_url: issue.source_wiki_url,
+		title: issue.title,
+		authors: issue.authors,
+		cover_artists: issue.cover_artists,
+		published_at: issue.published_at,
+		part_number: issue.part_number,
+		part_total: issue.part_total,
+		cycle: issue.cycle,
+		cover_status: (issue.cover_local_path || issue.cover_url ? 'imported' : 'missing_at_source') as
+			'imported' | 'missing_at_source',
+		cover_reason:
+			issue.cover_local_path || issue.cover_url ? null : 'The source does not provide a cover',
+		cover_local_path: issue.cover_local_path ?? issue.cover_url,
+		processed_at: '2025-06-01T10:15:00Z'
+	};
+}
+
 describe('Import Detail Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -144,6 +210,23 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
+		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
+		vi.mocked(fetchImportReviewItems).mockImplementation(async (id, filters) => {
+			const legacy = await fetchImportSeriesIssues(id, filters?.page ?? 1);
+			return {
+				items: legacy.data.map((issue) => asReviewItem(issue as (typeof mockIssues)[number])),
+				page: legacy.page,
+				per_page: legacy.per_page,
+				total: legacy.total
+			};
+		});
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue(reviewSummary);
+		vi.mocked(activateImport).mockResolvedValue({ series_id: 1, active: true, event: null });
 	});
 
 	afterEach(() => {
@@ -214,6 +297,20 @@ describe('Import Detail Page', () => {
 
 		const progressFill = screen.getByTestId('progress-bar').firstElementChild;
 		expect(progressFill).toHaveStyle({ width: '0%' });
+	});
+
+	it('uses fallbacks for missing update time and skipped issue count', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...completedJob,
+			updated_at: null,
+			skipped_issues: undefined
+		} as unknown as Awaited<ReturnType<typeof fetchImportJob>>);
+
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('import-title')).toBeInTheDocument());
+		expect(screen.getByText(/Zuletzt aktualisiert: –/)).toBeInTheDocument();
+		expect(screen.getByTestId('progress-count')).toHaveTextContent('100 / 100 bearbeitet');
 	});
 
 	it('polls a running import and stops when it completes', async () => {
@@ -307,10 +404,12 @@ describe('Import Detail Page', () => {
 			expect(screen.getByTestId('activate-series-button')).toBeInTheDocument();
 		});
 
-		expect(screen.getByTestId('activate-series-button')).toHaveTextContent('Serie aktivieren');
+		expect(screen.getByTestId('activate-series-button')).toHaveTextContent(
+			'Geprüften Import freigeben'
+		);
 	});
 
-	it('calls activateSeries when activate button is clicked', async () => {
+	it('activates the reviewed import when the activation button is clicked', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
 		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
 			data: [],
@@ -318,8 +417,6 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
-		vi.mocked(activateSeries).mockResolvedValue(undefined);
-
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		render(ImportDetailPage);
 
@@ -329,7 +426,180 @@ describe('Import Detail Page', () => {
 
 		await user.click(screen.getByTestId('activate-series-button'));
 
-		expect(activateSeries).toHaveBeenCalledWith('maddrax');
+		expect(activateImport).toHaveBeenCalledWith(5, false);
+	});
+
+	it('keeps the activation control visible when the API reports an inactive series', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(activateImport).mockResolvedValue({ series_id: 1, active: false, event: null });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('activate-series-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('activate-series-button'));
+
+		expect(activateImport).toHaveBeenCalledWith(5, false);
+		expect(screen.getByTestId('activate-series-button')).toBeInTheDocument();
+		expect(screen.queryByTestId('series-active-message')).not.toBeInTheDocument();
+	});
+
+	it('requires explicit acknowledgement before activating a warning-only import', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...completedJob,
+			status: 'completed_with_errors'
+		});
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue({
+			...reviewSummary,
+			job_status: 'completed_with_errors',
+			warning_count: 2,
+			eligibility: { eligible: true, requires_acknowledgement: true, reasons: [] }
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('activate-series-button')).toBeDisabled());
+		await user.click(
+			screen.getByRole('checkbox', {
+				name: 'Ich habe alle Warnungen geprüft und gebe die Serie trotzdem frei.'
+			})
+		);
+		expect(screen.getByTestId('activate-series-button')).toBeEnabled();
+		await user.click(screen.getByTestId('activate-series-button'));
+
+		expect(activateImport).toHaveBeenCalledWith(5, true);
+		await waitFor(() => expect(screen.getByTestId('series-active-message')).toBeInTheDocument());
+	});
+
+	it('shows stable blocker reasons and prevents activation', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...completedJob,
+			status: 'completed_with_errors'
+		});
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue({
+			...reviewSummary,
+			blocking_count: 1,
+			eligibility: {
+				eligible: false,
+				requires_acknowledgement: false,
+				reasons: [{ code: 'blocking_findings', message: 'The import contains blocking findings' }]
+			}
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('activation-blockers')).toBeInTheDocument());
+		expect(screen.getByTestId('activation-blockers')).toHaveTextContent('blocking_findings');
+		expect(screen.getByTestId('activate-series-button')).toBeDisabled();
+		expect(activateImport).not.toHaveBeenCalled();
+	});
+
+	it('renders an empty sample and a failed reference check', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue({
+			...reviewSummary,
+			sample_issue_numbers: [],
+			reference_checks: [
+				{
+					...reviewSummary.reference_checks[0],
+					status: 'failed',
+					message: 'Reference metadata differs'
+				}
+			]
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('review-section')).toBeInTheDocument());
+		expect(screen.getByTestId('sample-numbers')).toHaveTextContent('Angeheftete Stichprobe: –');
+		expect(screen.getByTestId('reference-checks')).toHaveTextContent('fehlgeschlagen');
+	});
+
+	it('renders review messages and title fallbacks consistently', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportReviewItems).mockResolvedValue({
+			items: [
+				{
+					...asReviewItem(mockIssues[0]),
+					title: null,
+					message: 'Metadata warning'
+				}
+			],
+			page: 1,
+			per_page: 50,
+			total: 1
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('issues-table')).toBeInTheDocument());
+		expect(screen.getByText('Metadata warning')).toBeInTheDocument();
+		expect(screen.getByAltText('Cover von #1: Unbekannt')).toBeInTheDocument();
+		expect(screen.getByTestId('issue-row')).toHaveTextContent('–');
+	});
+
+	it('applies review search, risk and sample filters from the full result list', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('review-filters')).toBeInTheDocument());
+		await user.type(screen.getByPlaceholderText('Nr., Titel, Autor, Quellen-ID'), 'Jason Dark');
+		await user.selectOptions(screen.getByLabelText('Ergebnis'), 'updated');
+		await user.selectOptions(screen.getByLabelText('Risiko'), 'warning');
+		await user.selectOptions(screen.getByLabelText('Cover'), 'fetch_failed');
+		await user.click(screen.getByRole('checkbox', { name: 'Nur Stichprobe' }));
+		await user.click(screen.getByRole('button', { name: 'Anwenden' }));
+
+		await waitFor(() => {
+			expect(fetchImportReviewItems).toHaveBeenLastCalledWith(5, {
+				page: 1,
+				query: 'Jason Dark',
+				outcome: 'updated',
+				severity: 'warning',
+				coverStatus: 'fetch_failed',
+				sample: true
+			});
+		});
+	});
+
+	it('paginates review results in both directions', async () => {
+		const firstPageItem = asReviewItem(mockIssues[0]);
+		const secondPageItem = {
+			...asReviewItem(mockIssues[1]),
+			id: 51,
+			issue_number: 51,
+			title: 'Heft auf Seite zwei'
+		};
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportReviewItems)
+			.mockResolvedValueOnce({ items: [firstPageItem], page: 1, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ items: [secondPageItem], page: 2, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ items: [firstPageItem], page: 1, per_page: 50, total: 51 });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByText('Der Gläserne Sarg')).toBeInTheDocument());
+		expect(screen.getByTestId('previous-review-page')).toBeDisabled();
+		expect(screen.getByTestId('next-review-page')).toBeEnabled();
+
+		await user.click(screen.getByTestId('next-review-page'));
+		await waitFor(() => {
+			expect(fetchImportReviewItems).toHaveBeenLastCalledWith(
+				5,
+				expect.objectContaining({ page: 2 })
+			);
+			expect(screen.getByText('Heft auf Seite zwei')).toBeInTheDocument();
+			expect(screen.getByText('Seite 2')).toBeInTheDocument();
+		});
+		expect(screen.getByTestId('previous-review-page')).toBeEnabled();
+		expect(screen.getByTestId('next-review-page')).toBeDisabled();
+
+		await user.click(screen.getByTestId('previous-review-page'));
+		await waitFor(() => {
+			expect(fetchImportReviewItems).toHaveBeenLastCalledWith(
+				5,
+				expect.objectContaining({ page: 1 })
+			);
+			expect(screen.getByText('Der Gläserne Sarg')).toBeInTheDocument();
+			expect(screen.getByText('Seite 1')).toBeInTheDocument();
+		});
 	});
 
 	it('shows error when fetchImportJob fails', async () => {
@@ -370,7 +640,9 @@ describe('Import Detail Page', () => {
 		render(ImportDetailPage);
 
 		await waitFor(() => {
-			expect(screen.getByTestId('error-message')).toHaveTextContent('Failed to load issues');
+			expect(screen.getByTestId('error-message')).toHaveTextContent(
+				'Failed to load review results'
+			);
 		});
 	});
 
@@ -402,6 +674,10 @@ describe('Import Detail Page', () => {
 		});
 
 		expect(screen.getByText('Importierte Hefte (2)')).toBeInTheDocument();
+		expect(screen.getByTestId('sample-numbers')).toHaveTextContent(
+			'Angeheftete Stichprobe: #1, #2'
+		);
+		expect(screen.getByTestId('reference-checks')).toHaveTextContent('Timothy Stahl · 2000-02-08');
 	});
 
 	it('shows error when activation fails', async () => {
@@ -412,7 +688,7 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
-		vi.mocked(activateSeries).mockRejectedValue(new Error('Activation failed'));
+		vi.mocked(activateImport).mockRejectedValue(new Error('Activation failed'));
 
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		render(ImportDetailPage);
@@ -436,7 +712,7 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
-		vi.mocked(activateSeries).mockRejectedValue('unexpected');
+		vi.mocked(activateImport).mockRejectedValue('unexpected');
 
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		render(ImportDetailPage);
@@ -714,6 +990,7 @@ describe('Import Detail Page', () => {
 					issue_number: 409,
 					source_record_id: 'Quelle:MX409',
 					stage: 'validate',
+					severity: 'warning',
 					message: 'missing author',
 					created_at: '2026-08-09T10:00:00Z'
 				}
@@ -726,7 +1003,7 @@ describe('Import Detail Page', () => {
 
 		await waitFor(() => expect(screen.getByTestId('job-errors-section')).toBeInTheDocument());
 		expect(screen.getByTestId('job-errors-section')).toHaveTextContent(
-			'Heft #409 (maddraxikon:Quelle:MX409) [validate]: missing author'
+			'Heft #409 (maddraxikon:Quelle:MX409) [validate]: missing author (warning)'
 		);
 	});
 

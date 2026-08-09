@@ -10,6 +10,10 @@ import {
 	retryImport,
 	fetchImportErrors,
 	fetchImportSeriesIssues,
+	fetchImportReviewItems,
+	fetchImportReviewSummary,
+	activateImport,
+	AdminApiError,
 	fetchImportHistory,
 	fetchImportSchedule
 } from '../src/lib/api/admin';
@@ -208,6 +212,88 @@ describe('Admin API', () => {
 		});
 	});
 
+	describe('import review', () => {
+		it('loads the review summary for a concrete job', async () => {
+			const summary = { job_id: 5, warning_count: 0, blocking_count: 0 };
+			mockFetch.mockResolvedValue(jsonResponse(summary));
+
+			await expect(fetchImportReviewSummary(5)).resolves.toEqual(summary);
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/review/summary', {
+				credentials: 'same-origin'
+			});
+		});
+
+		it('serializes pagination, search, filters and the pinned sample', async () => {
+			const result = { items: [], page: 2, per_page: 25, total: 0 };
+			mockFetch.mockResolvedValue(jsonResponse(result));
+
+			await expect(
+				fetchImportReviewItems(5, {
+					page: 2,
+					perPage: 25,
+					query: '  Jason Dark  ',
+					outcome: 'updated',
+					severity: 'warning',
+					coverStatus: 'fetch_failed',
+					sample: true
+				})
+			).resolves.toEqual(result);
+			expect(mockFetch).toHaveBeenCalledWith(
+				'/api/v1/admin/import/5/review/items?page=2&per_page=25&q=Jason+Dark&outcome=updated&severity=warning&cover_status=fetch_failed&sample=true',
+				{ credentials: 'same-origin' }
+			);
+		});
+
+		it('uses stable defaults and omits empty review filters', async () => {
+			const result = { items: [], page: 1, per_page: 50, total: 0 };
+			mockFetch.mockResolvedValue(jsonResponse(result));
+
+			await expect(
+				fetchImportReviewItems(5, {
+					query: '   ',
+					outcome: '',
+					severity: '',
+					coverStatus: '',
+					sample: false
+				})
+			).resolves.toEqual(result);
+			expect(mockFetch).toHaveBeenCalledWith(
+				'/api/v1/admin/import/5/review/items?page=1&per_page=50',
+				{ credentials: 'same-origin' }
+			);
+		});
+
+		it('activates only the selected job and sends warning acknowledgement explicitly', async () => {
+			const result = { series_id: 1, active: true, event: null };
+			mockFetch.mockResolvedValue(jsonResponse(result));
+
+			await expect(activateImport(5, true)).resolves.toEqual(result);
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/activate', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'same-origin',
+				body: JSON.stringify({ acknowledge_warnings: true })
+			});
+		});
+
+		it('preserves structured conflict status and code', async () => {
+			mockFetch.mockResolvedValue(
+				jsonResponse(
+					{ error: 'Warnings must be acknowledged', code: 'warning_acknowledgement_required' },
+					409
+				)
+			);
+
+			const error = await activateImport(5, false).catch((caught) => caught);
+			expect(error).toBeInstanceOf(AdminApiError);
+			expect(error).toMatchObject({
+				status: 409,
+				code: 'warning_acknowledgement_required',
+				message: 'Warnings must be acknowledged'
+			});
+		});
+	});
+
 	describe('fetchImportHistory', () => {
 		it('fetches import history', async () => {
 			const history = [{ id: 1 }, { id: 2 }];
@@ -243,6 +329,17 @@ describe('Admin API', () => {
 	});
 
 	describe('error handling', () => {
+		it('uses the fallback message and a null code for an empty API error', async () => {
+			mockFetch.mockResolvedValue(jsonResponse({ error: '', code: 123 }, 400));
+
+			const error = await fetchAllSeries().catch((caught) => caught);
+			expect(error).toMatchObject({
+				status: 400,
+				code: null,
+				message: 'An unexpected error occurred'
+			});
+		});
+
 		it('handles non-JSON error responses', async () => {
 			mockFetch.mockResolvedValue({
 				ok: false,

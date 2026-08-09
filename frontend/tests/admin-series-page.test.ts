@@ -5,11 +5,14 @@ import AdminSeriesPage from '../src/routes/admin/series/+page.svelte';
 
 vi.mock('$lib/api/admin', () => ({
 	fetchAllSeries: vi.fn(),
-	activateSeries: vi.fn(),
 	deactivateSeries: vi.fn()
 }));
 
-import { fetchAllSeries, activateSeries, deactivateSeries } from '$lib/api/admin';
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => path
+}));
+
+import { fetchAllSeries, deactivateSeries } from '$lib/api/admin';
 
 const mockSeries = [
 	{
@@ -34,6 +37,7 @@ const mockSeries = [
 		total_issues: 60,
 		status: 'completed',
 		active: false,
+		latest_import_job_id: 7,
 		source_url: null
 	}
 ];
@@ -94,7 +98,7 @@ describe('Admin Series Page', () => {
 		expect(inactiveLabels).toHaveLength(1);
 	});
 
-	it('shows deactivate button for active series and activate for inactive', async () => {
+	it('shows deactivation for active series and review navigation for inactive series', async () => {
 		vi.mocked(fetchAllSeries).mockResolvedValue(mockSeries);
 		render(AdminSeriesPage);
 
@@ -104,7 +108,8 @@ describe('Admin Series Page', () => {
 
 		const buttons = screen.getAllByTestId('toggle-active-button');
 		expect(buttons[0]).toHaveTextContent('Deaktivieren');
-		expect(buttons[1]).toHaveTextContent('Aktivieren');
+		expect(screen.getByTestId('review-import-link')).toHaveTextContent('Import prüfen');
+		expect(screen.getByTestId('review-import-link')).toHaveAttribute('href', '/admin/import/7');
 	});
 
 	it('calls deactivateSeries when clicking deactivate button', async () => {
@@ -123,20 +128,25 @@ describe('Admin Series Page', () => {
 		expect(deactivateSeries).toHaveBeenCalledWith('maddrax');
 	});
 
-	it('calls activateSeries when clicking activate button', async () => {
+	it('does not expose direct activation for an inactive series', async () => {
 		vi.mocked(fetchAllSeries).mockResolvedValue(mockSeries);
-		vi.mocked(activateSeries).mockResolvedValue(undefined);
-		const user = userEvent.setup();
 		render(AdminSeriesPage);
 
 		await waitFor(() => {
 			expect(screen.getByTestId('series-table')).toBeInTheDocument();
 		});
 
-		const buttons = screen.getAllByTestId('toggle-active-button');
-		await user.click(buttons[1]);
+		expect(screen.getAllByTestId('toggle-active-button')).toHaveLength(1);
+		expect(screen.getByTestId('review-import-link')).toHaveAttribute('href', '/admin/import/7');
+	});
 
-		expect(activateSeries).toHaveBeenCalledWith('dorian-hunter');
+	it('links to import creation when an inactive series has no reviewable job', async () => {
+		vi.mocked(fetchAllSeries).mockResolvedValue([{ ...mockSeries[1], latest_import_job_id: null }]);
+		render(AdminSeriesPage);
+
+		await waitFor(() => expect(screen.getByTestId('review-import-link')).toBeInTheDocument());
+		expect(screen.getByTestId('review-import-link')).toHaveTextContent('Import starten');
+		expect(screen.getByTestId('review-import-link')).toHaveAttribute('href', '/admin/import');
 	});
 
 	it('displays total issue count', async () => {

@@ -6,11 +6,11 @@ use std::time::Duration;
 use chrono::{DateTime, NaiveDate, Utc};
 use lilly_importer_core::{
     AdapterError, IssueData, SourceDescriptor, WikiAdapter, normalize_and_validate_issue,
-    normalize_and_validate_series,
+    normalize_and_validate_series, validate_reference_record,
 };
 
 use crate::db::import_jobs::ImportProgress;
-use crate::db::{import_jobs, issues, series};
+use crate::db::{import_jobs, import_review, issues, series};
 use crate::error::AppError;
 use crate::models::series::{ImportJobResponse, IssueResponse};
 use crate::routes::AppStateInner;
@@ -39,6 +39,60 @@ enum IssueOutcome {
     Created,
     Updated,
     Unchanged,
+}
+
+impl IssueOutcome {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Updated => "updated",
+            Self::Unchanged => "unchanged",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoverImportResult {
+    status: &'static str,
+    local_path: Option<String>,
+    reason: Option<String>,
+}
+
+impl CoverImportResult {
+    fn imported(local_path: String) -> Self {
+        Self {
+            status: "imported",
+            local_path: Some(local_path),
+            reason: None,
+        }
+    }
+
+    fn reused(local_path: Option<String>) -> Self {
+        Self {
+            status: "reused",
+            local_path,
+            reason: None,
+        }
+    }
+
+    fn warning(status: &'static str, reason: String) -> Self {
+        Self {
+            status,
+            local_path: None,
+            reason: Some(reason),
+        }
+    }
+
+    fn severity(&self) -> &'static str {
+        if matches!(
+            self.status,
+            "missing_at_source" | "not_permitted" | "fetch_failed" | "invalid" | "storage_failed"
+        ) {
+            "warning"
+        } else {
+            "info"
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,6 +489,9 @@ async fn execute_import(
         return Ok(());
     }
 
+    import_review::seed_import_results(&state.pool, job_id, descriptor.source_key, &source_numbers)
+        .await?;
+
     let stored_rows = issues::find_all_issues_by_series(&state.pool, series_id).await?;
     let stored_responses = issues::build_issue_responses(&state.pool, &stored_rows).await?;
     let stored: HashMap<u32, IssueResponse> = stored_responses
@@ -451,13 +508,15 @@ async fn execute_import(
     if !missing_from_source.is_empty() {
         let message = summarize_missing_source_numbers(&missing_from_source);
         tracing::warn!(job_id, missing = missing_from_source.len(), %message, "Stored issues are absent from the current source list");
-        import_jobs::record_import_error(
+        import_jobs::record_import_finding(
             &state.pool,
             job_id,
             descriptor.source_key,
             None,
             None,
             "source-list",
+            "warning",
+            "source_issue_missing",
             &message,
         )
         .await?;
@@ -477,6 +536,7 @@ async fn execute_import(
         .with_timezone(&chrono_tz::Europe::Berlin)
         .date_naive();
     let mut error_messages = Vec::new();
+    let reference_records = adapter.reference_records();
 
     for issue_number in source_numbers {
         if cancel_if_requested(&state, job_id).await? {
@@ -495,6 +555,7 @@ async fn execute_import(
                         source_record_id: None,
                         processing_stage: "fetch",
                         message: &error.to_string(),
+                        details: None,
                     },
                     &mut progress,
                     &mut error_messages,
@@ -508,6 +569,7 @@ async fn execute_import(
         }
 
         let source_record_id = details.source.source_record_id.clone();
+        let raw_details = details.clone();
         let details = match normalize_and_validate_issue(descriptor, issue_number, details) {
             Ok(details) => details,
             Err(error) => {
@@ -520,6 +582,7 @@ async fn execute_import(
                         source_record_id: Some(&source_record_id),
                         processing_stage: "validate",
                         message: &error.to_string(),
+                        details: Some(&raw_details),
                     },
                     &mut progress,
                     &mut error_messages,
@@ -529,8 +592,44 @@ async fn execute_import(
             }
         };
 
+        if let Err(error) = validate_reference_record(&reference_records, &details) {
+            record_issue_failure(
+                &state,
+                job_id,
+                IssueFailure {
+                    source_key: descriptor.source_key,
+                    issue_number,
+                    source_record_id: Some(&details.source.source_record_id),
+                    processing_stage: "reference",
+                    message: &error.to_string(),
+                    details: Some(&details),
+                },
+                &mut progress,
+                &mut error_messages,
+            )
+            .await?;
+            continue;
+        }
+
         if !is_published(details.published_at, today) {
             progress.skipped = progress.skipped.saturating_add(1);
+            record_review_result(
+                &state,
+                job_id,
+                descriptor.source_key,
+                &details,
+                None,
+                "skipped",
+                "info",
+                "publication-date",
+                Some("Issue has not been published yet"),
+                &CoverImportResult {
+                    status: "not_checked",
+                    local_path: None,
+                    reason: Some("Cover was not checked for a future issue".to_string()),
+                },
+            )
+            .await?;
             import_jobs::update_import_progress(&state.pool, job_id, progress).await?;
             continue;
         }
@@ -541,17 +640,31 @@ async fn execute_import(
         if outcome == IssueOutcome::Unchanged && !needs_cover {
             if let Some(existing) = existing {
                 issues::mark_issue_checked(&state.pool, existing.id).await?;
+                let cover = CoverImportResult::reused(existing.cover_local_path.clone());
+                record_review_result(
+                    &state,
+                    job_id,
+                    descriptor.source_key,
+                    &details,
+                    Some(existing.id),
+                    outcome.as_str(),
+                    cover.severity(),
+                    "complete",
+                    None,
+                    &cover,
+                )
+                .await?;
             }
             progress.unchanged = progress.unchanged.saturating_add(1);
             import_jobs::update_import_progress(&state.pool, job_id, progress).await?;
             continue;
         }
 
-        let cover_local_path = if needs_cover {
+        let cover_result = if needs_cover {
             if cancel_if_requested(&state, job_id).await? {
                 return Ok(());
             }
-            match fetch_and_store_cover(
+            fetch_and_store_cover(
                 adapter,
                 issue_number,
                 &cover_dir,
@@ -559,48 +672,73 @@ async fn execute_import(
                 series_id,
             )
             .await
-            {
-                Ok(path) => path,
-                Err(error) => {
-                    import_jobs::record_import_error(
-                        &state.pool,
-                        job_id,
-                        descriptor.source_key,
-                        Some(issue_number),
-                        Some(&details.source.source_record_id),
-                        "cover",
-                        &error,
-                    )
-                    .await?;
-                    None
-                }
-            }
         } else {
-            None
+            CoverImportResult::reused(existing.and_then(|issue| issue.cover_local_path.clone()))
         };
+        if cover_result.severity() == "warning" {
+            let message = cover_result
+                .reason
+                .as_deref()
+                .unwrap_or("Cover is unavailable");
+            import_jobs::record_import_finding(
+                &state.pool,
+                job_id,
+                descriptor.source_key,
+                Some(issue_number),
+                Some(&details.source.source_record_id),
+                "cover",
+                "warning",
+                cover_result.status,
+                message,
+            )
+            .await?;
+        }
         if cancel_if_requested(&state, job_id).await? {
             return Ok(());
         }
 
-        if let Err(error) =
-            persist_issue(&state, series_id, &details, cover_local_path.as_deref()).await
+        let issue_id = match persist_issue(
+            &state,
+            series_id,
+            &details,
+            cover_result.local_path.as_deref(),
+        )
+        .await
         {
-            record_issue_failure(
-                &state,
-                job_id,
-                IssueFailure {
-                    source_key: descriptor.source_key,
-                    issue_number,
-                    source_record_id: Some(&details.source.source_record_id),
-                    processing_stage: "persist",
-                    message: &error.to_string(),
-                },
-                &mut progress,
-                &mut error_messages,
-            )
-            .await?;
-            continue;
-        }
+            Ok(issue_id) => issue_id,
+            Err(error) => {
+                record_issue_failure(
+                    &state,
+                    job_id,
+                    IssueFailure {
+                        source_key: descriptor.source_key,
+                        issue_number,
+                        source_record_id: Some(&details.source.source_record_id),
+                        processing_stage: "persist",
+                        message: &error.to_string(),
+                        details: Some(&details),
+                    },
+                    &mut progress,
+                    &mut error_messages,
+                )
+                .await?;
+                continue;
+            }
+        };
+
+        record_review_result(
+            &state,
+            job_id,
+            descriptor.source_key,
+            &details,
+            Some(issue_id),
+            outcome.as_str(),
+            cover_result.severity(),
+            "complete",
+            cover_result.reason.as_deref(),
+            &cover_result,
+        )
+        .await?;
 
         match outcome {
             IssueOutcome::Created => progress.created = progress.created.saturating_add(1),
@@ -620,6 +758,7 @@ async fn execute_import(
 
     let summary = summarize_errors(&error_messages);
     validate_progress(progress)?;
+    validate_review_progress(&state, job_id, progress).await?;
     let completed =
         import_jobs::complete_import_job(&state.pool, job_id, progress, summary.as_deref()).await?;
     if !completed {
@@ -654,6 +793,7 @@ struct IssueFailure<'a> {
     source_record_id: Option<&'a str>,
     processing_stage: &'a str,
     message: &'a str,
+    details: Option<&'a IssueData>,
 }
 
 async fn record_issue_failure(
@@ -678,7 +818,77 @@ async fn record_issue_failure(
         failure.message,
     )
     .await?;
+    let empty = Vec::new();
+    let details = failure.details;
+    import_review::record_import_result(
+        &state.pool,
+        job_id,
+        failure.source_key,
+        &import_review::ReviewResultUpdate {
+            issue_id: None,
+            issue_number: failure.issue_number,
+            outcome: "failed",
+            severity: "blocking",
+            stage: failure.processing_stage,
+            message: Some(failure.message),
+            source_record_id: failure.source_record_id,
+            source_url: details.map(|details| details.source.source_url.as_str()),
+            title: details.map(|details| details.title.as_str()),
+            authors: details.map_or(empty.as_slice(), |details| details.authors.as_slice()),
+            cover_artists: details
+                .map_or(empty.as_slice(), |details| details.cover_artists.as_slice()),
+            published_at: details.and_then(|details| details.published_at),
+            part_number: details.and_then(|details| details.part_number),
+            part_total: details.and_then(|details| details.part_total),
+            cycle: details.and_then(|details| details.cycle.as_deref()),
+            cover_status: "not_checked",
+            cover_reason: None,
+            cover_local_path: None,
+        },
+    )
+    .await?;
     import_jobs::update_import_progress(&state.pool, job_id, *progress).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_review_result(
+    state: &AppStateInner,
+    job_id: u32,
+    source_key: &str,
+    details: &IssueData,
+    issue_id: Option<u32>,
+    outcome: &str,
+    severity: &str,
+    result_stage: &str,
+    message: Option<&str>,
+    cover: &CoverImportResult,
+) -> Result<(), sqlx::Error> {
+    import_review::record_import_result(
+        &state.pool,
+        job_id,
+        source_key,
+        &import_review::ReviewResultUpdate {
+            issue_id,
+            issue_number: details.issue_number,
+            outcome,
+            severity,
+            stage: result_stage,
+            message,
+            source_record_id: Some(&details.source.source_record_id),
+            source_url: Some(&details.source.source_url),
+            title: Some(&details.title),
+            authors: &details.authors,
+            cover_artists: &details.cover_artists,
+            published_at: details.published_at,
+            part_number: details.part_number,
+            part_total: details.part_total,
+            cycle: details.cycle.as_deref(),
+            cover_status: cover.status,
+            cover_reason: cover.reason.as_deref(),
+            cover_local_path: cover.local_path.as_deref(),
+        },
+    )
+    .await
 }
 
 fn normalize_source_numbers(numbers: &[u32]) -> Result<Vec<u32>, anyhow::Error> {
@@ -732,31 +942,65 @@ async fn fetch_and_store_cover(
     cover_dir: &std::path::Path,
     media_url_prefix: &str,
     series_id: u32,
-) -> Result<Option<String>, String> {
+) -> CoverImportResult {
     let cover = match adapter.fetch_cover(issue_number).await {
         Ok(Some(cover)) => cover,
-        Ok(None) => return Ok(None),
-        Err(error) => return Err(format!("Failed to fetch cover: {error}")),
+        Ok(None) => {
+            return CoverImportResult::warning(
+                "missing_at_source",
+                "The source does not provide a cover".to_string(),
+            );
+        }
+        Err(AdapterError::NotFound(_)) => {
+            return CoverImportResult::warning(
+                "missing_at_source",
+                "The source cover was not found".to_string(),
+            );
+        }
+        Err(error) => {
+            let message = format!("Failed to fetch cover: {error}");
+            let status = if message.to_ascii_lowercase().contains("permission")
+                || message.to_ascii_lowercase().contains("copyright")
+            {
+                "not_permitted"
+            } else {
+                "fetch_failed"
+            };
+            return CoverImportResult::warning(status, message);
+        }
     };
 
-    let extension = cover_extension(&cover.content_type)
-        .ok_or_else(|| format!("Unsupported cover content type '{}'", cover.content_type))?;
-    tokio::fs::create_dir_all(cover_dir)
-        .await
-        .map_err(|error| format!("Failed to create cover directory: {error}"))?;
+    let Some(extension) = cover_extension(&cover.content_type) else {
+        return CoverImportResult::warning(
+            "invalid",
+            format!("Unsupported cover content type '{}'", cover.content_type),
+        );
+    };
+    if let Err(error) = tokio::fs::create_dir_all(cover_dir).await {
+        return CoverImportResult::warning(
+            "storage_failed",
+            format!("Failed to create cover directory: {error}"),
+        );
+    }
     let target = cover_dir.join(format!("{issue_number}.{extension}"));
     let temporary = temporary_cover_path(cover_dir, issue_number, extension);
-    tokio::fs::write(&temporary, &cover.bytes)
-        .await
-        .map_err(|error| format!("Failed to write temporary cover: {error}"))?;
+    if let Err(error) = tokio::fs::write(&temporary, &cover.bytes).await {
+        return CoverImportResult::warning(
+            "storage_failed",
+            format!("Failed to write temporary cover: {error}"),
+        );
+    }
     if let Err(error) = tokio::fs::rename(&temporary, &target).await {
         let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(format!("Failed to atomically store cover: {error}"));
+        return CoverImportResult::warning(
+            "storage_failed",
+            format!("Failed to atomically store cover: {error}"),
+        );
     }
 
-    Ok(Some(format!(
+    CoverImportResult::imported(format!(
         "{media_url_prefix}/covers/series-{series_id}/{issue_number}.{extension}"
-    )))
+    ))
 }
 
 async fn persist_issue(
@@ -764,8 +1008,8 @@ async fn persist_issue(
     series_id: u32,
     details: &IssueData,
     cover_local_path: Option<&str>,
-) -> Result<(), anyhow::Error> {
-    issues::replace_issue_metadata(
+) -> Result<u32, anyhow::Error> {
+    let issue_id = issues::replace_issue_metadata(
         &state.pool,
         &issues::IssueMetadataUpdate {
             series_id,
@@ -787,7 +1031,7 @@ async fn persist_issue(
         },
     )
     .await?;
-    Ok(())
+    Ok(issue_id)
 }
 
 fn is_published(published_at: Option<NaiveDate>, today: NaiveDate) -> bool {
@@ -857,6 +1101,27 @@ fn validate_progress(progress: ImportProgress) -> Result<(), anyhow::Error> {
             "Import progress invariant violated: processed {} of {} issues",
             progress.processed(),
             progress.total
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_review_progress(
+    state: &AppStateInner,
+    job_id: u32,
+    progress: ImportProgress,
+) -> Result<(), anyhow::Error> {
+    let counts = import_review::review_outcome_counts(&state.pool, job_id).await?;
+    if counts.total != progress.total
+        || counts.not_processed != 0
+        || counts.created != progress.created
+        || counts.updated != progress.updated
+        || counts.unchanged != progress.unchanged
+        || counts.skipped != progress.skipped
+        || counts.failed != progress.failed
+    {
+        return Err(anyhow::anyhow!(
+            "Import review invariant violated for job {job_id}: results do not match progress"
         ));
     }
     Ok(())
@@ -1439,9 +1704,23 @@ mod tests {
         let first_errors = import_jobs::find_import_errors(&pool, first.id, 1, 50)
             .await
             .unwrap();
-        assert_eq!(first_errors.len(), 1);
-        assert_eq!(first_errors[0].stage, "validate");
-        assert_eq!(first_errors[0].source_record_id.as_deref(), Some("Issue:3"));
+        assert_eq!(first_errors.len(), 2);
+        let validation_error = first_errors
+            .iter()
+            .find(|error| error.stage == "validate")
+            .expect("validation finding must be persisted");
+        assert_eq!(
+            validation_error.source_record_id.as_deref(),
+            Some("Issue:3")
+        );
+        assert_eq!(validation_error.severity, "blocking");
+        let first_review = import_review::review_outcome_counts(&pool, first.id)
+            .await
+            .unwrap();
+        assert_eq!(first_review.total, 3);
+        assert_eq!(first_review.created, 1);
+        assert_eq!(first_review.skipped, 1);
+        assert_eq!(first_review.failed, 1);
 
         series::set_series_active(&pool, first.series_id, true)
             .await
@@ -1476,7 +1755,7 @@ mod tests {
         .await
         .expect("second synchronization must start");
         let second = wait_for_terminal_job(&pool, second.id).await;
-        assert_eq!(second.status, "completed");
+        assert_eq!(second.status, "completed_with_errors");
         assert_eq!(second.created_issues, 1);
         assert_eq!(second.updated_issues, 1);
         assert_eq!(second.unchanged_issues, 0);
@@ -1510,7 +1789,7 @@ mod tests {
         .await
         .expect("idempotence synchronization must start");
         let third = wait_for_terminal_job(&pool, third.id).await;
-        assert_eq!(third.status, "completed");
+        assert_eq!(third.status, "completed_with_errors");
         assert_eq!(third.created_issues, 0);
         assert_eq!(third.updated_issues, 0);
         assert_eq!(third.unchanged_issues, 2);

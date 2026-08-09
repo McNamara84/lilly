@@ -13,6 +13,7 @@ export interface SeriesAdmin {
 	source_key?: string | null;
 	source_record_id?: string | null;
 	source_url: string | null;
+	latest_import_job_id?: number | null;
 }
 
 export interface Adapter {
@@ -64,6 +65,8 @@ export interface ImportJobError {
 	issue_number: number | null;
 	source_record_id: string | null;
 	stage: string;
+	severity?: 'info' | 'warning' | 'blocking';
+	code?: string;
 	message: string;
 	created_at: string;
 }
@@ -110,15 +113,145 @@ export interface PaginatedIssues {
 	total: number;
 }
 
+export type ReviewOutcome =
+	'not_processed' | 'created' | 'updated' | 'unchanged' | 'skipped' | 'failed';
+export type ReviewSeverity = 'info' | 'warning' | 'blocking';
+export type CoverStatus =
+	| 'imported'
+	| 'reused'
+	| 'missing_at_source'
+	| 'not_permitted'
+	| 'fetch_failed'
+	| 'invalid'
+	| 'storage_failed'
+	| 'not_checked';
+
+export interface ReviewItem {
+	id: number;
+	job_id: number;
+	issue_id: number | null;
+	issue_number: number;
+	outcome: ReviewOutcome;
+	severity: ReviewSeverity;
+	stage: string | null;
+	message: string | null;
+	source_key: string;
+	source_record_id: string | null;
+	source_url: string | null;
+	title: string | null;
+	authors: string[];
+	cover_artists: string[];
+	published_at: string | null;
+	part_number: number | null;
+	part_total: number | null;
+	cycle: string | null;
+	cover_status: CoverStatus;
+	cover_reason: string | null;
+	cover_local_path: string | null;
+	processed_at: string | null;
+}
+
+export interface PaginatedReviewItems {
+	items: ReviewItem[];
+	total: number;
+	page: number;
+	per_page: number;
+}
+
+export interface ReviewOutcomeCounts {
+	total: number;
+	not_processed: number;
+	created: number;
+	updated: number;
+	unchanged: number;
+	skipped: number;
+	failed: number;
+}
+
+export interface EligibilityReason {
+	code: string;
+	message: string;
+}
+
+export interface ReferenceCheck {
+	issue_number: number;
+	expected_title: string;
+	expected_authors: string[];
+	expected_published_at: string;
+	status: 'passed' | 'failed';
+	message: string | null;
+}
+
+export interface PublicationEvent {
+	id: number;
+	series_id: number;
+	import_job_id: number | null;
+	actor_user_id: number | null;
+	action: 'activated' | 'deactivated';
+	decision: 'clean' | 'warnings_acknowledged' | null;
+	warning_count: number;
+	blocking_count: number;
+	created_at: string;
+}
+
+export interface ImportReviewSummary {
+	job_id: number;
+	series_id: number;
+	series_name: string;
+	series_slug: string;
+	series_active: boolean;
+	job_status: string;
+	outcomes: ReviewOutcomeCounts;
+	warning_count: number;
+	blocking_count: number;
+	eligibility: {
+		eligible: boolean;
+		requires_acknowledgement: boolean;
+		reasons: EligibilityReason[];
+	};
+	reference_checks: ReferenceCheck[];
+	sample_issue_numbers: number[];
+	last_publication_event: PublicationEvent | null;
+}
+
+export interface ReviewItemFilters {
+	page?: number;
+	perPage?: number;
+	query?: string;
+	outcome?: ReviewOutcome | '';
+	severity?: ReviewSeverity | '';
+	coverStatus?: CoverStatus | '';
+	sample?: boolean;
+}
+
+export interface ActivationResponse {
+	series_id: number;
+	active: boolean;
+	event: PublicationEvent | null;
+}
+
+export class AdminApiError extends Error {
+	constructor(
+		message: string,
+		public readonly status: number,
+		public readonly code: string | null
+	) {
+		super(message);
+		this.name = 'AdminApiError';
+	}
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
 	if (!response.ok) {
 		const errorBody = await response
 			.json()
 			.catch(() => ({ error: 'An unexpected error occurred' }));
-		throw new Error(
+		throw new AdminApiError(
 			typeof errorBody?.error === 'string' && errorBody.error
 				? errorBody.error
-				: 'An unexpected error occurred'
+				: 'An unexpected error occurred',
+			response.status,
+			typeof errorBody?.code === 'string' ? errorBody.code : null
 		);
 	}
 	return response.json();
@@ -205,6 +338,45 @@ export async function fetchImportSeriesIssues(
 		credentials: 'same-origin'
 	});
 	return handleResponse<PaginatedIssues>(response);
+}
+
+export async function fetchImportReviewSummary(id: number): Promise<ImportReviewSummary> {
+	const response = await fetch(`${API_BASE}/admin/import/${id}/review/summary`, {
+		credentials: 'same-origin'
+	});
+	return handleResponse<ImportReviewSummary>(response);
+}
+
+export async function fetchImportReviewItems(
+	id: number,
+	filters: ReviewItemFilters = {}
+): Promise<PaginatedReviewItems> {
+	const parameters = new URLSearchParams({
+		page: String(filters.page ?? 1),
+		per_page: String(filters.perPage ?? 50)
+	});
+	if (filters.query?.trim()) parameters.set('q', filters.query.trim());
+	if (filters.outcome) parameters.set('outcome', filters.outcome);
+	if (filters.severity) parameters.set('severity', filters.severity);
+	if (filters.coverStatus) parameters.set('cover_status', filters.coverStatus);
+	if (filters.sample) parameters.set('sample', 'true');
+	const response = await fetch(`${API_BASE}/admin/import/${id}/review/items?${parameters}`, {
+		credentials: 'same-origin'
+	});
+	return handleResponse<PaginatedReviewItems>(response);
+}
+
+export async function activateImport(
+	id: number,
+	acknowledgeWarnings: boolean
+): Promise<ActivationResponse> {
+	const response = await fetch(`${API_BASE}/admin/import/${id}/activate`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ acknowledge_warnings: acknowledgeWarnings })
+	});
+	return handleResponse<ActivationResponse>(response);
 }
 
 export async function fetchImportHistory(): Promise<ImportJob[]> {

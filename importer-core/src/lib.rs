@@ -5,8 +5,9 @@ pub mod progress;
 pub mod types;
 
 pub use adapter::{
-    AdapterError, AdapterRegistry, SourceDescriptor, WikiAdapter, normalize_and_validate_issue,
-    normalize_and_validate_series, validate_source_reference,
+    AdapterError, AdapterRegistry, ReferenceRecord, SourceDescriptor, WikiAdapter,
+    normalize_and_validate_issue, normalize_and_validate_series, validate_reference_record,
+    validate_source_reference,
 };
 pub use progress::{LogProgressReporter, ProgressReporter};
 pub use types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};

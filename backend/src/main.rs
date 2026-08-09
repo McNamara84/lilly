@@ -1,3 +1,7 @@
+// SQLx transaction/connection futures exceed Clippy's generic size heuristic.
+// Boxing every database call would add indirection throughout the persistence layer.
+#![allow(clippy::large_futures)]
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 

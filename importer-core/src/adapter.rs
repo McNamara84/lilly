@@ -16,6 +16,14 @@ pub struct SourceDescriptor {
     pub series_url: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceRecord {
+    pub issue_number: u32,
+    pub title: &'static str,
+    pub authors: &'static [&'static str],
+    pub published_at: chrono::NaiveDate,
+}
+
 #[derive(Debug, Error)]
 pub enum AdapterError {
     #[error("Network error: {0}")]
@@ -47,6 +55,11 @@ pub trait WikiAdapter: Send + Sync {
 
     /// Stable source and target-series identity used before any network access.
     fn source_descriptor(&self) -> SourceDescriptor;
+
+    /// Stable records that must match before an import can be published.
+    fn reference_records(&self) -> Vec<ReferenceRecord> {
+        Vec::new()
+    }
 
     /// Fetch series metadata (name, publisher, genre, etc.)
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError>;
@@ -210,6 +223,34 @@ pub fn normalize_and_validate_issue(
     }
     validate_source_reference(descriptor, &issue.source)?;
     Ok(issue)
+}
+
+/// Validate a pinned reference issue when the adapter declares one for this number.
+pub fn validate_reference_record(
+    references: &[ReferenceRecord],
+    issue: &IssueData,
+) -> Result<(), AdapterError> {
+    let Some(reference) = references
+        .iter()
+        .find(|reference| reference.issue_number == issue.issue_number)
+    else {
+        return Ok(());
+    };
+    let expected_authors: Vec<String> = reference
+        .authors
+        .iter()
+        .map(|author| (*author).to_string())
+        .collect();
+    if issue.title == reference.title
+        && issue.authors == expected_authors
+        && issue.published_at == Some(reference.published_at)
+    {
+        return Ok(());
+    }
+    Err(AdapterError::Parse(format!(
+        "Reference issue {} differs from the pinned title, author or publication date",
+        issue.issue_number
+    )))
 }
 
 fn normalize_values(values: &mut Vec<String>) {
@@ -378,5 +419,36 @@ mod tests {
         let mut wrong_host = valid_issue();
         wrong_host.source.source_url = "https://other.test/wiki/Issue_1".to_string();
         assert!(normalize_and_validate_issue(descriptor, 1, wrong_host).is_err());
+    }
+
+    #[test]
+    fn reference_validation_accepts_exact_and_unpinned_records() {
+        let reference = ReferenceRecord {
+            issue_number: 1,
+            title: "Test title",
+            authors: &["Author"],
+            published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        };
+        let issue = normalize_and_validate_issue(MockAdapter.source_descriptor(), 1, valid_issue())
+            .unwrap();
+        assert!(validate_reference_record(std::slice::from_ref(&reference), &issue).is_ok());
+
+        let mut unpinned = issue;
+        unpinned.issue_number = 2;
+        assert!(validate_reference_record(&[reference], &unpinned).is_ok());
+    }
+
+    #[test]
+    fn reference_validation_rejects_a_metadata_difference() {
+        let reference = ReferenceRecord {
+            issue_number: 1,
+            title: "Different title",
+            authors: &["Author"],
+            published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        };
+        let issue = normalize_and_validate_issue(MockAdapter.source_descriptor(), 1, valid_issue())
+            .unwrap();
+        let error = validate_reference_record(&[reference], &issue).unwrap_err();
+        assert!(error.to_string().contains("Reference issue 1 differs"));
     }
 }

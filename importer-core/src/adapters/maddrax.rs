@@ -225,6 +225,30 @@ impl WikiAdapter for MaddraxAdapter {
         SOURCE_DESCRIPTOR
     }
 
+    fn reference_records(&self) -> Vec<crate::adapter::ReferenceRecord> {
+        use crate::adapter::ReferenceRecord;
+        vec![
+            ReferenceRecord {
+                issue_number: 1,
+                title: "Der Gott aus dem Eis",
+                authors: &["Jo Zybell"],
+                published_at: chrono::NaiveDate::from_ymd_opt(2000, 2, 8).unwrap(),
+            },
+            ReferenceRecord {
+                issue_number: 409,
+                title: "Falsche Götter",
+                authors: &["Jana Paradigi"],
+                published_at: chrono::NaiveDate::from_ymd_opt(2015, 9, 22).unwrap(),
+            },
+            ReferenceRecord {
+                issue_number: 555,
+                title: "Das Echo des Wandlers",
+                authors: &["Lucy Guth"],
+                published_at: chrono::NaiveDate::from_ymd_opt(2021, 4, 27).unwrap(),
+            },
+        ]
+    }
+
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
         Ok(SeriesData {
             name: "Maddrax \u{2013} Die dunkle Zukunft der Erde".to_string(),

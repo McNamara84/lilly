@@ -143,6 +143,8 @@ pub struct ImportJobError {
     pub issue_number: Option<u32>,
     pub source_record_id: Option<String>,
     pub stage: String,
+    pub severity: String,
+    pub code: String,
     pub message: String,
     pub created_at: chrono::NaiveDateTime,
 }

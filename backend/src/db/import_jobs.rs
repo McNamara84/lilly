@@ -128,13 +128,15 @@ pub async fn complete_import_job(
     error_message: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
-        "UPDATE import_jobs SET status = IF(? > 0, 'completed_with_errors', 'completed'), \
+        "UPDATE import_jobs SET status = IF(? > 0 OR EXISTS(SELECT 1 FROM import_job_errors \
+         WHERE job_id = ?), 'completed_with_errors', 'completed'), \
          total_issues = ?, imported_issues = ?, created_issues = ?, updated_issues = ?, \
          unchanged_issues = ?, skipped_issues = ?, failed_issues = ?, error_message = ?, \
          completed_at = CURRENT_TIMESTAMP \
          WHERE id = ? AND status IN ('pending', 'running') AND cancel_requested_at IS NULL",
     )
     .bind(progress.failed)
+    .bind(job_id)
     .bind(progress.total)
     .bind(progress.imported())
     .bind(progress.created)
@@ -211,16 +213,44 @@ pub async fn record_import_error(
     stage: &str,
     message: &str,
 ) -> Result<(), sqlx::Error> {
+    record_import_finding(
+        pool,
+        job_id,
+        source_key,
+        issue_number,
+        source_record_id,
+        stage,
+        "blocking",
+        "import_error",
+        message,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn record_import_finding(
+    pool: &MySqlPool,
+    job_id: u32,
+    source_key: &str,
+    issue_number: Option<u32>,
+    source_record_id: Option<&str>,
+    stage: &str,
+    severity: &str,
+    code: &str,
+    message: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO import_job_errors \
-         (job_id, source_key, issue_number, source_record_id, stage, message) \
-         VALUES (?, ?, ?, ?, ?, ?)",
+         (job_id, source_key, issue_number, source_record_id, stage, severity, code, message) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(job_id)
     .bind(source_key)
     .bind(issue_number)
     .bind(source_record_id)
     .bind(stage)
+    .bind(severity)
+    .bind(code)
     .bind(message)
     .execute(pool)
     .await?;
@@ -237,7 +267,8 @@ pub async fn find_import_errors(
         .saturating_mul(u64::from(per_page))
         .min(1_000_000);
     sqlx::query_as::<_, ImportJobError>(
-        "SELECT id, job_id, source_key, issue_number, source_record_id, stage, message, created_at \
+        "SELECT id, job_id, source_key, issue_number, source_record_id, stage, severity, code, \
+         message, created_at \
          FROM import_job_errors WHERE job_id = ? ORDER BY id LIMIT ? OFFSET ?",
     )
     .bind(job_id)

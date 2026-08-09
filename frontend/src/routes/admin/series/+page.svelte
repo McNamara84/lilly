@@ -1,10 +1,6 @@
 <script lang="ts">
-	import {
-		fetchAllSeries,
-		activateSeries,
-		deactivateSeries,
-		type SeriesAdmin
-	} from '$lib/api/admin';
+	import { resolve } from '$app/paths';
+	import { fetchAllSeries, deactivateSeries, type SeriesAdmin } from '$lib/api/admin';
 
 	let seriesList = $state<SeriesAdmin[]>([]);
 	let loading = $state(true);
@@ -22,13 +18,9 @@
 		}
 	}
 
-	async function toggleActive(series: SeriesAdmin) {
+	async function deactivate(series: SeriesAdmin) {
 		try {
-			if (series.active) {
-				await deactivateSeries(series.slug);
-			} else {
-				await activateSeries(series.slug);
-			}
+			await deactivateSeries(series.slug);
 			await loadSeries();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Operation failed';
@@ -112,14 +104,28 @@
 							{/if}
 						</td>
 						<td class="py-3 px-2 text-right">
-							<button
-								onclick={() => toggleActive(series)}
-								class="text-xs px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
-								style="background-color: var(--surface-raised); color: var(--text-secondary);"
-								data-testid="toggle-active-button"
-							>
-								{series.active ? 'Deaktivieren' : 'Aktivieren'}
-							</button>
+							{#if series.active}
+								<button
+									onclick={() => deactivate(series)}
+									class="text-xs px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+									style="background-color: var(--surface-raised); color: var(--text-secondary);"
+									data-testid="toggle-active-button">Deaktivieren</button
+								>
+							{:else if series.latest_import_job_id}
+								<a
+									href={resolve(`/admin/import/${series.latest_import_job_id}`)}
+									class="text-xs px-3 py-1.5 rounded-lg transition-colors"
+									style="background-color: var(--surface-raised); color: var(--color-brand-500);"
+									data-testid="review-import-link">Import prüfen</a
+								>
+							{:else}
+								<a
+									href={resolve('/admin/import')}
+									class="text-xs px-3 py-1.5 rounded-lg transition-colors"
+									style="background-color: var(--surface-raised); color: var(--color-brand-500);"
+									data-testid="review-import-link">Import starten</a
+								>
+							{/if}
 						</td>
 					</tr>
 				{/each}

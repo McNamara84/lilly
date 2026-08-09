@@ -231,6 +231,30 @@ impl WikiAdapter for JohnSinclairAdapter {
         SOURCE_DESCRIPTOR
     }
 
+    fn reference_records(&self) -> Vec<crate::adapter::ReferenceRecord> {
+        use crate::adapter::ReferenceRecord;
+        vec![
+            ReferenceRecord {
+                issue_number: 1,
+                title: "Im Nachtclub der Vampire",
+                authors: &["Jason Dark"],
+                published_at: chrono::NaiveDate::from_ymd_opt(1978, 1, 17).unwrap(),
+            },
+            ReferenceRecord {
+                issue_number: 1000,
+                title: "Das Schwert des Salomo",
+                authors: &["Jason Dark"],
+                published_at: chrono::NaiveDate::from_ymd_opt(1997, 9, 1).unwrap(),
+            },
+            ReferenceRecord {
+                issue_number: 2303,
+                title: "Die Hure Babylon",
+                authors: &["Ian Rolf Hill"],
+                published_at: chrono::NaiveDate::from_ymd_opt(2022, 8, 30).unwrap(),
+            },
+        ]
+    }
+
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
         Ok(SeriesData {
             name: "Geisterjäger John Sinclair".to_string(),
