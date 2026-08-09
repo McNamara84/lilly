@@ -537,7 +537,8 @@ async fn execute_import(
 
         let existing = stored.get(&issue_number);
         let outcome = classify_issue(&details, existing);
-        if outcome == IssueOutcome::Unchanged {
+        let needs_cover = existing.is_none_or(|issue| issue.cover_local_path.is_none());
+        if outcome == IssueOutcome::Unchanged && !needs_cover {
             if let Some(existing) = existing {
                 issues::mark_issue_checked(&state.pool, existing.id).await?;
             }
@@ -546,7 +547,6 @@ async fn execute_import(
             continue;
         }
 
-        let needs_cover = existing.is_none_or(|issue| issue.cover_local_path.is_none());
         let cover_local_path = if needs_cover {
             if cancel_if_requested(&state, job_id).await? {
                 return Ok(());
@@ -605,7 +605,9 @@ async fn execute_import(
         match outcome {
             IssueOutcome::Created => progress.created = progress.created.saturating_add(1),
             IssueOutcome::Updated => progress.updated = progress.updated.saturating_add(1),
-            IssueOutcome::Unchanged => unreachable!(),
+            IssueOutcome::Unchanged => {
+                progress.unchanged = progress.unchanged.saturating_add(1);
+            }
         }
         import_jobs::update_import_progress(&state.pool, job_id, progress).await?;
     }
@@ -960,6 +962,7 @@ mod tests {
     struct SyncScenario {
         issue_list_error: Option<String>,
         issues: BTreeMap<u32, Result<IssueData, String>>,
+        covers: BTreeMap<u32, (Vec<u8>, String)>,
     }
 
     struct SyncAdapter {
@@ -1018,8 +1021,15 @@ mod tests {
             }
         }
 
-        async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
-            Ok(None)
+        async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+            let scenario = self.scenario.read().expect("sync scenario lock poisoned");
+            Ok(scenario
+                .covers
+                .get(&issue_number)
+                .map(|(bytes, content_type)| CoverData {
+                    bytes: bytes.clone(),
+                    content_type: content_type.clone(),
+                }))
         }
     }
 
@@ -1393,6 +1403,7 @@ mod tests {
         let scenario = Arc::new(RwLock::new(SyncScenario {
             issue_list_error: None,
             issues: source_issues,
+            covers: BTreeMap::new(),
         }));
         let mut adapter_registry = AdapterRegistry::new();
         adapter_registry.register(Box::new(SyncAdapter {
@@ -1486,6 +1497,11 @@ mod tests {
             "series metadata refresh must preserve the active flag"
         );
 
+        scenario
+            .write()
+            .expect("sync scenario lock poisoned")
+            .covers
+            .insert(1, (vec![0x89, b'P', b'N', b'G'], "image/png".to_string()));
         let third = start_import(
             state.clone(),
             "sync-test",
@@ -1500,6 +1516,17 @@ mod tests {
         assert_eq!(third.unchanged_issues, 2);
         assert_eq!(third.skipped_issues, 1);
         assert_eq!(third.failed_issues, 0);
+        let recovered_cover: (Option<String>,) = sqlx::query_as(
+            "SELECT cover_local_path FROM issues WHERE series_id = ? AND issue_number = 1",
+        )
+        .bind(third.series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            recovered_cover.0.as_deref(),
+            Some(format!("/media/covers/series-{}/1.png", third.series_id).as_str())
+        );
         assert_eq!(
             issues::count_issues_by_series(&pool, third.series_id)
                 .await

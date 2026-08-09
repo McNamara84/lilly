@@ -38,9 +38,20 @@ Für die Erstinbetriebnahme:
 
 1. Scheduler deaktiviert lassen.
 2. Beide Adapter manuell vollständig synchronisieren.
-3. Die sechs Referenzhefte und Stichproben in der Adminansicht prüfen.
-4. Serien aktivieren und einen unveränderten zweiten Lauf kontrollieren.
-5. Erst danach den Wochenscheduler aktivieren.
+3. Kontrollieren, dass keine Heft-Provenienz mehr repariert werden muss:
+   `SELECT COUNT(*) FROM issues i JOIN series s ON s.id = i.series_id WHERE s.slug IN ('maddrax', 'john-sinclair') AND (i.source_key IS NULL OR i.source_record_id IS NULL);`
+   Das Ergebnis muss `0` sein.
+4. Die sechs Referenzhefte und Stichproben in der Adminansicht prüfen.
+5. Serien aktivieren und einen unveränderten zweiten Lauf kontrollieren.
+6. Erst danach den Wochenscheduler aktivieren.
+
+Die Migration kann Maddrax-IDs deterministisch aus der Heftnummer übernehmen. Bei bestehenden
+John-Sinclair-Heften lässt sich der vollständige kanonische Wiki-Seitentitel dagegen nicht
+verlustfrei aus den alten relationalen Feldern rekonstruieren. Diese Datensätze bleiben deshalb
+zunächst vollständig ohne Quellenidentität, statt eine nur teilweise abgesicherte Identität zu
+erhalten. Der verpflichtende erste Vollscan ist der kontrollierte Reparaturpfad und schreibt
+`source_key` und `source_record_id` gemeinsam aus der autoritativen Übersicht. Eine
+Datenbank-Constraint verbietet danach halb gesetzte Quellenidentitäten.
 
 ## Referenz-Fixtures
 

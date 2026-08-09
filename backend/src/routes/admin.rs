@@ -200,15 +200,37 @@ async fn cancel_import(
             "Import job {id} is already finished"
         )));
     }
-    import_jobs::request_import_cancellation(&state.inner.pool, id).await?;
+    let cancellation_persisted =
+        import_jobs::request_import_cancellation(&state.inner.pool, id).await?;
     let job = import_jobs::find_import_job_by_id(&state.inner.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Import job {id} not found")))?;
+    let response_status = if cancellation_persisted {
+        StatusCode::ACCEPTED
+    } else {
+        cancellation_status_after_noop(id, &job.status, job.cancel_requested_at.is_some())?
+    };
     let slug = resolve_series_slug(&state.inner.pool, job.series_id).await?;
     Ok((
-        StatusCode::ACCEPTED,
+        response_status,
         Json(ImportJobResponse::from_job_with_slug(&job, slug)),
     ))
+}
+
+fn cancellation_status_after_noop(
+    id: u32,
+    status: &str,
+    cancellation_already_requested: bool,
+) -> Result<StatusCode, AppError> {
+    if status == "cancelled" {
+        return Ok(StatusCode::OK);
+    }
+    if matches!(status, "pending" | "running") && cancellation_already_requested {
+        return Ok(StatusCode::ACCEPTED);
+    }
+    Err(AppError::Conflict(format!(
+        "Import job {id} reached status '{status}' before cancellation was accepted"
+    )))
 }
 
 async fn retry_import(
@@ -401,5 +423,21 @@ mod tests {
     fn test_default_pagination() {
         assert_eq!(default_page(), 1);
         assert_eq!(default_per_page(), 50);
+    }
+
+    #[test]
+    fn cancellation_noop_reports_the_concurrent_job_state() {
+        assert_eq!(
+            cancellation_status_after_noop(5, "cancelled", true).unwrap(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            cancellation_status_after_noop(5, "running", true).unwrap(),
+            StatusCode::ACCEPTED
+        );
+
+        let error = cancellation_status_after_noop(5, "completed", false).unwrap_err();
+        assert!(matches!(error, AppError::Conflict(_)));
+        assert!(error.to_string().contains("reached status 'completed'"));
     }
 }

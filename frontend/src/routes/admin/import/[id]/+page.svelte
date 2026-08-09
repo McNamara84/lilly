@@ -112,6 +112,20 @@
 		}
 	}
 
+	function resetPageState() {
+		stopPolling();
+		job = null;
+		issues = [];
+		issuesTotal = 0;
+		issuesPage = 1;
+		jobErrors = [];
+		jobErrorsTotal = 0;
+		jobErrorsPage = 1;
+		loading = true;
+		error = null;
+		actionPending = false;
+	}
+
 	function progressPercent(): number {
 		if (!job || job.total_issues === 0) return 0;
 		return Math.round((processedCount() / job.total_issues) * 100);
@@ -153,13 +167,16 @@
 			await goto(resolve(`/admin/import/${retry.id}`));
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Retry failed';
+		} finally {
 			actionPending = false;
 		}
 	}
 
 	$effect(() => {
+		const currentJobId = jobId;
+		resetPageState();
 		loadJob();
-		if (invalidJobId) return;
+		if (!Number.isFinite(currentJobId) || currentJobId < 1) return;
 		startPolling();
 
 		return () => stopPolling();

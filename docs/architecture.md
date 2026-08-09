@@ -163,12 +163,14 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `cycle` | VARCHAR(255) | NULL | Zyklus / Handlungsabschnitt |
 | `cover_url` | VARCHAR(500) | NULL | URL zum Cover-Bild in der Wiki-Quelle |
 | `cover_local_path` | VARCHAR(500) | NULL | Relativer Pfad zum lokal gespeicherten Cover im /media-Volume |
-| `source_key` | VARCHAR(64) | NULL, UQ mit Quell-ID | Stabile Quellenart |
-| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart | Stabile ID des Hefts in der Quelle |
+| `source_key` | VARCHAR(64) | NULL, UQ mit Quell-ID, paarweise gesetzt | Stabile Quellenart |
+| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart, paarweise gesetzt | Stabile ID des Hefts in der Quelle |
 | `source_wiki_url` | VARCHAR(500) | NULL | Link zum Wiki-Eintrag des Heftes |
 | `created_at` | TIMESTAMP | NOT NULL | Import-Zeitpunkt |
 
-*Unique Index: `(series_id, issue_number)` – verhindert doppelte Hefteinträge pro Serie.*
+*Unique Indizes: `(series_id, issue_number)` verhindert doppelte Hefteinträge pro Serie;
+`(source_key, source_record_id)` verhindert doppelte Quellenidentitäten. Eine Check-Constraint
+erlaubt für die beiden Provenienzfelder nur gemeinsam `NULL` oder gemeinsam gesetzte Werte.*
 
 ### 4.3 Tabelle: `users`
 

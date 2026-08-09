@@ -430,6 +430,10 @@ mod tests {
                 .status,
             "completed_with_errors"
         );
+        assert!(
+            !request_import_cancellation(&pool, first_job).await.unwrap(),
+            "a terminal job must reject the conditional cancellation update"
+        );
 
         let pending_job = create_import_job_if_idle(
             &pool,
@@ -478,6 +482,12 @@ mod tests {
             request_import_cancellation(&pool, running_job)
                 .await
                 .unwrap()
+        );
+        assert!(
+            !request_import_cancellation(&pool, running_job)
+                .await
+                .unwrap(),
+            "a duplicate request must not report a second persisted update"
         );
         assert!(is_cancel_requested(&pool, running_job).await.unwrap());
         cancel_import_job(&pool, running_job).await.unwrap();

@@ -613,6 +613,62 @@ describe('Import Detail Page', () => {
 
 		expect(retryImport).toHaveBeenCalledWith(5);
 		expect(goto).toHaveBeenCalledWith('/admin/import/6');
+		expect(screen.getByTestId('retry-import-button')).toBeEnabled();
+	});
+
+	it('resets persisted errors and their page when retry navigation reuses the route', async () => {
+		const oldError = {
+			id: 1,
+			job_id: 5,
+			source_key: 'maddraxikon',
+			issue_number: 409,
+			source_record_id: 'Quelle:MX409',
+			stage: 'validate',
+			message: 'old job error',
+			created_at: '2026-08-09T10:00:00Z'
+		};
+		const newError = {
+			...oldError,
+			id: 2,
+			job_id: 6,
+			issue_number: 410,
+			source_record_id: 'Quelle:MX410',
+			message: 'new job error'
+		};
+		vi.mocked(fetchImportJob)
+			.mockResolvedValueOnce(failedJob)
+			.mockResolvedValueOnce({ ...failedJob, id: 6, retry_of_job_id: 5 });
+		vi.mocked(fetchImportErrors)
+			.mockResolvedValueOnce({ data: [oldError], page: 1, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [oldError], page: 2, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [newError], page: 1, per_page: 50, total: 1 });
+		vi.mocked(retryImport).mockResolvedValue({
+			...runningJob,
+			id: 6,
+			status: 'pending',
+			retry_of_job_id: 5
+		});
+		vi.mocked(goto).mockImplementation(async () => {
+			mockPage.set({ params: { id: '6' } });
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() =>
+			expect(screen.getByTestId('job-errors-section')).toHaveTextContent('old job error')
+		);
+		await user.click(screen.getByTestId('next-errors-page'));
+		await waitFor(() => expect(screen.getByText('Seite 2')).toBeInTheDocument());
+
+		await user.click(screen.getByTestId('retry-import-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('import-title')).toHaveTextContent('Import #6');
+			expect(screen.getByTestId('job-errors-section')).toHaveTextContent('new job error');
+		});
+		expect(screen.queryByText(/old job error/)).not.toBeInTheDocument();
+		expect(fetchImportErrors).toHaveBeenLastCalledWith(6, 1);
+		expect(screen.getByTestId('retry-import-button')).toBeEnabled();
 	});
 
 	it.each([
