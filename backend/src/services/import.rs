@@ -114,7 +114,10 @@ pub async fn retry_import(
     let previous = import_jobs::find_import_job_by_id(&state.pool, job_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Import job {job_id} not found")))?;
-    if !matches!(previous.status.as_str(), "failed" | "cancelled" | "interrupted") {
+    if !matches!(
+        previous.status.as_str(),
+        "failed" | "cancelled" | "interrupted"
+    ) {
         return Err(AppError::Conflict(format!(
             "Import job {job_id} cannot be retried from status '{}'",
             previous.status
@@ -169,13 +172,15 @@ async fn start_import_linked(
 
     let job_id = import_jobs::create_import_job_if_idle(
         &state.pool,
-        series_id,
-        adapter_name,
-        descriptor.source_key,
-        started_by,
-        trigger_type,
-        scheduled_for,
-        retry_of_job_id,
+        &import_jobs::NewImportJob {
+            series_id,
+            adapter_name,
+            source_key: descriptor.source_key,
+            started_by,
+            trigger_type,
+            scheduled_for,
+            retry_of_job_id,
+        },
     )
     .await
     .map_err(map_job_creation_error)?
@@ -210,19 +215,13 @@ fn spawn_import_task(
     trigger_type: &'static str,
 ) {
     let pool = state.pool.clone();
-    let source_key = state
-        .adapter_registry
-        .get(&adapter_name)
-        .map_or_else(|| adapter_name.clone(), |adapter| adapter.source_descriptor().source_key.to_string());
+    let source_key = state.adapter_registry.get(&adapter_name).map_or_else(
+        || adapter_name.clone(),
+        |adapter| adapter.source_descriptor().source_key.to_string(),
+    );
     tokio::spawn(async move {
-        if let Err(error) = execute_import(
-            state,
-            series_id,
-            job_id,
-            &adapter_name,
-            trigger_type,
-        )
-        .await
+        if let Err(error) =
+            execute_import(state, series_id, job_id, &adapter_name, trigger_type).await
         {
             tracing::error!(job_id, adapter = adapter_name, error = %error, "Import task failed");
             let _ = import_jobs::record_import_error(
@@ -280,7 +279,8 @@ async fn resolve_series_for_source(
         return Ok(existing.id);
     }
 
-    if let Some(existing) = series::find_series_by_slug(&state.pool, descriptor.series_slug).await? {
+    if let Some(existing) = series::find_series_by_slug(&state.pool, descriptor.series_slug).await?
+    {
         match (
             existing.source_key.as_deref(),
             existing.source_record_id.as_deref(),
@@ -347,6 +347,7 @@ async fn resolve_series_for_source(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn execute_import(
     state: Arc<AppStateInner>,
     series_id: u32,
@@ -392,12 +393,44 @@ async fn execute_import(
     )
     .await?;
 
-    let source_numbers = normalize_source_numbers(
-        adapter
-            .fetch_issue_list()
-            .await
-            .map_err(|error| anyhow::anyhow!("Failed to fetch issue list: {error}"))?,
-    )?;
+    let fetched_source_numbers = match adapter.fetch_issue_list().await {
+        Ok(numbers) => numbers,
+        Err(error) => {
+            let message = format!("Failed to fetch issue list: {error}");
+            import_jobs::record_import_error(
+                &state.pool,
+                job_id,
+                descriptor.source_key,
+                None,
+                None,
+                "list",
+                &message,
+            )
+            .await?;
+            import_jobs::fail_import_job(&state.pool, job_id, &message).await?;
+            cancel_if_requested(&state, job_id).await?;
+            return Ok(());
+        }
+    };
+    let source_numbers = match normalize_source_numbers(&fetched_source_numbers) {
+        Ok(numbers) => numbers,
+        Err(error) => {
+            let message = error.to_string();
+            import_jobs::record_import_error(
+                &state.pool,
+                job_id,
+                descriptor.source_key,
+                None,
+                None,
+                "list",
+                &message,
+            )
+            .await?;
+            import_jobs::fail_import_job(&state.pool, job_id, &message).await?;
+            cancel_if_requested(&state, job_id).await?;
+            return Ok(());
+        }
+    };
     if cancel_if_requested(&state, job_id).await? {
         return Ok(());
     }
@@ -456,11 +489,13 @@ async fn execute_import(
                 record_issue_failure(
                     &state,
                     job_id,
-                    descriptor.source_key,
-                    issue_number,
-                    None,
-                    "fetch",
-                    &error.to_string(),
+                    IssueFailure {
+                        source_key: descriptor.source_key,
+                        issue_number,
+                        source_record_id: None,
+                        processing_stage: "fetch",
+                        message: &error.to_string(),
+                    },
                     &mut progress,
                     &mut error_messages,
                 )
@@ -479,11 +514,13 @@ async fn execute_import(
                 record_issue_failure(
                     &state,
                     job_id,
-                    descriptor.source_key,
-                    issue_number,
-                    Some(&source_record_id),
-                    "validate",
-                    &error.to_string(),
+                    IssueFailure {
+                        source_key: descriptor.source_key,
+                        issue_number,
+                        source_record_id: Some(&source_record_id),
+                        processing_stage: "validate",
+                        message: &error.to_string(),
+                    },
                     &mut progress,
                     &mut error_messages,
                 )
@@ -545,22 +582,19 @@ async fn execute_import(
             return Ok(());
         }
 
-        if let Err(error) = persist_issue(
-            &state,
-            series_id,
-            &details,
-            cover_local_path.as_deref(),
-        )
-        .await
+        if let Err(error) =
+            persist_issue(&state, series_id, &details, cover_local_path.as_deref()).await
         {
             record_issue_failure(
                 &state,
                 job_id,
-                descriptor.source_key,
-                issue_number,
-                Some(&details.source.source_record_id),
-                "persist",
-                &error.to_string(),
+                IssueFailure {
+                    source_key: descriptor.source_key,
+                    issue_number,
+                    source_record_id: Some(&details.source.source_record_id),
+                    processing_stage: "persist",
+                    message: &error.to_string(),
+                },
                 &mut progress,
                 &mut error_messages,
             )
@@ -584,13 +618,8 @@ async fn execute_import(
 
     let summary = summarize_errors(&error_messages);
     validate_progress(progress)?;
-    let completed = import_jobs::complete_import_job(
-        &state.pool,
-        job_id,
-        progress,
-        summary.as_deref(),
-    )
-    .await?;
+    let completed =
+        import_jobs::complete_import_job(&state.pool, job_id, progress, summary.as_deref()).await?;
     if !completed {
         import_jobs::cancel_import_job(&state.pool, job_id).await?;
     }
@@ -617,33 +646,40 @@ async fn cancel_if_requested(state: &AppStateInner, job_id: u32) -> Result<bool,
     Ok(false)
 }
 
+struct IssueFailure<'a> {
+    source_key: &'a str,
+    issue_number: u32,
+    source_record_id: Option<&'a str>,
+    processing_stage: &'a str,
+    message: &'a str,
+}
+
 async fn record_issue_failure(
     state: &AppStateInner,
     job_id: u32,
-    source_key: &str,
-    issue_number: u32,
-    source_record_id: Option<&str>,
-    stage: &str,
-    message: &str,
+    failure: IssueFailure<'_>,
     progress: &mut ImportProgress,
     error_messages: &mut Vec<String>,
 ) -> Result<(), sqlx::Error> {
     progress.failed = progress.failed.saturating_add(1);
-    error_messages.push(format!("#{issue_number} [{stage}]: {message}"));
+    error_messages.push(format!(
+        "#{} [{}]: {}",
+        failure.issue_number, failure.processing_stage, failure.message
+    ));
     import_jobs::record_import_error(
         &state.pool,
         job_id,
-        source_key,
-        Some(issue_number),
-        source_record_id,
-        stage,
-        message,
+        failure.source_key,
+        Some(failure.issue_number),
+        failure.source_record_id,
+        failure.processing_stage,
+        failure.message,
     )
     .await?;
     import_jobs::update_import_progress(&state.pool, job_id, *progress).await
 }
 
-fn normalize_source_numbers(numbers: Vec<u32>) -> Result<Vec<u32>, anyhow::Error> {
+fn normalize_source_numbers(numbers: &[u32]) -> Result<Vec<u32>, anyhow::Error> {
     if numbers.is_empty() {
         return Err(anyhow::anyhow!("Source returned no issue numbers"));
     }
@@ -826,8 +862,9 @@ fn validate_progress(progress: ImportProgress) -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
-    use std::sync::Arc;
+    use std::sync::{Arc, RwLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use async_trait::async_trait;
@@ -850,6 +887,16 @@ mod tests {
         series_slug: "blocking-import-test",
         series_record_id: "Series:Blocking",
         series_url: "https://example.test/series",
+    };
+
+    const SYNC_DESCRIPTOR: SourceDescriptor = SourceDescriptor {
+        source_key: "sync-test-wiki",
+        display_name: "Synchronization Test Wiki",
+        allowed_host: "example.test",
+        series_name: "Synchronization Import Test",
+        series_slug: "synchronization-import-test",
+        series_record_id: "Series:Synchronization",
+        series_url: "https://example.test/series/synchronization",
     };
 
     struct BlockingAdapter {
@@ -909,6 +956,145 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct SyncScenario {
+        issue_list_error: Option<String>,
+        issues: BTreeMap<u32, Result<IssueData, String>>,
+    }
+
+    struct SyncAdapter {
+        scenario: Arc<RwLock<SyncScenario>>,
+    }
+
+    #[async_trait]
+    impl WikiAdapter for SyncAdapter {
+        fn name(&self) -> &'static str {
+            "sync-test"
+        }
+
+        fn display_name(&self) -> &'static str {
+            "Synchronization Test"
+        }
+
+        fn version(&self) -> &'static str {
+            "1.0"
+        }
+
+        fn source_descriptor(&self) -> SourceDescriptor {
+            SYNC_DESCRIPTOR
+        }
+
+        async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
+            Ok(SeriesData {
+                name: SYNC_DESCRIPTOR.series_name.to_string(),
+                slug: SYNC_DESCRIPTOR.series_slug.to_string(),
+                publisher: Some("Test Publisher".to_string()),
+                genre: Some("Test Genre".to_string()),
+                frequency: Some("weekly".to_string()),
+                total_issues: Some(3),
+                status: SeriesStatus::Running,
+                source: SourceReference {
+                    source_key: SYNC_DESCRIPTOR.source_key.to_string(),
+                    source_record_id: SYNC_DESCRIPTOR.series_record_id.to_string(),
+                    source_url: SYNC_DESCRIPTOR.series_url.to_string(),
+                },
+            })
+        }
+
+        async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError> {
+            let scenario = self.scenario.read().expect("sync scenario lock poisoned");
+            if let Some(error) = &scenario.issue_list_error {
+                return Err(AdapterError::Other(error.clone()));
+            }
+            Ok(scenario.issues.keys().copied().collect())
+        }
+
+        async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError> {
+            let scenario = self.scenario.read().expect("sync scenario lock poisoned");
+            match scenario.issues.get(&issue_number) {
+                Some(Ok(issue)) => Ok(issue.clone()),
+                Some(Err(error)) => Err(AdapterError::Other(error.clone())),
+                None => Err(AdapterError::NotFound(format!("issue {issue_number}"))),
+            }
+        }
+
+        async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+            Ok(None)
+        }
+    }
+
+    fn test_state(
+        pool: sqlx::MySqlPool,
+        adapter_registry: AdapterRegistry,
+        media_path: &str,
+    ) -> Arc<AppStateInner> {
+        Arc::new(AppStateInner {
+            pool,
+            jwt_secret: "test-secret".to_string(),
+            jwt_access_expiry: 900,
+            jwt_refresh_expiry: 2_592_000,
+            email_service: EmailService::Log {
+                from: "test@example.test".to_string(),
+            },
+            app_base_url: "http://localhost".to_string(),
+            cookie_secure: false,
+            adapter_registry,
+            media_path: PathBuf::from(media_path),
+            media_url_prefix: "/media".to_string(),
+            import_scheduler_config: ImportSchedulerConfig {
+                enabled: false,
+                schedule: "0 10 6 * * Sat *".to_string(),
+                timezone: "Europe/Berlin".to_string(),
+                adapters: Vec::new(),
+            },
+        })
+    }
+
+    fn sync_issue(
+        issue_number: u32,
+        title: &str,
+        authors: Vec<String>,
+        published_at: NaiveDate,
+    ) -> IssueData {
+        IssueData {
+            issue_number,
+            title: title.to_string(),
+            authors,
+            published_at: Some(published_at),
+            part_number: None,
+            part_total: None,
+            cycle: Some("Test Cycle".to_string()),
+            cover_artists: vec!["Test Artist".to_string()],
+            keywords: vec!["Test Keyword".to_string()],
+            notes: vec!["Test Note".to_string()],
+            source: SourceReference {
+                source_key: SYNC_DESCRIPTOR.source_key.to_string(),
+                source_record_id: format!("Issue:{issue_number}"),
+                source_url: format!("https://example.test/issues/{issue_number}"),
+            },
+        }
+    }
+
+    async fn wait_for_terminal_job(
+        pool: &sqlx::MySqlPool,
+        job_id: u32,
+    ) -> crate::models::series::ImportJob {
+        for _ in 0..200 {
+            let job = import_jobs::find_import_job_by_id(pool, job_id)
+                .await
+                .expect("job lookup must succeed")
+                .expect("job must exist");
+            if matches!(
+                job.status.as_str(),
+                "completed" | "completed_with_errors" | "failed" | "cancelled" | "interrupted"
+            ) {
+                return job;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("import job {job_id} did not reach a terminal status");
+    }
+
     fn issue_data(title: &str) -> IssueData {
         IssueData {
             issue_number: 1,
@@ -953,16 +1139,19 @@ mod tests {
 
     #[test]
     fn source_numbers_are_sorted_and_reject_invalid_or_duplicate_values() {
-        assert_eq!(normalize_source_numbers(vec![3, 1, 2]).unwrap(), vec![1, 2, 3]);
-        assert!(normalize_source_numbers(Vec::new()).is_err());
-        assert!(normalize_source_numbers(vec![0, 1]).is_err());
-        assert!(normalize_source_numbers(vec![1, 1]).is_err());
+        assert_eq!(normalize_source_numbers(&[3, 1, 2]).unwrap(), vec![1, 2, 3]);
+        assert!(normalize_source_numbers(&[]).is_err());
+        assert!(normalize_source_numbers(&[0, 1]).is_err());
+        assert!(normalize_source_numbers(&[1, 1]).is_err());
     }
 
     #[test]
     fn comparison_distinguishes_created_updated_and_unchanged() {
         let original = issue_response("Original");
-        assert_eq!(classify_issue(&issue_data("Original"), None), IssueOutcome::Created);
+        assert_eq!(
+            classify_issue(&issue_data("Original"), None),
+            IssueOutcome::Created
+        );
         assert_eq!(
             classify_issue(&issue_data("Original"), Some(&original)),
             IssueOutcome::Unchanged
@@ -1014,7 +1203,13 @@ mod tests {
             failed: 1,
         };
         assert!(validate_progress(complete).is_ok());
-        assert!(validate_progress(ImportProgress { total: 6, ..complete }).is_err());
+        assert!(
+            validate_progress(ImportProgress {
+                total: 6,
+                ..complete
+            })
+            .is_err()
+        );
     }
 
     #[test]
@@ -1039,6 +1234,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     async fn start_returns_while_fetch_is_blocked_and_cancel_prevents_persistence() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return;
@@ -1080,34 +1276,15 @@ mod tests {
             entered_fetch: entered_fetch.clone(),
             release_fetch: release_fetch.clone(),
         }));
-        let state = Arc::new(AppStateInner {
-            pool: pool.clone(),
-            jwt_secret: "test-secret".to_string(),
-            jwt_access_expiry: 900,
-            jwt_refresh_expiry: 2_592_000,
-            email_service: EmailService::Log {
-                from: "test@example.test".to_string(),
-            },
-            app_base_url: "http://localhost".to_string(),
-            cookie_secure: false,
+        let state = test_state(
+            pool.clone(),
             adapter_registry,
-            media_path: PathBuf::from("/tmp/lilly-blocking-import-test"),
-            media_url_prefix: "/media".to_string(),
-            import_scheduler_config: ImportSchedulerConfig {
-                enabled: false,
-                schedule: "0 10 6 * * Sat *".to_string(),
-                timezone: "Europe/Berlin".to_string(),
-                adapters: Vec::new(),
-            },
-        });
+            "/tmp/lilly-blocking-import-test",
+        );
 
         let job = tokio::time::timeout(
             Duration::from_secs(1),
-            start_import(
-                state,
-                "blocking-test",
-                ImportTrigger::Manual { user_id },
-            ),
+            start_import(state, "blocking-test", ImportTrigger::Manual { user_id }),
         )
         .await
         .expect("job start must not wait for the blocked adapter fetch")
@@ -1136,10 +1313,271 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         assert_eq!(final_status, "cancelled");
-        assert_eq!(issues::count_issues_by_series(&pool, job.series_id).await.unwrap(), 0);
+        assert_eq!(
+            issues::count_issues_by_series(&pool, job.series_id)
+                .await
+                .unwrap(),
+            0
+        );
 
         sqlx::query("DELETE FROM series WHERE id = ?")
             .bind(job.series_id)
+            .execute(&pool)
+            .await
+            .expect("series fixture must be deleted");
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .expect("user fixture must be deleted");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn full_sync_is_idempotent_updates_old_records_and_preserves_valid_data() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(8)
+            .connect(&database_url)
+            .await
+            .expect("test database must be reachable");
+        crate::db::migrate_test_database(&pool)
+            .await
+            .expect("test migrations must succeed");
+        sqlx::query("DELETE FROM series WHERE slug = ?")
+            .bind(SYNC_DESCRIPTOR.series_slug)
+            .execute(&pool)
+            .await
+            .expect("old synchronization fixture must be removable");
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        let user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role) VALUES (?, 'Sync Tester', 'admin')",
+        )
+        .bind(format!("sync-import-{suffix}@example.test"))
+        .execute(&pool)
+        .await
+        .expect("user fixture must be inserted")
+        .last_insert_id()
+        .try_into()
+        .expect("user fixture ID must fit u32");
+
+        let past = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+        let future = NaiveDate::from_ymd_opt(2999, 1, 1).unwrap();
+        let mut source_issues: BTreeMap<u32, Result<IssueData, String>> = BTreeMap::new();
+        source_issues.insert(
+            1,
+            Ok(sync_issue(
+                1,
+                "Original Title",
+                vec!["Original Author".to_string()],
+                past,
+            )),
+        );
+        source_issues.insert(
+            2,
+            Ok(sync_issue(
+                2,
+                "Future Title",
+                vec!["Future Author".to_string()],
+                future,
+            )),
+        );
+        source_issues.insert(3, Ok(sync_issue(3, "Invalid Title", Vec::new(), past)));
+        let scenario = Arc::new(RwLock::new(SyncScenario {
+            issue_list_error: None,
+            issues: source_issues,
+        }));
+        let mut adapter_registry = AdapterRegistry::new();
+        adapter_registry.register(Box::new(SyncAdapter {
+            scenario: scenario.clone(),
+        }));
+        let state = test_state(
+            pool.clone(),
+            adapter_registry,
+            "/tmp/lilly-synchronization-import-test",
+        );
+
+        let first = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("first synchronization must start");
+        let first = wait_for_terminal_job(&pool, first.id).await;
+        assert_eq!(first.status, "completed_with_errors");
+        assert_eq!(first.total_issues, 3);
+        assert_eq!(first.created_issues, 1);
+        assert_eq!(first.updated_issues, 0);
+        assert_eq!(first.unchanged_issues, 0);
+        assert_eq!(first.skipped_issues, 1);
+        assert_eq!(first.failed_issues, 1);
+        assert_eq!(
+            issues::count_issues_by_series(&pool, first.series_id)
+                .await
+                .unwrap(),
+            1
+        );
+        let first_errors = import_jobs::find_import_errors(&pool, first.id, 1, 50)
+            .await
+            .unwrap();
+        assert_eq!(first_errors.len(), 1);
+        assert_eq!(first_errors[0].stage, "validate");
+        assert_eq!(first_errors[0].source_record_id.as_deref(), Some("Issue:3"));
+
+        series::set_series_active(&pool, first.series_id, true)
+            .await
+            .unwrap();
+        {
+            let mut scenario = scenario.write().expect("sync scenario lock poisoned");
+            scenario.issues.insert(
+                1,
+                Ok(sync_issue(
+                    1,
+                    "Changed Old Title",
+                    vec!["Original Author".to_string()],
+                    past,
+                )),
+            );
+            scenario.issues.insert(
+                3,
+                Ok(sync_issue(
+                    3,
+                    "Newly Valid Title",
+                    vec!["New Author".to_string()],
+                    past,
+                )),
+            );
+        }
+
+        let second = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("second synchronization must start");
+        let second = wait_for_terminal_job(&pool, second.id).await;
+        assert_eq!(second.status, "completed");
+        assert_eq!(second.created_issues, 1);
+        assert_eq!(second.updated_issues, 1);
+        assert_eq!(second.unchanged_issues, 0);
+        assert_eq!(second.skipped_issues, 1);
+        assert_eq!(second.failed_issues, 0);
+        assert_eq!(
+            issues::count_issues_by_series(&pool, second.series_id)
+                .await
+                .unwrap(),
+            2
+        );
+        assert!(
+            series::find_series_by_slug(&pool, SYNC_DESCRIPTOR.series_slug)
+                .await
+                .unwrap()
+                .unwrap()
+                .active,
+            "series metadata refresh must preserve the active flag"
+        );
+
+        let third = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("idempotence synchronization must start");
+        let third = wait_for_terminal_job(&pool, third.id).await;
+        assert_eq!(third.status, "completed");
+        assert_eq!(third.created_issues, 0);
+        assert_eq!(third.updated_issues, 0);
+        assert_eq!(third.unchanged_issues, 2);
+        assert_eq!(third.skipped_issues, 1);
+        assert_eq!(third.failed_issues, 0);
+        assert_eq!(
+            issues::count_issues_by_series(&pool, third.series_id)
+                .await
+                .unwrap(),
+            2
+        );
+
+        {
+            let mut scenario = scenario.write().expect("sync scenario lock poisoned");
+            scenario
+                .issues
+                .insert(1, Ok(sync_issue(1, "Must Not Be Stored", Vec::new(), past)));
+        }
+        let fourth = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("failure-safety synchronization must start");
+        let fourth = wait_for_terminal_job(&pool, fourth.id).await;
+        assert_eq!(fourth.status, "completed_with_errors");
+        assert_eq!(fourth.unchanged_issues, 1);
+        assert_eq!(fourth.skipped_issues, 1);
+        assert_eq!(fourth.failed_issues, 1);
+        let stored_title: (String,) =
+            sqlx::query_as("SELECT title FROM issues WHERE series_id = ? AND issue_number = 1")
+                .bind(fourth.series_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored_title.0, "Changed Old Title");
+
+        scenario
+            .write()
+            .expect("sync scenario lock poisoned")
+            .issue_list_error = Some("source unavailable".to_string());
+        let failed = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("fatal synchronization must start");
+        let failed = wait_for_terminal_job(&pool, failed.id).await;
+        assert_eq!(failed.status, "failed");
+        assert_eq!(
+            issues::count_issues_by_series(&pool, failed.series_id)
+                .await
+                .unwrap(),
+            2
+        );
+        let failed_errors = import_jobs::find_import_errors(&pool, failed.id, 1, 50)
+            .await
+            .unwrap();
+        assert_eq!(failed_errors.len(), 1);
+        assert_eq!(failed_errors[0].stage, "list");
+        assert_eq!(failed_errors[0].source_key, SYNC_DESCRIPTOR.source_key);
+
+        scenario
+            .write()
+            .expect("sync scenario lock poisoned")
+            .issue_list_error = None;
+        let retry = retry_import(state, failed.id, user_id)
+            .await
+            .expect("failed synchronization must be retryable");
+        let retry = wait_for_terminal_job(&pool, retry.id).await;
+        assert_eq!(retry.retry_of_job_id, Some(failed.id));
+        assert_eq!(retry.status, "completed_with_errors");
+        assert_eq!(
+            issues::count_issues_by_series(&pool, retry.series_id)
+                .await
+                .unwrap(),
+            2
+        );
+
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(first.series_id)
             .execute(&pool)
             .await
             .expect("series fixture must be deleted");

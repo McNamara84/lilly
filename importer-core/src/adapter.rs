@@ -119,9 +119,7 @@ pub fn validate_source_reference(
     let url = reqwest::Url::parse(source.source_url.trim())
         .map_err(|error| AdapterError::Parse(format!("Invalid source URL: {error}")))?;
     if url.scheme() != "https" {
-        return Err(AdapterError::Parse(
-            "Source URL must use HTTPS".to_string(),
-        ));
+        return Err(AdapterError::Parse("Source URL must use HTTPS".to_string()));
     }
     if url.host_str() != Some(descriptor.allowed_host) {
         return Err(AdapterError::Parse(format!(

@@ -600,12 +600,9 @@ mod tests {
 
         for (number, title, author, date, fixture) in references {
             let issue = map_issue_details(number, title, fixture, None);
-            let issue = crate::adapter::normalize_and_validate_issue(
-                SOURCE_DESCRIPTOR,
-                number,
-                issue,
-            )
-            .unwrap();
+            let issue =
+                crate::adapter::normalize_and_validate_issue(SOURCE_DESCRIPTOR, number, issue)
+                    .unwrap();
             assert_eq!(issue.title, title);
             assert_eq!(issue.authors, vec![author]);
             assert_eq!(issue.published_at, Some(date));

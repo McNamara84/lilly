@@ -679,17 +679,19 @@ mod tests {
                 .unwrap()
                 .clone();
             let issue = map_issue_details(summary, fixture);
-            let issue = crate::adapter::normalize_and_validate_issue(
-                SOURCE_DESCRIPTOR,
-                number,
-                issue,
-            )
-            .unwrap();
+            let issue =
+                crate::adapter::normalize_and_validate_issue(SOURCE_DESCRIPTOR, number, issue)
+                    .unwrap();
             assert_eq!(issue.title, title);
             assert_eq!(issue.authors, vec![author]);
             assert_eq!(issue.published_at, Some(date));
             assert_eq!(issue.source.source_key, "gruselroman-wiki");
-            assert!(issue.source.source_record_id.starts_with(&format!("JS {number:04}")));
+            assert!(
+                issue
+                    .source
+                    .source_record_id
+                    .starts_with(&format!("JS {number:04}"))
+            );
         }
     }
 
