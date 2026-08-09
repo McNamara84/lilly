@@ -299,6 +299,20 @@ describe('Import Detail Page', () => {
 		expect(progressFill).toHaveStyle({ width: '0%' });
 	});
 
+	it('uses fallbacks for missing update time and skipped issue count', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...completedJob,
+			updated_at: null,
+			skipped_issues: undefined
+		} as unknown as Awaited<ReturnType<typeof fetchImportJob>>);
+
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('import-title')).toBeInTheDocument());
+		expect(screen.getByText(/Zuletzt aktualisiert: –/)).toBeInTheDocument();
+		expect(screen.getByTestId('progress-count')).toHaveTextContent('100 / 100 bearbeitet');
+	});
+
 	it('polls a running import and stops when it completes', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValueOnce(runningJob).mockResolvedValueOnce(completedJob);
 		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
@@ -415,6 +429,20 @@ describe('Import Detail Page', () => {
 		expect(activateImport).toHaveBeenCalledWith(5, false);
 	});
 
+	it('keeps the activation control visible when the API reports an inactive series', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(activateImport).mockResolvedValue({ series_id: 1, active: false, event: null });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('activate-series-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('activate-series-button'));
+
+		expect(activateImport).toHaveBeenCalledWith(5, false);
+		expect(screen.getByTestId('activate-series-button')).toBeInTheDocument();
+		expect(screen.queryByTestId('series-active-message')).not.toBeInTheDocument();
+	});
+
 	it('requires explicit acknowledgement before activating a warning-only import', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue({
 			...completedJob,
@@ -462,6 +490,48 @@ describe('Import Detail Page', () => {
 		expect(screen.getByTestId('activation-blockers')).toHaveTextContent('blocking_findings');
 		expect(screen.getByTestId('activate-series-button')).toBeDisabled();
 		expect(activateImport).not.toHaveBeenCalled();
+	});
+
+	it('renders an empty sample and a failed reference check', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue({
+			...reviewSummary,
+			sample_issue_numbers: [],
+			reference_checks: [
+				{
+					...reviewSummary.reference_checks[0],
+					status: 'failed',
+					message: 'Reference metadata differs'
+				}
+			]
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('review-section')).toBeInTheDocument());
+		expect(screen.getByTestId('sample-numbers')).toHaveTextContent('Angeheftete Stichprobe: –');
+		expect(screen.getByTestId('reference-checks')).toHaveTextContent('fehlgeschlagen');
+	});
+
+	it('renders review messages and title fallbacks consistently', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportReviewItems).mockResolvedValue({
+			items: [
+				{
+					...asReviewItem(mockIssues[0]),
+					title: null,
+					message: 'Metadata warning'
+				}
+			],
+			page: 1,
+			per_page: 50,
+			total: 1
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('issues-table')).toBeInTheDocument());
+		expect(screen.getByText('Metadata warning')).toBeInTheDocument();
+		expect(screen.getByAltText('Cover von #1: Unbekannt')).toBeInTheDocument();
+		expect(screen.getByTestId('issue-row')).toHaveTextContent('–');
 	});
 
 	it('applies review search, risk and sample filters from the full result list', async () => {
@@ -920,6 +990,7 @@ describe('Import Detail Page', () => {
 					issue_number: 409,
 					source_record_id: 'Quelle:MX409',
 					stage: 'validate',
+					severity: 'warning',
 					message: 'missing author',
 					created_at: '2026-08-09T10:00:00Z'
 				}
@@ -932,7 +1003,7 @@ describe('Import Detail Page', () => {
 
 		await waitFor(() => expect(screen.getByTestId('job-errors-section')).toBeInTheDocument());
 		expect(screen.getByTestId('job-errors-section')).toHaveTextContent(
-			'Heft #409 (maddraxikon:Quelle:MX409) [validate]: missing author'
+			'Heft #409 (maddraxikon:Quelle:MX409) [validate]: missing author (warning)'
 		);
 	});
 

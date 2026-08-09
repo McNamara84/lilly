@@ -55,14 +55,13 @@
 		return date ? new Date(date).toLocaleString('de-DE') : '–';
 	}
 
-	function processedCount(): number {
-		if (!job) return 0;
-		return job.imported_issues + (job.skipped_issues ?? 0) + job.failed_issues;
+	function processedCount(currentJob: ImportJob): number {
+		return currentJob.imported_issues + (currentJob.skipped_issues ?? 0) + currentJob.failed_issues;
 	}
 
-	function progressPercent(): number {
-		if (!job || job.total_issues === 0) return 0;
-		return Math.round((processedCount() / job.total_issues) * 100);
+	function progressPercent(currentJob: ImportJob): number {
+		if (currentJob.total_issues === 0) return 0;
+		return Math.round((processedCount(currentJob) / currentJob.total_issues) * 100);
 	}
 
 	async function loadJob() {
@@ -140,14 +139,13 @@
 		await loadErrors();
 	}
 
-	async function handleActivate() {
-		if (!job || !reviewSummary) return;
+	async function handleActivate(currentJob: ImportJob, currentSummary: ImportReviewSummary) {
 		actionPending = true;
 		error = null;
 		try {
-			const response = await activateImport(job.id, acknowledgeWarnings);
+			const response = await activateImport(currentJob.id, acknowledgeWarnings);
 			if (response.active) {
-				reviewSummary = { ...reviewSummary, series_active: true };
+				reviewSummary = { ...currentSummary, series_active: true };
 			}
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Activation failed';
@@ -156,12 +154,11 @@
 		}
 	}
 
-	async function handleCancel() {
-		if (!job) return;
+	async function handleCancel(currentJob: ImportJob) {
 		actionPending = true;
 		error = null;
 		try {
-			job = await cancelImport(job.id);
+			job = await cancelImport(currentJob.id);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Cancellation failed';
 		} finally {
@@ -169,12 +166,11 @@
 		}
 	}
 
-	async function handleRetry() {
-		if (!job) return;
+	async function handleRetry(currentJob: ImportJob) {
 		actionPending = true;
 		error = null;
 		try {
-			const retry = await retryImport(job.id);
+			const retry = await retryImport(currentJob.id);
 			await goto(resolve(`/admin/import/${retry.id}`));
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Retry failed';
@@ -292,7 +288,7 @@
 				Status: <span data-testid="job-status">{job.status}</span>
 			</span>
 			<span class="text-sm" style="color: var(--text-secondary);" data-testid="progress-count">
-				{processedCount()} / {job.total_issues} bearbeitet ({job.created_issues ?? 0} neu,
+				{processedCount(job)} / {job.total_issues} bearbeitet ({job.created_issues ?? 0} neu,
 				{job.updated_issues ?? 0} geändert, {job.unchanged_issues ?? 0} unverändert,
 				{job.skipped_issues ?? 0} übersprungen, {job.failed_issues} fehlgeschlagen)
 			</span>
@@ -301,7 +297,7 @@
 			class="w-full h-3 rounded-full overflow-hidden"
 			style="background-color: var(--surface-base);"
 			role="progressbar"
-			aria-valuenow={processedCount()}
+			aria-valuenow={processedCount(job)}
 			aria-valuemin={0}
 			aria-valuemax={job.total_issues}
 			aria-label="Import-Fortschritt"
@@ -309,7 +305,7 @@
 		>
 			<div
 				class="h-full rounded-full transition-all duration-300"
-				style="width: {progressPercent()}%; background-color: var(--color-brand-500);"
+				style="width: {progressPercent(job)}%; background-color: var(--color-brand-500);"
 			></div>
 		</div>
 		{#if job.error_message}
@@ -320,7 +316,7 @@
 		<div class="mt-4 flex gap-3">
 			{#if job.status === 'pending' || job.status === 'running'}
 				<button
-					onclick={handleCancel}
+					onclick={() => handleCancel(job!)}
 					disabled={actionPending || job.cancel_requested_at != null}
 					class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
 					style="background-color: var(--color-error-500); color: white;"
@@ -329,7 +325,7 @@
 				>
 			{:else if canRetry(job.status)}
 				<button
-					onclick={handleRetry}
+					onclick={() => handleRetry(job!)}
 					disabled={actionPending}
 					class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
 					style="background-color: var(--color-brand-500); color: white;"
@@ -421,7 +417,7 @@
 						</span>
 					{:else}
 						<button
-							onclick={handleActivate}
+							onclick={() => handleActivate(job!, reviewSummary!)}
 							disabled={!reviewSummary.eligibility.eligible ||
 								actionPending ||
 								(reviewSummary.eligibility.requires_acknowledgement && !acknowledgeWarnings)}
