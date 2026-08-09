@@ -609,6 +609,7 @@ mod tests {
             .await
             .unwrap();
         let activation_event = activated.event.expect("activation event must be returned");
+        assert_eq!(activation_event.actor_user_id, Some(actor_user_id));
         assert_eq!(
             activation_event.decision.as_deref(),
             Some("warnings_acknowledged")
@@ -632,15 +633,40 @@ mod tests {
                 .active
         );
 
-        sqlx::query("DELETE FROM series WHERE id = ?")
-            .bind(series_id)
+        assert!(
+            sqlx::query("DELETE FROM series WHERE id = ?")
+                .bind(series_id)
+                .execute(&pool)
+                .await
+                .is_err(),
+            "publication history must prevent deletion of its series"
+        );
+        sqlx::query("DELETE FROM import_jobs WHERE id = ?")
+            .bind(job_id)
             .execute(&pool)
             .await
-            .unwrap();
+            .expect("import job fixture must be deleted");
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(actor_user_id)
             .execute(&pool)
             .await
-            .unwrap();
+            .expect("actor fixture must be deletable");
+        let retained_event = import_review::find_last_publication_event(&pool, series_id)
+            .await
+            .unwrap()
+            .expect("audit event must survive actor deletion");
+        assert_eq!(retained_event.actor_user_id, None);
+        assert_eq!(retained_event.import_job_id, None);
+
+        sqlx::query("DELETE FROM series_publication_events WHERE series_id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .expect("audit fixture must be deleted explicitly");
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .expect("series fixture must be deleted after its audit fixtures");
     }
 }

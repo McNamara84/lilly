@@ -377,11 +377,7 @@ async fn get_import_review_items(
         ],
         "cover_status",
     )?;
-    if params.q.as_deref().is_some_and(|query| query.len() > 200) {
-        return Err(AppError::BadRequest(
-            "Review search must not exceed 200 characters".to_string(),
-        ));
-    }
+    let query = normalize_review_query(params.q)?;
     let issue_numbers = if params.sample {
         publication::evaluate_activation_eligibility(&state.inner, id)
             .await?
@@ -390,7 +386,7 @@ async fn get_import_review_items(
         Vec::new()
     };
     let filter = import_review::ReviewItemFilter {
-        query: params.q,
+        query,
         outcome: params.outcome,
         severity: params.severity,
         cover_status: params.cover_status,
@@ -422,6 +418,21 @@ fn validate_review_filter(
         )));
     }
     Ok(())
+}
+
+fn normalize_review_query(query: Option<String>) -> Result<Option<String>, AppError> {
+    let query = query
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if query
+        .as_deref()
+        .is_some_and(|value| value.chars().count() > 200)
+    {
+        return Err(AppError::BadRequest(
+            "Review search must not exceed 200 characters".to_string(),
+        ));
+    }
+    Ok(query)
 }
 
 async fn activate_import(
@@ -602,6 +613,28 @@ mod tests {
         assert!(matches!(
             validate_review_filter(Some("unknown"), &["created"], "outcome"),
             Err(AppError::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn review_search_limit_counts_trimmed_unicode_characters() {
+        let accepted = format!("  {}  ", "ä".repeat(150));
+        assert_eq!(
+            normalize_review_query(Some(accepted)).unwrap(),
+            Some("ä".repeat(150))
+        );
+        assert_eq!(
+            normalize_review_query(Some("ä".repeat(200))).unwrap(),
+            Some("ä".repeat(200))
+        );
+        assert_eq!(
+            normalize_review_query(Some("   ".to_string())).unwrap(),
+            None
+        );
+        assert!(matches!(
+            normalize_review_query(Some("ä".repeat(201))),
+            Err(AppError::BadRequest(message))
+                if message == "Review search must not exceed 200 characters"
         ));
     }
 

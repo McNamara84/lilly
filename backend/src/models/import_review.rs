@@ -74,7 +74,7 @@ pub struct PublicationEvent {
     pub id: u32,
     pub series_id: u32,
     pub import_job_id: Option<u32>,
-    pub actor_user_id: u32,
+    pub actor_user_id: Option<u32>,
     pub action: String,
     pub decision: Option<String>,
     pub warning_count: u32,

@@ -322,6 +322,8 @@ Alle Admin-Endpunkte erfordern einen authentifizierten Nutzer mit der Rolle `adm
 | **GET** | `/api/v1/admin/import/{id}/series-issues` | Admin | Aktuellen Serienbestand paginiert lesen (Legacy-/Diagnoseendpunkt, nicht freigaberelevant) |
 | **GET** | `/api/v1/admin/import/history` | Admin | Import-Historie aller Jobs |
 
+Veröffentlichungsereignisse bleiben als append-only Historie erhalten: Serien mit vorhandenen Auditereignissen können nicht gelöscht werden. Wird ein Benutzerkonto gelöscht, wird lediglich der Akteursbezug des Ereignisses entfernt; die historische Freigabeentscheidung selbst bleibt bestehen.
+
 ### 5.2 Abgeleiteter Status "Fehlend" (missing)
 
 Der Status `missing` wird **nicht** in der Datenbank gespeichert. Er ist ein abgeleiteter (virtueller) Status, der sich aus der Differenz zwischen der Gesamtmenge der Hefte einer Serie (`issues`-Tabelle) und den Sammlungseinträgen des Nutzers (`collection_entries`-Tabelle) ergibt.

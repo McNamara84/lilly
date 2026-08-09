@@ -488,11 +488,11 @@
         {
           "id": "series_table",
           "component": null,
-          "description": "Table of all series (including inactive). Columns: Name, Status (running/completed/cancelled), Active badge (yes/no), Issue count, Last import date. Each row has a toggle button for activation/deactivation.",
+          "description": "Table of all series (including inactive). Columns: Name, Status (running/completed/cancelled), Active badge (yes/no), and issue count. Active rows can be deactivated; inactive rows link to the latest import review or to import creation when no reviewable job exists.",
           "data_source": "GET /api/v1/admin/series",
           "interactions": {
-            "toggle_active": "POST /api/v1/admin/series/{slug}/activate or /deactivate. Updates badge immediately.",
-            "click_row": "Navigates to series detail or import history for that series"
+            "deactivate_active_series": "POST /api/v1/admin/series/{slug}/deactivate and reload the table.",
+            "review_inactive_series": "Navigates to /admin/import/{latest_import_job_id}; if no import job exists, navigates to /admin/import."
           }
         }
       ]
@@ -538,16 +538,16 @@
         {
           "id": "import_summary",
           "component": null,
-          "description": "After completion: summary card with total issues imported, duration, number of errors. Button 'Serie aktivieren' if the series is still inactive.",
+          "description": "After completion: job-specific outcome and risk counts, pinned reference checks, blocker reasons, and warning acknowledgement. Eligible inactive series can be published from this reviewed import.",
           "interactions": {
-            "activate_series": "POST /api/v1/admin/series/{slug}/activate"
+            "activate_reviewed_import": "POST /api/v1/admin/import/{id}/activate with explicit warning acknowledgement when required"
           }
         },
         {
           "id": "imported_issues_list",
           "component": null,
-          "description": "Paginated table/list of imported issues for spot-checking. Columns: Issue number, Title, Author, Published date, Cover thumbnail. Click a row to open detail view with full metadata, cover preview, and link to wiki source article.",
-          "data_source": "GET /api/v1/admin/import/{id}/issues?page={n}"
+          "description": "Paginated job-specific review list with issue number, outcome, severity, metadata snapshot, cover result, and source link. Supports search plus outcome, severity, cover, and pinned-sample filters.",
+          "data_source": "GET /api/v1/admin/import/{id}/review/items?page={n}&q={search}&outcome={outcome}&severity={severity}&cover_status={cover_status}&sample={boolean}"
         }
       ]
     }

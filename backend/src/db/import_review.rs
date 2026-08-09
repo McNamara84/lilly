@@ -370,6 +370,8 @@ pub async fn find_last_publication_event(
 
 #[cfg(test)]
 mod tests {
+    use sqlx::mysql::MySqlPoolOptions;
+
     use super::*;
 
     #[test]
@@ -379,5 +381,256 @@ mod tests {
             parse_string_list(r#"["Jane Doe"]"#),
             vec!["Jane Doe".to_string()]
         );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn review_query_combines_filters_counts_ordering_and_pagination() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("test database must be reachable");
+        crate::db::migrate_test_database(&pool)
+            .await
+            .expect("test migrations must succeed");
+
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        let user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role) VALUES (?, 'Review Query Tester', 'admin')",
+        )
+        .bind(format!("review-query-{suffix}@example.test"))
+        .execute(&pool)
+        .await
+        .expect("user fixture must be inserted")
+        .last_insert_id()
+        .try_into()
+        .expect("user fixture ID must fit u32");
+        let series_id: u32 = sqlx::query(
+            "INSERT INTO series (name, slug, source_key, source_record_id, source_url) \
+             VALUES (?, ?, 'review-test', ?, 'https://example.test/review')",
+        )
+        .bind(format!("Review Query Test {suffix}"))
+        .bind(format!("review-query-test-{suffix}"))
+        .bind(format!("Review:{suffix}"))
+        .execute(&pool)
+        .await
+        .expect("series fixture must be inserted")
+        .last_insert_id()
+        .try_into()
+        .expect("series fixture ID must fit u32");
+
+        let first_job_id: u32 = sqlx::query(
+            "INSERT INTO import_jobs \
+             (series_id, adapter_name, source_key, trigger_type, status, total_issues, \
+             imported_issues, created_issues, started_by, completed_at) \
+             VALUES (?, 'review-test', 'review-test', 'manual', 'completed', 5, 5, 5, ?, \
+             CURRENT_TIMESTAMP)",
+        )
+        .bind(series_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("first job fixture must be inserted")
+        .last_insert_id()
+        .try_into()
+        .expect("first job fixture ID must fit u32");
+        let second_job_id: u32 = sqlx::query(
+            "INSERT INTO import_jobs \
+             (series_id, adapter_name, source_key, trigger_type, status, total_issues, \
+             imported_issues, created_issues, started_by, completed_at) \
+             VALUES (?, 'review-test', 'review-test', 'manual', 'completed', 1, 1, 1, ?, \
+             CURRENT_TIMESTAMP)",
+        )
+        .bind(series_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("second job fixture must be inserted")
+        .last_insert_id()
+        .try_into()
+        .expect("second job fixture ID must fit u32");
+
+        seed_import_results(&pool, first_job_id, "review-test", &[10, 20, 30, 40, 50])
+            .await
+            .expect("first job results must be seeded");
+        for (number, title, author, source_record_id, outcome, severity, cover_status) in [
+            (
+                10,
+                "Needle title",
+                "Alice",
+                "Source:10",
+                "created",
+                "warning",
+                "reused",
+            ),
+            (
+                20,
+                "Plain title",
+                "Needle Author",
+                "Source:20",
+                "created",
+                "warning",
+                "reused",
+            ),
+            (
+                30,
+                "Plain source match",
+                "Carol",
+                "Needle:30",
+                "created",
+                "warning",
+                "reused",
+            ),
+            (
+                40,
+                "Needle excluded by enums",
+                "Dan",
+                "Source:40",
+                "updated",
+                "blocking",
+                "invalid",
+            ),
+            (
+                50,
+                "Needle excluded by sample",
+                "Eve",
+                "Source:50",
+                "created",
+                "warning",
+                "reused",
+            ),
+        ] {
+            let authors = vec![author.to_string()];
+            record_import_result(
+                &pool,
+                first_job_id,
+                "review-test",
+                &ReviewResultUpdate {
+                    issue_id: None,
+                    issue_number: number,
+                    outcome,
+                    severity,
+                    stage: "complete",
+                    message: None,
+                    source_record_id: Some(source_record_id),
+                    source_url: Some("https://example.test/issue"),
+                    title: Some(title),
+                    authors: &authors,
+                    cover_artists: &[],
+                    published_at: NaiveDate::from_ymd_opt(2026, 1, number / 10),
+                    part_number: None,
+                    part_total: None,
+                    cycle: Some("Test cycle"),
+                    cover_status,
+                    cover_reason: None,
+                    cover_local_path: Some("/media/test.jpg"),
+                },
+            )
+            .await
+            .expect("review result fixture must be recorded");
+        }
+
+        seed_import_results(&pool, second_job_id, "review-test", &[15])
+            .await
+            .expect("second job result must be seeded");
+        let other_authors = vec!["Needle Author".to_string()];
+        record_import_result(
+            &pool,
+            second_job_id,
+            "review-test",
+            &ReviewResultUpdate {
+                issue_id: None,
+                issue_number: 15,
+                outcome: "created",
+                severity: "warning",
+                stage: "complete",
+                message: None,
+                source_record_id: Some("Needle:other-job"),
+                source_url: None,
+                title: Some("Needle from another job"),
+                authors: &other_authors,
+                cover_artists: &[],
+                published_at: None,
+                part_number: None,
+                part_total: None,
+                cycle: None,
+                cover_status: "reused",
+                cover_reason: None,
+                cover_local_path: None,
+            },
+        )
+        .await
+        .expect("other job result fixture must be recorded");
+
+        assert_eq!(
+            count_review_items(&pool, first_job_id, &ReviewItemFilter::default())
+                .await
+                .unwrap(),
+            5
+        );
+        assert_eq!(
+            count_review_items(&pool, second_job_id, &ReviewItemFilter::default())
+                .await
+                .unwrap(),
+            1
+        );
+        let combined_filter = ReviewItemFilter {
+            query: Some("  needle  ".to_string()),
+            outcome: Some("created".to_string()),
+            severity: Some("warning".to_string()),
+            cover_status: Some("reused".to_string()),
+            issue_numbers: vec![30, 10, 20],
+        };
+        assert_eq!(
+            count_review_items(&pool, first_job_id, &combined_filter)
+                .await
+                .unwrap(),
+            3
+        );
+        let first_page = find_review_items(&pool, first_job_id, &combined_filter, 1, 2)
+            .await
+            .unwrap();
+        assert_eq!(
+            first_page
+                .iter()
+                .map(|item| item.issue_number)
+                .collect::<Vec<_>>(),
+            vec![10, 20]
+        );
+        assert_eq!(first_page[1].authors, vec!["Needle Author".to_string()]);
+        let second_page = find_review_items(&pool, first_job_id, &combined_filter, 2, 2)
+            .await
+            .unwrap();
+        assert_eq!(second_page.len(), 1);
+        assert_eq!(second_page[0].issue_number, 30);
+
+        let issue_number_search = ReviewItemFilter {
+            query: Some("40".to_string()),
+            ..ReviewItemFilter::default()
+        };
+        let number_match = find_review_items(&pool, first_job_id, &issue_number_search, 1, 10)
+            .await
+            .unwrap();
+        assert_eq!(number_match.len(), 1);
+        assert_eq!(number_match[0].issue_number, 40);
+
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .expect("series fixture must be deleted");
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .expect("user fixture must be deleted");
     }
 }

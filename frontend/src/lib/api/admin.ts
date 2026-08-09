@@ -186,7 +186,7 @@ export interface PublicationEvent {
 	id: number;
 	series_id: number;
 	import_job_id: number | null;
-	actor_user_id: number;
+	actor_user_id: number | null;
 	action: 'activated' | 'deactivated';
 	decision: 'clean' | 'warnings_acknowledged' | null;
 	warning_count: number;
