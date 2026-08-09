@@ -1,27 +1,40 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/stores';
 	import {
-		fetchImportJob,
-		fetchImportSeriesIssues,
-		fetchImportErrors,
+		activateImport,
 		cancelImport,
+		fetchImportErrors,
+		fetchImportJob,
+		fetchImportReviewItems,
+		fetchImportReviewSummary,
 		retryImport,
-		activateSeries,
+		type CoverStatus,
 		type ImportJob,
 		type ImportJobError,
-		type IssueAdmin
+		type ImportReviewSummary,
+		type ReviewItem,
+		type ReviewOutcome,
+		type ReviewSeverity
 	} from '$lib/api/admin';
 
 	let job = $state<ImportJob | null>(null);
-	let issues = $state<IssueAdmin[]>([]);
-	let issuesTotal = $state(0);
-	let issuesPage = $state(1);
+	let reviewSummary = $state<ImportReviewSummary | null>(null);
+	let reviewItems = $state<ReviewItem[]>([]);
+	let reviewTotal = $state(0);
+	let reviewPage = $state(1);
+	let query = $state('');
+	let outcomeFilter = $state<ReviewOutcome | ''>('');
+	let severityFilter = $state<ReviewSeverity | ''>('');
+	let coverFilter = $state<CoverStatus | ''>('');
+	let sampleOnly = $state(false);
+	let acknowledgeWarnings = $state(false);
 	let jobErrors = $state<ImportJobError[]>([]);
 	let jobErrorsTotal = $state(0);
 	let jobErrorsPage = $state(1);
 	let loading = $state(true);
+	let reviewLoading = $state(false);
 	let error = $state<string | null>(null);
 	let actionPending = $state(false);
 	let polling = false;
@@ -29,40 +42,6 @@
 
 	const jobId = $derived(Number($page.params.id));
 	const invalidJobId = $derived(!Number.isFinite(jobId) || jobId < 1);
-
-	async function loadJob() {
-		if (invalidJobId) {
-			error = 'Invalid import job ID';
-			loading = false;
-			return;
-		}
-		try {
-			job = await fetchImportJob(jobId);
-
-			if (isTerminal(job.status)) {
-				stopPolling();
-				if (job.status === 'completed' || job.status === 'completed_with_errors') {
-					await loadIssues();
-				}
-				await loadErrors();
-			}
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load import job';
-			stopPolling();
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function loadErrors() {
-		try {
-			const result = await fetchImportErrors(jobId, jobErrorsPage);
-			jobErrors = result.data;
-			jobErrorsTotal = result.total;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load import errors';
-		}
-	}
 
 	function isTerminal(status: ImportJob['status']): boolean {
 		return !['pending', 'running'].includes(status);
@@ -76,18 +55,131 @@
 		return date ? new Date(date).toLocaleString('de-DE') : '–';
 	}
 
-	async function changeErrorsPage(pageNumber: number) {
-		jobErrorsPage = pageNumber;
+	function processedCount(): number {
+		if (!job) return 0;
+		return job.imported_issues + (job.skipped_issues ?? 0) + job.failed_issues;
+	}
+
+	function progressPercent(): number {
+		if (!job || job.total_issues === 0) return 0;
+		return Math.round((processedCount() / job.total_issues) * 100);
+	}
+
+	async function loadJob() {
+		if (invalidJobId) {
+			error = 'Invalid import job ID';
+			loading = false;
+			return;
+		}
+		try {
+			job = await fetchImportJob(jobId);
+			if (isTerminal(job.status)) {
+				stopPolling();
+				const tasks: Promise<void>[] = [loadErrors()];
+				if (job.status === 'completed' || job.status === 'completed_with_errors') {
+					tasks.push(loadReview(true));
+				}
+				await Promise.all(tasks);
+			}
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Failed to load import job';
+			stopPolling();
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadErrors() {
+		try {
+			const result = await fetchImportErrors(jobId, jobErrorsPage);
+			jobErrors = result.data;
+			jobErrorsTotal = result.total;
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Failed to load import errors';
+		}
+	}
+
+	async function loadReview(includeSummary = false) {
+		reviewLoading = true;
+		try {
+			const [items, summary] = await Promise.all([
+				fetchImportReviewItems(jobId, {
+					page: reviewPage,
+					query,
+					outcome: outcomeFilter,
+					severity: severityFilter,
+					coverStatus: coverFilter,
+					sample: sampleOnly
+				}),
+				includeSummary || reviewSummary === null
+					? fetchImportReviewSummary(jobId)
+					: Promise.resolve(reviewSummary)
+			]);
+			reviewItems = items.items;
+			reviewTotal = items.total;
+			reviewSummary = summary;
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Failed to load review results';
+		} finally {
+			reviewLoading = false;
+		}
+	}
+
+	async function applyReviewFilters() {
+		reviewPage = 1;
+		await loadReview();
+	}
+
+	async function changeReviewPage(nextPage: number) {
+		reviewPage = nextPage;
+		await loadReview();
+	}
+
+	async function changeErrorsPage(nextPage: number) {
+		jobErrorsPage = nextPage;
 		await loadErrors();
 	}
 
-	async function loadIssues() {
+	async function handleActivate() {
+		if (!job || !reviewSummary) return;
+		actionPending = true;
+		error = null;
 		try {
-			const result = await fetchImportSeriesIssues(jobId, issuesPage);
-			issues = result.data;
-			issuesTotal = result.total;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load issues';
+			const response = await activateImport(job.id, acknowledgeWarnings);
+			if (response.active) {
+				reviewSummary = { ...reviewSummary, series_active: true };
+			}
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Activation failed';
+		} finally {
+			actionPending = false;
+		}
+	}
+
+	async function handleCancel() {
+		if (!job) return;
+		actionPending = true;
+		error = null;
+		try {
+			job = await cancelImport(job.id);
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Cancellation failed';
+		} finally {
+			actionPending = false;
+		}
+	}
+
+	async function handleRetry() {
+		if (!job) return;
+		actionPending = true;
+		error = null;
+		try {
+			const retry = await retryImport(job.id);
+			await goto(resolve(`/admin/import/${retry.id}`));
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'Retry failed';
+		} finally {
+			actionPending = false;
 		}
 	}
 
@@ -106,18 +198,23 @@
 
 	function stopPolling() {
 		polling = false;
-		if (pollTimeout) {
-			clearTimeout(pollTimeout);
-			pollTimeout = null;
-		}
+		if (pollTimeout) clearTimeout(pollTimeout);
+		pollTimeout = null;
 	}
 
 	function resetPageState() {
 		stopPolling();
 		job = null;
-		issues = [];
-		issuesTotal = 0;
-		issuesPage = 1;
+		reviewSummary = null;
+		reviewItems = [];
+		reviewTotal = 0;
+		reviewPage = 1;
+		query = '';
+		outcomeFilter = '';
+		severityFilter = '';
+		coverFilter = '';
+		sampleOnly = false;
+		acknowledgeWarnings = false;
 		jobErrors = [];
 		jobErrorsTotal = 0;
 		jobErrorsPage = 1;
@@ -126,50 +223,17 @@
 		actionPending = false;
 	}
 
-	function progressPercent(): number {
-		if (!job || job.total_issues === 0) return 0;
-		return Math.round((processedCount() / job.total_issues) * 100);
-	}
-
-	function processedCount(): number {
-		if (!job) return 0;
-		return job.imported_issues + (job.skipped_issues ?? 0) + job.failed_issues;
-	}
-
-	async function handleActivate(seriesSlug: string) {
-		try {
-			await activateSeries(seriesSlug);
-			await loadJob();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Activation failed';
-		}
-	}
-
-	async function handleCancel() {
-		if (!job) return;
-		actionPending = true;
-		error = null;
-		try {
-			job = await cancelImport(job.id);
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Cancellation failed';
-		} finally {
-			actionPending = false;
-		}
-	}
-
-	async function handleRetry() {
-		if (!job) return;
-		actionPending = true;
-		error = null;
-		try {
-			const retry = await retryImport(job.id);
-			await goto(resolve(`/admin/import/${retry.id}`));
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Retry failed';
-		} finally {
-			actionPending = false;
-		}
+	function coverLabel(status: CoverStatus): string {
+		return {
+			imported: 'Importiert',
+			reused: 'Vorhanden',
+			missing_at_source: 'Nicht in Quelle',
+			not_permitted: 'Nicht erlaubt',
+			fetch_failed: 'Abruf fehlgeschlagen',
+			invalid: 'Ungültig',
+			storage_failed: 'Speichern fehlgeschlagen',
+			not_checked: 'Nicht geprüft'
+		}[status];
 	}
 
 	$effect(() => {
@@ -178,7 +242,6 @@
 		loadJob();
 		if (!Number.isFinite(currentJobId) || currentJobId < 1) return;
 		startPolling();
-
 		return () => stopPolling();
 	});
 </script>
@@ -191,10 +254,8 @@
 	href={resolve('/admin/import')}
 	class="text-sm mb-4 inline-block"
 	style="color: var(--color-brand-500);"
-	data-testid="back-link"
+	data-testid="back-link">&larr; Zurück zur Import-Übersicht</a
 >
-	&larr; Zurück zur Import-Übersicht
-</a>
 
 {#if loading}
 	<p style="color: var(--text-secondary);" data-testid="loading-indicator">
@@ -225,22 +286,10 @@
 		· Zuletzt aktualisiert: {formatDate(job.updated_at)}
 	</p>
 
-	<!-- Status & Progress -->
 	<section class="glass-elevated p-6 rounded-lg mb-6" data-testid="progress-section">
-		<div class="flex items-center justify-between mb-4">
+		<div class="flex items-center justify-between mb-4 gap-4">
 			<span class="text-sm font-medium" style="color: var(--text-primary);">
-				Status:
-				<span
-					class="inline-block px-2 py-0.5 rounded text-xs font-medium ml-1"
-					class:text-green-700={job.status === 'completed'}
-					class:text-orange-700={job.status === 'completed_with_errors'}
-					class:text-red-700={job.status === 'failed' || job.status === 'interrupted'}
-					class:text-gray-700={job.status === 'cancelled' || job.status === 'pending'}
-					class:text-yellow-700={job.status === 'running'}
-					data-testid="job-status"
-				>
-					{job.status}
-				</span>
+				Status: <span data-testid="job-status">{job.status}</span>
 			</span>
 			<span class="text-sm" style="color: var(--text-secondary);" data-testid="progress-count">
 				{processedCount()} / {job.total_issues} bearbeitet ({job.created_issues ?? 0} neu,
@@ -248,8 +297,6 @@
 				{job.skipped_issues ?? 0} übersprungen, {job.failed_issues} fehlgeschlagen)
 			</span>
 		</div>
-
-		<!-- Progress Bar -->
 		<div
 			class="w-full h-3 rounded-full overflow-hidden"
 			style="background-color: var(--surface-base);"
@@ -265,34 +312,29 @@
 				style="width: {progressPercent()}%; background-color: var(--color-brand-500);"
 			></div>
 		</div>
-
 		{#if job.error_message}
 			<p class="mt-3 text-sm" style="color: var(--color-error-500);" data-testid="error-detail">
 				Fehler: {job.error_message}
 			</p>
 		{/if}
-
 		<div class="mt-4 flex gap-3">
 			{#if job.status === 'pending' || job.status === 'running'}
 				<button
 					onclick={handleCancel}
 					disabled={actionPending || job.cancel_requested_at != null}
-					class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-50"
+					class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
 					style="background-color: var(--color-error-500); color: white;"
 					data-testid="cancel-import-button"
+					>{job.cancel_requested_at ? 'Abbruch angefordert' : 'Import abbrechen'}</button
 				>
-					{job.cancel_requested_at ? 'Abbruch angefordert' : 'Import abbrechen'}
-				</button>
 			{:else if canRetry(job.status)}
 				<button
 					onclick={handleRetry}
 					disabled={actionPending}
-					class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-50"
+					class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
 					style="background-color: var(--color-brand-500); color: white;"
-					data-testid="retry-import-button"
+					data-testid="retry-import-button">Erneut vollständig synchronisieren</button
 				>
-					Erneut vollständig synchronisieren
-				</button>
 			{/if}
 		</div>
 	</section>
@@ -305,7 +347,7 @@
 					<li style="color: var(--color-error-700);">
 						{item.issue_number === null ? 'Lauf' : `Heft #${item.issue_number}`}
 						({item.source_key}{item.source_record_id ? `:${item.source_record_id}` : ''}) [{item.stage}]:
-						{item.message}
+						{item.message} ({item.severity ?? 'blocking'})
 					</li>
 				{/each}
 			</ul>
@@ -327,91 +369,218 @@
 		</section>
 	{/if}
 
-	<!-- Completed: Show issues & activate -->
-	{#if job.status === 'completed' || job.status === 'completed_with_errors'}
+	{#if (job.status === 'completed' || job.status === 'completed_with_errors') && reviewSummary}
 		<section class="mb-6" data-testid="review-section">
-			<div class="flex items-center justify-between mb-4">
-				<h2 class="text-lg font-semibold" style="color: var(--text-primary);">
-					Importierte Hefte ({issuesTotal})
-				</h2>
-				<button
-					onclick={() => handleActivate(job!.series_slug)}
-					class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors"
-					style="background-color: var(--color-success-500); color: white;"
-					data-testid="activate-series-button"
-				>
-					Serie aktivieren
-				</button>
+			<div class="glass-elevated p-5 rounded-lg mb-5" data-testid="review-summary">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<h2 class="text-lg font-semibold" style="color: var(--text-primary);">
+						Prüfung: {reviewSummary.series_name}
+					</h2>
+					<span class="text-sm" style="color: var(--text-secondary);">
+						{reviewSummary.warning_count} Warnungen · {reviewSummary.blocking_count} Blocker
+					</span>
+				</div>
+				<p class="mt-2 text-sm" style="color: var(--text-secondary);">
+					{reviewSummary.outcomes.created} neu, {reviewSummary.outcomes.updated} geändert,
+					{reviewSummary.outcomes.unchanged} unverändert, {reviewSummary.outcomes.skipped}
+					übersprungen, {reviewSummary.outcomes.failed} fehlgeschlagen
+				</p>
+
+				{#if reviewSummary.eligibility.reasons.length > 0}
+					<ul
+						class="mt-4 p-3 rounded text-sm list-disc pl-8"
+						style="background-color: var(--color-error-100); color: var(--color-error-700);"
+						data-testid="activation-blockers"
+					>
+						{#each reviewSummary.eligibility.reasons as reason (reason.code)}
+							<li>{reason.message} ({reason.code})</li>
+						{/each}
+					</ul>
+				{/if}
+
+				{#if reviewSummary.eligibility.requires_acknowledgement}
+					<label
+						class="mt-4 flex items-start gap-2 p-3 rounded text-sm"
+						style="background-color: var(--color-warning-100); color: var(--text-primary);"
+						data-testid="warning-acknowledgement"
+					>
+						<input type="checkbox" bind:checked={acknowledgeWarnings} />
+						<span>Ich habe alle Warnungen geprüft und gebe die Serie trotzdem frei.</span>
+					</label>
+				{/if}
+
+				<div class="mt-4">
+					{#if reviewSummary.series_active}
+						<span style="color: var(--color-success-700);" data-testid="series-active-message">
+							Serie ist veröffentlicht.
+						</span>
+					{:else}
+						<button
+							onclick={handleActivate}
+							disabled={!reviewSummary.eligibility.eligible ||
+								actionPending ||
+								(reviewSummary.eligibility.requires_acknowledgement && !acknowledgeWarnings)}
+							class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+							style="background-color: var(--color-success-500); color: white;"
+							data-testid="activate-series-button">Geprüften Import freigeben</button
+						>
+					{/if}
+				</div>
 			</div>
 
-			{#if issues.length > 0}
+			<div class="glass-elevated p-5 rounded-lg mb-5" data-testid="reference-checks">
+				<h3 class="font-semibold mb-3">Referenzprüfungen</h3>
+				<ul class="grid gap-2 text-sm md:grid-cols-2">
+					{#each reviewSummary.reference_checks as check (check.issue_number)}
+						<li>
+							<strong>#{check.issue_number} {check.expected_title}</strong> –
+							<span
+								style:color={check.status === 'passed'
+									? 'var(--color-success-700)'
+									: 'var(--color-error-700)'}
+							>
+								{check.status === 'passed' ? 'bestanden' : 'fehlgeschlagen'}
+							</span>
+						</li>
+					{/each}
+				</ul>
+			</div>
+
+			<form
+				class="glass-elevated p-4 rounded-lg mb-4 grid gap-3 md:grid-cols-6"
+				onsubmit={(event) => {
+					event.preventDefault();
+					applyReviewFilters();
+				}}
+				data-testid="review-filters"
+			>
+				<label class="md:col-span-2 text-sm">
+					<span class="block mb-1">Suche</span>
+					<input
+						class="w-full p-2 rounded"
+						bind:value={query}
+						placeholder="Nr., Titel, Autor, Quellen-ID"
+					/>
+				</label>
+				<label class="text-sm">
+					<span class="block mb-1">Ergebnis</span>
+					<select class="w-full p-2 rounded" bind:value={outcomeFilter}>
+						<option value="">Alle</option><option value="created">Neu</option><option
+							value="updated">Geändert</option
+						><option value="unchanged">Unverändert</option><option value="skipped"
+							>Übersprungen</option
+						><option value="failed">Fehlgeschlagen</option>
+					</select>
+				</label>
+				<label class="text-sm">
+					<span class="block mb-1">Risiko</span>
+					<select class="w-full p-2 rounded" bind:value={severityFilter}>
+						<option value="">Alle</option><option value="info">Info</option><option value="warning"
+							>Warnung</option
+						><option value="blocking">Blocker</option>
+					</select>
+				</label>
+				<label class="text-sm">
+					<span class="block mb-1">Cover</span>
+					<select class="w-full p-2 rounded" bind:value={coverFilter}>
+						<option value="">Alle</option><option value="imported">Importiert</option><option
+							value="reused">Vorhanden</option
+						><option value="missing_at_source">Nicht in Quelle</option><option value="fetch_failed"
+							>Abruf fehlgeschlagen</option
+						><option value="invalid">Ungültig</option><option value="storage_failed"
+							>Speichern fehlgeschlagen</option
+						><option value="not_checked">Nicht geprüft</option>
+					</select>
+				</label>
+				<div class="flex flex-col justify-end gap-2 text-sm">
+					<label><input type="checkbox" bind:checked={sampleOnly} /> Nur Stichprobe</label>
+					<button
+						class="px-3 py-2 rounded"
+						style="background: var(--color-brand-500); color: white;"
+					>
+						Anwenden
+					</button>
+				</div>
+			</form>
+
+			<h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
+				Importierte Hefte ({reviewTotal})
+			</h3>
+			{#if reviewLoading}
+				<p>Lade Prüfergebnisse...</p>
+			{:else if reviewItems.length === 0}
+				<p style="color: var(--text-secondary);">Keine Ergebnisse für diese Filter.</p>
+			{:else}
 				<div class="overflow-x-auto">
 					<table class="w-full text-sm" data-testid="issues-table">
 						<thead>
 							<tr style="border-bottom: 1px solid var(--border-default);">
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Nr.</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Titel</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Autor</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Zyklus</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Datum</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Teil</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Zeichner</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Cover</th>
-								<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Quelle</th>
+								<th class="text-left py-3 px-2">Nr.</th><th class="text-left py-3 px-2">Ergebnis</th
+								><th class="text-left py-3 px-2">Titel / Autor</th><th class="text-left py-3 px-2"
+									>Datum / Teil</th
+								><th class="text-left py-3 px-2">Cover</th><th class="text-left py-3 px-2"
+									>Quelle</th
+								>
 							</tr>
 						</thead>
 						<tbody>
-							{#each issues as issue (issue.id)}
+							{#each reviewItems as item (item.id)}
 								<tr style="border-bottom: 1px solid var(--border-default);" data-testid="issue-row">
-									<td class="py-3 px-2" style="color: var(--text-primary);">{issue.issue_number}</td
-									>
-									<td class="py-3 px-2" style="color: var(--text-primary);">{issue.title}</td>
-									<td class="py-3 px-2" style="color: var(--text-secondary);"
-										>{issue.authors.length > 0 ? issue.authors.join(', ') : '–'}</td
-									>
-									<td class="py-3 px-2" style="color: var(--text-secondary);"
-										>{issue.cycle ?? '–'}</td
-									>
-									<td class="py-3 px-2" style="color: var(--text-secondary);"
-										>{issue.published_at ?? '–'}</td
-									>
-									<td class="py-3 px-2" style="color: var(--text-secondary);">
-										{issue.part_number !== null && issue.part_total !== null
-											? `${issue.part_number} von ${issue.part_total}`
-											: '–'}
-									</td>
-									<td class="py-3 px-2" style="color: var(--text-secondary);"
-										>{issue.cover_artists.length > 0 ? issue.cover_artists.join(', ') : '–'}</td
-									>
+									<td class="py-3 px-2">{item.issue_number}</td>
 									<td class="py-3 px-2">
-										{#if issue.cover_local_path || issue.cover_url}
+										<strong>{item.outcome}</strong><br /><small>{item.severity}</small>
+										{#if item.message}<div>{item.message}</div>{/if}
+									</td>
+									<td class="py-3 px-2">
+										{item.title ?? '–'}<br /><small>{item.authors.join(', ') || '–'}</small>
+									</td>
+									<td class="py-3 px-2">
+										{item.published_at ?? '–'}<br /><small
+											>{item.part_number !== null && item.part_total !== null
+												? `${item.part_number} von ${item.part_total}`
+												: (item.cycle ?? '–')}</small
+										>
+									</td>
+									<td class="py-3 px-2">
+										{#if item.cover_local_path}
 											<img
-												src={issue.cover_local_path ?? issue.cover_url}
-												alt="Cover von #{issue.issue_number}: {issue.title}"
+												src={item.cover_local_path}
+												alt="Cover von #{item.issue_number}: {item.title ?? 'Unbekannt'}"
 												class="h-16 w-auto rounded"
 											/>
-										{:else}
-											<span class="text-gray-400 text-xs">–</span>
 										{/if}
+										<small
+											>{coverLabel(item.cover_status)}{item.cover_reason
+												? `: ${item.cover_reason}`
+												: ''}</small
+										>
 									</td>
 									<td class="py-3 px-2">
-										{#if issue.source_wiki_url}
+										{#if item.source_url}
 											<!-- eslint-disable svelte/no-navigation-without-resolve -->
-											<a
-												href={issue.source_wiki_url}
-												target="_blank"
-												rel="noopener noreferrer"
-												style="color: var(--color-brand-500);">Quelle</a
-											>
-										{:else}
-											<span style="color: var(--text-secondary);">–</span>
-										{/if}
+											<a href={item.source_url} target="_blank" rel="noopener noreferrer">Quelle</a>
+										{:else}–{/if}
 									</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
 				</div>
+				{#if reviewTotal > 50}
+					<div class="mt-4 flex items-center gap-3 text-sm">
+						<button
+							onclick={() => changeReviewPage(reviewPage - 1)}
+							disabled={reviewPage <= 1}
+							data-testid="previous-review-page">Zurück</button
+						>
+						<span>Seite {reviewPage}</span>
+						<button
+							onclick={() => changeReviewPage(reviewPage + 1)}
+							disabled={reviewPage * 50 >= reviewTotal}
+							data-testid="next-review-page">Weiter</button
+						>
+					</div>
+				{/if}
 			{/if}
 		</section>
 	{/if}

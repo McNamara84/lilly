@@ -6,13 +6,17 @@ use serde::{Deserialize, Serialize};
 
 use super::AppState;
 use crate::auth::middleware::AdminUser;
-use crate::db::{import_jobs, issues, series};
+use crate::db::{import_jobs, import_review, issues, series};
 use crate::error::AppError;
+use crate::models::import_review::{
+    ActivateImportRequest, ActivationResponse, PaginatedReviewItems, ReviewSummary,
+};
 use crate::models::series::{ImportJobError, ImportJobResponse, IssueResponse, SeriesResponse};
 use crate::services::import::{
     ImportTrigger, retry_import as retry_import_service, start_import as start_import_service,
 };
 use crate::services::import_scheduler::ImportScheduleStatus;
+use crate::services::publication;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -34,6 +38,15 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/admin/import/{id}/retry", post(retry_import))
         .route("/api/v1/admin/import/{id}/errors", get(get_import_errors))
         .route(
+            "/api/v1/admin/import/{id}/review/summary",
+            get(get_import_review_summary),
+        )
+        .route(
+            "/api/v1/admin/import/{id}/review/items",
+            get(get_import_review_items),
+        )
+        .route("/api/v1/admin/import/{id}/activate", post(activate_import))
+        .route(
             "/api/v1/admin/import/{id}/series-issues",
             get(get_import_series_issues),
         )
@@ -54,10 +67,27 @@ async fn import_schedule(
 async fn list_all_series(
     _admin: AdminUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<SeriesResponse>>, AppError> {
+) -> Result<Json<Vec<SeriesAdminResponse>>, AppError> {
     let all_series = series::find_all_series(&state.inner.pool, false).await?;
-    let response: Vec<SeriesResponse> = all_series.iter().map(SeriesResponse::from).collect();
+    let mut response = Vec::with_capacity(all_series.len());
+    for target_series in &all_series {
+        response.push(SeriesAdminResponse {
+            series: SeriesResponse::from(target_series),
+            latest_import_job_id: import_review::latest_import_job_id_for_series(
+                &state.inner.pool,
+                target_series.id,
+            )
+            .await?,
+        });
+    }
     Ok(Json(response))
+}
+
+#[derive(Debug, Serialize)]
+struct SeriesAdminResponse {
+    #[serde(flatten)]
+    series: SeriesResponse,
+    latest_import_job_id: Option<u32>,
 }
 
 async fn activate_series(
@@ -69,14 +99,20 @@ async fn activate_series(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Series '{slug}' not found")))?;
 
-    series::set_series_active(&state.inner.pool, s.id, true).await?;
-    tracing::info!(slug = %slug, "Series activated");
+    if !s.active {
+        return Err(AppError::ConflictWithCode {
+            message: "Review and activate the latest import job instead".to_string(),
+            code: "review_required".to_string(),
+        });
+    }
 
-    Ok(Json(serde_json::json!({ "message": "Series activated" })))
+    Ok(Json(
+        serde_json::json!({ "message": "Series is already active" }),
+    ))
 }
 
 async fn deactivate_series(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -84,7 +120,7 @@ async fn deactivate_series(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Series '{slug}' not found")))?;
 
-    series::set_series_active(&state.inner.pool, s.id, false).await?;
+    publication::deactivate_series(&state.inner, s.id, admin.0.user_id).await?;
     tracing::info!(slug = %slug, "Series deactivated");
 
     Ok(Json(serde_json::json!({ "message": "Series deactivated" })))
@@ -274,6 +310,141 @@ struct PaginatedImportErrorResponse {
     total: u32,
 }
 
+async fn get_import_review_summary(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> Result<Json<ReviewSummary>, AppError> {
+    Ok(Json(
+        publication::evaluate_activation_eligibility(&state.inner, id).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReviewItemParams {
+    #[serde(default = "default_page")]
+    page: u32,
+    #[serde(default = "default_per_page")]
+    per_page: u32,
+    q: Option<String>,
+    outcome: Option<String>,
+    severity: Option<String>,
+    cover_status: Option<String>,
+    #[serde(default)]
+    sample: bool,
+}
+
+async fn get_import_review_items(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    Query(params): Query<ReviewItemParams>,
+) -> Result<Json<PaginatedReviewItems>, AppError> {
+    if import_jobs::find_import_job_by_id(&state.inner.pool, id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::NotFound(format!("Import job {id} not found")));
+    }
+    validate_review_filter(
+        params.outcome.as_deref(),
+        &[
+            "not_processed",
+            "created",
+            "updated",
+            "unchanged",
+            "skipped",
+            "failed",
+        ],
+        "outcome",
+    )?;
+    validate_review_filter(
+        params.severity.as_deref(),
+        &["info", "warning", "blocking"],
+        "severity",
+    )?;
+    validate_review_filter(
+        params.cover_status.as_deref(),
+        &[
+            "imported",
+            "reused",
+            "missing_at_source",
+            "not_permitted",
+            "fetch_failed",
+            "invalid",
+            "storage_failed",
+            "not_checked",
+        ],
+        "cover_status",
+    )?;
+    if params.q.as_deref().is_some_and(|query| query.len() > 200) {
+        return Err(AppError::BadRequest(
+            "Review search must not exceed 200 characters".to_string(),
+        ));
+    }
+    let issue_numbers = if params.sample {
+        publication::evaluate_activation_eligibility(&state.inner, id)
+            .await?
+            .sample_issue_numbers
+    } else {
+        Vec::new()
+    };
+    let filter = import_review::ReviewItemFilter {
+        query: params.q,
+        outcome: params.outcome,
+        severity: params.severity,
+        cover_status: params.cover_status,
+        issue_numbers,
+    };
+    let page = params.page.max(1);
+    let per_page = params.per_page.clamp(1, 100);
+    let total = import_review::count_review_items(&state.inner.pool, id, &filter).await?;
+    let items =
+        import_review::find_review_items(&state.inner.pool, id, &filter, page, per_page).await?;
+    Ok(Json(PaginatedReviewItems {
+        items,
+        total,
+        page,
+        per_page,
+    }))
+}
+
+fn validate_review_filter(
+    value: Option<&str>,
+    allowed: &[&str],
+    field: &str,
+) -> Result<(), AppError> {
+    if let Some(value) = value
+        && !allowed.contains(&value)
+    {
+        return Err(AppError::BadRequest(format!(
+            "Unknown review {field} filter '{value}'"
+        )));
+    }
+    Ok(())
+}
+
+async fn activate_import(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    Json(request): Json<ActivateImportRequest>,
+) -> Result<Json<ActivationResponse>, AppError> {
+    let response = publication::activate_from_import(
+        &state.inner,
+        id,
+        admin.0.user_id,
+        request.acknowledge_warnings,
+    )
+    .await?;
+    tracing::info!(
+        job_id = id,
+        series_id = response.series_id,
+        "Series activated after import review"
+    );
+    Ok(Json(response))
+}
+
 #[derive(Debug, Deserialize)]
 struct PaginationParams {
     #[serde(default = "default_page")]
@@ -423,6 +594,15 @@ mod tests {
     fn test_default_pagination() {
         assert_eq!(default_page(), 1);
         assert_eq!(default_per_page(), 50);
+    }
+
+    #[test]
+    fn review_filters_reject_unknown_database_enum_values() {
+        assert!(validate_review_filter(Some("created"), &["created"], "outcome").is_ok());
+        assert!(matches!(
+            validate_review_filter(Some("unknown"), &["created"], "outcome"),
+            Err(AppError::BadRequest(_))
+        ));
     }
 
     #[test]

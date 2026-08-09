@@ -10,6 +10,9 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(String),
 
+    #[error("{message}")]
+    ConflictWithCode { message: String, code: String },
+
     #[error("{0}")]
     Unauthorized(String),
 
@@ -61,6 +64,9 @@ impl IntoResponse for AppError {
         let (status, message, code) = match &self {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone(), None),
+            AppError::ConflictWithCode { message, code } => {
+                (StatusCode::CONFLICT, message.clone(), Some(code.clone()))
+            }
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None),
             AppError::Forbidden { message, code } => {
                 (StatusCode::FORBIDDEN, message.clone(), code.clone())
@@ -97,6 +103,16 @@ mod tests {
     #[test]
     fn test_conflict_status() {
         let error = AppError::Conflict("invalid state transition".to_string());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn test_conflict_with_code_status() {
+        let error = AppError::ConflictWithCode {
+            message: "review required".to_string(),
+            code: "review_required".to_string(),
+        };
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
     }

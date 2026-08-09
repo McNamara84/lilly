@@ -16,6 +16,14 @@ pub struct SourceDescriptor {
     pub series_url: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceRecord {
+    pub issue_number: u32,
+    pub title: &'static str,
+    pub authors: &'static [&'static str],
+    pub published_at: chrono::NaiveDate,
+}
+
 #[derive(Debug, Error)]
 pub enum AdapterError {
     #[error("Network error: {0}")]
@@ -47,6 +55,11 @@ pub trait WikiAdapter: Send + Sync {
 
     /// Stable source and target-series identity used before any network access.
     fn source_descriptor(&self) -> SourceDescriptor;
+
+    /// Stable records that must match before an import can be published.
+    fn reference_records(&self) -> Vec<ReferenceRecord> {
+        Vec::new()
+    }
 
     /// Fetch series metadata (name, publisher, genre, etc.)
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError>;
@@ -210,6 +223,34 @@ pub fn normalize_and_validate_issue(
     }
     validate_source_reference(descriptor, &issue.source)?;
     Ok(issue)
+}
+
+/// Validate a pinned reference issue when the adapter declares one for this number.
+pub fn validate_reference_record(
+    references: &[ReferenceRecord],
+    issue: &IssueData,
+) -> Result<(), AdapterError> {
+    let Some(reference) = references
+        .iter()
+        .find(|reference| reference.issue_number == issue.issue_number)
+    else {
+        return Ok(());
+    };
+    let expected_authors: Vec<String> = reference
+        .authors
+        .iter()
+        .map(|author| (*author).to_string())
+        .collect();
+    if issue.title == reference.title
+        && issue.authors == expected_authors
+        && issue.published_at == Some(reference.published_at)
+    {
+        return Ok(());
+    }
+    Err(AdapterError::Parse(format!(
+        "Reference issue {} differs from the pinned title, author or publication date",
+        issue.issue_number
+    )))
 }
 
 fn normalize_values(values: &mut Vec<String>) {

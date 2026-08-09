@@ -38,19 +38,23 @@ vi.mock('$app/navigation', () => ({
 vi.mock('$lib/api/admin', () => ({
 	fetchImportJob: vi.fn(),
 	fetchImportSeriesIssues: vi.fn(),
+	fetchImportReviewItems: vi.fn(),
+	fetchImportReviewSummary: vi.fn(),
 	fetchImportErrors: vi.fn(),
 	cancelImport: vi.fn(),
 	retryImport: vi.fn(),
-	activateSeries: vi.fn()
+	activateImport: vi.fn()
 }));
 
 import {
 	fetchImportJob,
 	fetchImportSeriesIssues,
+	fetchImportReviewItems,
+	fetchImportReviewSummary,
 	fetchImportErrors,
 	cancelImport,
 	retryImport,
-	activateSeries
+	activateImport
 } from '$lib/api/admin';
 import { goto } from '$app/navigation';
 
@@ -133,6 +137,68 @@ const mockIssues = [
 	}
 ];
 
+const reviewSummary = {
+	job_id: 5,
+	series_id: 1,
+	series_name: 'Maddrax',
+	series_slug: 'maddrax',
+	series_active: false,
+	job_status: 'completed',
+	outcomes: {
+		total: 2,
+		not_processed: 0,
+		created: 2,
+		updated: 0,
+		unchanged: 0,
+		skipped: 0,
+		failed: 0
+	},
+	warning_count: 0,
+	blocking_count: 0,
+	eligibility: { eligible: true, requires_acknowledgement: false, reasons: [] },
+	reference_checks: [
+		{
+			issue_number: 1,
+			expected_title: 'Der Gläserne Sarg',
+			expected_authors: ['Timothy Stahl'],
+			expected_published_at: '2000-02-08',
+			status: 'passed' as const,
+			message: null
+		}
+	],
+	sample_issue_numbers: [1, 2],
+	last_publication_event: null
+};
+
+function asReviewItem(issue: (typeof mockIssues)[number]) {
+	return {
+		id: issue.id,
+		job_id: 5,
+		issue_id: issue.id,
+		issue_number: issue.issue_number,
+		outcome: 'created' as const,
+		severity: 'info' as const,
+		stage: 'complete',
+		message: null,
+		source_key: 'maddraxikon',
+		source_record_id: `Quelle:MX${issue.issue_number}`,
+		source_url: issue.source_wiki_url,
+		title: issue.title,
+		authors: issue.authors,
+		cover_artists: issue.cover_artists,
+		published_at: issue.published_at,
+		part_number: issue.part_number,
+		part_total: issue.part_total,
+		cycle: issue.cycle,
+		cover_status: (issue.cover_local_path || issue.cover_url ? 'imported' : 'missing_at_source') as
+			'imported' | 'missing_at_source',
+		cover_reason:
+			issue.cover_local_path || issue.cover_url ? null : 'The source does not provide a cover',
+		cover_local_path: issue.cover_local_path ?? issue.cover_url,
+		processed_at: '2025-06-01T10:15:00Z'
+	};
+}
+
 describe('Import Detail Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -144,6 +210,23 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
+		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
+		vi.mocked(fetchImportReviewItems).mockImplementation(async (id, filters) => {
+			const legacy = await fetchImportSeriesIssues(id, filters?.page ?? 1);
+			return {
+				items: legacy.data.map((issue) => asReviewItem(issue as (typeof mockIssues)[number])),
+				page: legacy.page,
+				per_page: legacy.per_page,
+				total: legacy.total
+			};
+		});
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue(reviewSummary);
+		vi.mocked(activateImport).mockResolvedValue({ series_id: 1, active: true, event: null });
 	});
 
 	afterEach(() => {
@@ -307,10 +390,12 @@ describe('Import Detail Page', () => {
 			expect(screen.getByTestId('activate-series-button')).toBeInTheDocument();
 		});
 
-		expect(screen.getByTestId('activate-series-button')).toHaveTextContent('Serie aktivieren');
+		expect(screen.getByTestId('activate-series-button')).toHaveTextContent(
+			'Geprüften Import freigeben'
+		);
 	});
 
-	it('calls activateSeries when activate button is clicked', async () => {
+	it('activates the reviewed import when the activation button is clicked', async () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
 		vi.mocked(fetchImportSeriesIssues).mockResolvedValue({
 			data: [],
@@ -318,8 +403,6 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
-		vi.mocked(activateSeries).mockResolvedValue(undefined);
-
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		render(ImportDetailPage);
 
@@ -329,7 +412,81 @@ describe('Import Detail Page', () => {
 
 		await user.click(screen.getByTestId('activate-series-button'));
 
-		expect(activateSeries).toHaveBeenCalledWith('maddrax');
+		expect(activateImport).toHaveBeenCalledWith(5, false);
+	});
+
+	it('requires explicit acknowledgement before activating a warning-only import', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...completedJob,
+			status: 'completed_with_errors'
+		});
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue({
+			...reviewSummary,
+			job_status: 'completed_with_errors',
+			warning_count: 2,
+			eligibility: { eligible: true, requires_acknowledgement: true, reasons: [] }
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('activate-series-button')).toBeDisabled());
+		await user.click(
+			screen.getByRole('checkbox', {
+				name: 'Ich habe alle Warnungen geprüft und gebe die Serie trotzdem frei.'
+			})
+		);
+		expect(screen.getByTestId('activate-series-button')).toBeEnabled();
+		await user.click(screen.getByTestId('activate-series-button'));
+
+		expect(activateImport).toHaveBeenCalledWith(5, true);
+		await waitFor(() => expect(screen.getByTestId('series-active-message')).toBeInTheDocument());
+	});
+
+	it('shows stable blocker reasons and prevents activation', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...completedJob,
+			status: 'completed_with_errors'
+		});
+		vi.mocked(fetchImportReviewSummary).mockResolvedValue({
+			...reviewSummary,
+			blocking_count: 1,
+			eligibility: {
+				eligible: false,
+				requires_acknowledgement: false,
+				reasons: [{ code: 'blocking_findings', message: 'The import contains blocking findings' }]
+			}
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('activation-blockers')).toBeInTheDocument());
+		expect(screen.getByTestId('activation-blockers')).toHaveTextContent('blocking_findings');
+		expect(screen.getByTestId('activate-series-button')).toBeDisabled();
+		expect(activateImport).not.toHaveBeenCalled();
+	});
+
+	it('applies review search, risk and sample filters from the full result list', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('review-filters')).toBeInTheDocument());
+		await user.type(screen.getByPlaceholderText('Nr., Titel, Autor, Quellen-ID'), 'Jason Dark');
+		await user.selectOptions(screen.getByLabelText('Ergebnis'), 'updated');
+		await user.selectOptions(screen.getByLabelText('Risiko'), 'warning');
+		await user.selectOptions(screen.getByLabelText('Cover'), 'fetch_failed');
+		await user.click(screen.getByRole('checkbox', { name: 'Nur Stichprobe' }));
+		await user.click(screen.getByRole('button', { name: 'Anwenden' }));
+
+		await waitFor(() => {
+			expect(fetchImportReviewItems).toHaveBeenLastCalledWith(5, {
+				page: 1,
+				query: 'Jason Dark',
+				outcome: 'updated',
+				severity: 'warning',
+				coverStatus: 'fetch_failed',
+				sample: true
+			});
+		});
 	});
 
 	it('shows error when fetchImportJob fails', async () => {
@@ -370,7 +527,9 @@ describe('Import Detail Page', () => {
 		render(ImportDetailPage);
 
 		await waitFor(() => {
-			expect(screen.getByTestId('error-message')).toHaveTextContent('Failed to load issues');
+			expect(screen.getByTestId('error-message')).toHaveTextContent(
+				'Failed to load review results'
+			);
 		});
 	});
 
@@ -412,7 +571,7 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
-		vi.mocked(activateSeries).mockRejectedValue(new Error('Activation failed'));
+		vi.mocked(activateImport).mockRejectedValue(new Error('Activation failed'));
 
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		render(ImportDetailPage);
@@ -436,7 +595,7 @@ describe('Import Detail Page', () => {
 			per_page: 50,
 			total: 0
 		});
-		vi.mocked(activateSeries).mockRejectedValue('unexpected');
+		vi.mocked(activateImport).mockRejectedValue('unexpected');
 
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		render(ImportDetailPage);

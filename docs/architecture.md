@@ -308,15 +308,18 @@ Alle Admin-Endpunkte erfordern einen authentifizierten Nutzer mit der Rolle `adm
 | Methode | Pfad | Auth | Beschreibung |
 |---|---|---|---|
 | **GET** | `/api/v1/admin/series` | Admin | Alle Serien (inkl. inaktive) auflisten |
-| **POST** | `/api/v1/admin/series/{slug}/activate` | Admin | Serie für normale Nutzer sichtbar machen |
-| **POST** | `/api/v1/admin/series/{slug}/deactivate` | Admin | Serie für normale Nutzer ausblenden |
+| **POST** | `/api/v1/admin/series/{slug}/activate` | Admin | Kompatibilitätsroute; verweigert eine ungeprüfte Aktivierung mit `review_required` |
+| **POST** | `/api/v1/admin/series/{slug}/deactivate` | Admin | Serie ausblenden und append-only Auditereignis schreiben |
 | **GET** | `/api/v1/admin/adapters` | Admin | Verfügbare Import-Adapter einschließlich Quellenart auflisten |
 | **POST** | `/api/v1/admin/import` | Admin | Vollscan anlegen (`{ "adapter": "maddrax" }`) → HTTP 202 mit Job |
 | **GET** | `/api/v1/admin/import/{id}` | Admin | Import-Job-Status & Fortschritt abfragen |
 | **POST** | `/api/v1/admin/import/{id}/cancel` | Admin | Persistenten Abbruch für einen aktiven Job anfordern |
 | **POST** | `/api/v1/admin/import/{id}/retry` | Admin | Verknüpften neuen Vollscan für einen fehlgeschlagenen oder abgebrochenen Job anlegen |
 | **GET** | `/api/v1/admin/import/{id}/errors` | Admin | Persistierte Fehlerkontexte paginiert lesen |
-| **GET** | `/api/v1/admin/import/{id}/series-issues` | Admin | Serienhefte eines Jobs paginiert für die Prüfansicht lesen |
+| **GET** | `/api/v1/admin/import/{id}/review/summary` | Admin | Laufbezogene Ergebnis-, Risiko-, Referenz- und Freigabeauswertung lesen |
+| **GET** | `/api/v1/admin/import/{id}/review/items` | Admin | Persistierte Ergebnisse des konkreten Laufs paginiert suchen und filtern |
+| **POST** | `/api/v1/admin/import/{id}/activate` | Admin | Geprüften, aktuellen und vollständigen Lauf atomar freigeben; Warnungen müssen quittiert werden |
+| **GET** | `/api/v1/admin/import/{id}/series-issues` | Admin | Aktuellen Serienbestand paginiert lesen (Legacy-/Diagnoseendpunkt, nicht freigaberelevant) |
 | **GET** | `/api/v1/admin/import/history` | Admin | Import-Historie aller Jobs |
 
 ### 5.2 Abgeleiteter Status "Fehlend" (missing)

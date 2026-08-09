@@ -90,7 +90,7 @@ pub async fn count_issues_by_series(pool: &MySqlPool, series_id: u32) -> Result<
 pub async fn replace_issue_metadata(
     pool: &MySqlPool,
     update: &IssueMetadataUpdate<'_>,
-) -> Result<(), sqlx::Error> {
+) -> Result<u32, sqlx::Error> {
     let mut transaction = pool.begin().await?;
     let issue_id = upsert_issue(&mut transaction, update).await?;
     set_issue_persons(&mut transaction, issue_id, update.authors, "author").await?;
@@ -104,7 +104,8 @@ pub async fn replace_issue_metadata(
     set_issue_keywords(&mut transaction, issue_id, update.keywords).await?;
     set_issue_notes(&mut transaction, issue_id, update.notes).await?;
     mark_issue_metadata_synced(&mut transaction, issue_id).await?;
-    transaction.commit().await
+    transaction.commit().await?;
+    Ok(issue_id)
 }
 
 /// Upsert a single issue (without the normalized relations).
