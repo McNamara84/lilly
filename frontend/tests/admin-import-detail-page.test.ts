@@ -489,6 +489,49 @@ describe('Import Detail Page', () => {
 		});
 	});
 
+	it('paginates review results in both directions', async () => {
+		const firstPageItem = asReviewItem(mockIssues[0]);
+		const secondPageItem = {
+			...asReviewItem(mockIssues[1]),
+			id: 51,
+			issue_number: 51,
+			title: 'Heft auf Seite zwei'
+		};
+		vi.mocked(fetchImportJob).mockResolvedValue(completedJob);
+		vi.mocked(fetchImportReviewItems)
+			.mockResolvedValueOnce({ items: [firstPageItem], page: 1, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ items: [secondPageItem], page: 2, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ items: [firstPageItem], page: 1, per_page: 50, total: 51 });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByText('Der Gläserne Sarg')).toBeInTheDocument());
+		expect(screen.getByTestId('previous-review-page')).toBeDisabled();
+		expect(screen.getByTestId('next-review-page')).toBeEnabled();
+
+		await user.click(screen.getByTestId('next-review-page'));
+		await waitFor(() => {
+			expect(fetchImportReviewItems).toHaveBeenLastCalledWith(
+				5,
+				expect.objectContaining({ page: 2 })
+			);
+			expect(screen.getByText('Heft auf Seite zwei')).toBeInTheDocument();
+			expect(screen.getByText('Seite 2')).toBeInTheDocument();
+		});
+		expect(screen.getByTestId('previous-review-page')).toBeEnabled();
+		expect(screen.getByTestId('next-review-page')).toBeDisabled();
+
+		await user.click(screen.getByTestId('previous-review-page'));
+		await waitFor(() => {
+			expect(fetchImportReviewItems).toHaveBeenLastCalledWith(
+				5,
+				expect.objectContaining({ page: 1 })
+			);
+			expect(screen.getByText('Der Gläserne Sarg')).toBeInTheDocument();
+			expect(screen.getByText('Seite 1')).toBeInTheDocument();
+		});
+	});
+
 	it('shows error when fetchImportJob fails', async () => {
 		vi.mocked(fetchImportJob).mockRejectedValue(new Error('Server error'));
 

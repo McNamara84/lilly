@@ -429,13 +429,9 @@ mod tests {
             authors: &["Author"],
             published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
         };
-        let issue = normalize_and_validate_issue(
-            MockAdapter.source_descriptor(),
-            1,
-            valid_issue(),
-        )
-        .unwrap();
-        assert!(validate_reference_record(&[reference.clone()], &issue).is_ok());
+        let issue = normalize_and_validate_issue(MockAdapter.source_descriptor(), 1, valid_issue())
+            .unwrap();
+        assert!(validate_reference_record(std::slice::from_ref(&reference), &issue).is_ok());
 
         let mut unpinned = issue;
         unpinned.issue_number = 2;
@@ -450,12 +446,8 @@ mod tests {
             authors: &["Author"],
             published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
         };
-        let issue = normalize_and_validate_issue(
-            MockAdapter.source_descriptor(),
-            1,
-            valid_issue(),
-        )
-        .unwrap();
+        let issue = normalize_and_validate_issue(MockAdapter.source_descriptor(), 1, valid_issue())
+            .unwrap();
         let error = validate_reference_record(&[reference], &issue).unwrap_err();
         assert!(error.to_string().contains("Reference issue 1 differs"));
     }

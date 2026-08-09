@@ -244,6 +244,25 @@ describe('Admin API', () => {
 			);
 		});
 
+		it('uses stable defaults and omits empty review filters', async () => {
+			const result = { items: [], page: 1, per_page: 50, total: 0 };
+			mockFetch.mockResolvedValue(jsonResponse(result));
+
+			await expect(
+				fetchImportReviewItems(5, {
+					query: '   ',
+					outcome: '',
+					severity: '',
+					coverStatus: '',
+					sample: false
+				})
+			).resolves.toEqual(result);
+			expect(mockFetch).toHaveBeenCalledWith(
+				'/api/v1/admin/import/5/review/items?page=1&per_page=50',
+				{ credentials: 'same-origin' }
+			);
+		});
+
 		it('activates only the selected job and sends warning acknowledgement explicitly', async () => {
 			const result = { series_id: 1, active: true, event: null };
 			mockFetch.mockResolvedValue(jsonResponse(result));
@@ -310,6 +329,17 @@ describe('Admin API', () => {
 	});
 
 	describe('error handling', () => {
+		it('uses the fallback message and a null code for an empty API error', async () => {
+			mockFetch.mockResolvedValue(jsonResponse({ error: '', code: 123 }, 400));
+
+			const error = await fetchAllSeries().catch((caught) => caught);
+			expect(error).toMatchObject({
+				status: 400,
+				code: null,
+				message: 'An unexpected error occurred'
+			});
+		});
+
 		it('handles non-JSON error responses', async () => {
 			mockFetch.mockResolvedValue({
 				ok: false,
