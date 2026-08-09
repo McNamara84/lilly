@@ -86,12 +86,12 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 |---|---|---|---|
 | DI-001 | Zum Release werden die Stammdaten der Serien „Maddrax – Die dunkle Zukunft der Erde“ und „Geisterjäger John Sinclair“ vollständig importiert (Heftnummer, Titel, Autor, Ersterscheinungsdatum). | MUSS | DI |
 | DI-002 | Datenquelle für Maddrax ist das Maddraxikon (de.maddraxikon.com). Datenquelle für John Sinclair ist das Gruselroman-Wiki (gruselroman-wiki.de). | MUSS | DI |
-| DI-003 | Der Datenimport erfolgt als einmaliger initialer Import mit anschließendem regelmäßigem Sync per Cronjob (z. B. wöchentlich), um neue Hefte automatisch zu erfassen. | MUSS | DI |
+| DI-003 | Der Datenimport erfolgt als initialer Vollimport mit anschließendem regelmäßigem Vollvergleich per Cronjob (z. B. wöchentlich), um neue Hefte sowie verbesserte Metadaten laufender Serien automatisch zu übernehmen. | MUSS | DI |
 | DI-004 | Cover-Bilder der Hefte werden aus den Wiki-Quellen als Referenzbilder importiert, sofern lizenzrechtlich zulässig. | SOLL | DI |
 | DI-005 | Das Datenimport-System muss modular aufgebaut sein, sodass weitere Heftroman-Serien und Datenquellen mit vertretbarem Aufwand hinzugefügt werden können (z. B. Perry Rhodan via Perrypedia). | MUSS | DI |
 | DI-006 | Zu jeder Serie werden Metadaten gespeichert: Serienname, Verlag, Genre, Erscheinungsrhythmus, Gesamtzahl der Hefte (soweit bekannt), Status (laufend/abgeschlossen). | SOLL | DI |
 | DI-007 | Der Datenimport kann ausschließlich von Admins über die WebUI gestartet und verwaltet werden. Normale Nutzer haben keinen Zugriff auf Import-Funktionen. | MUSS | DI |
-| DI-008 | Imports laufen asynchron im Hintergrund. Der Admin kann den Fortschritt in Echtzeit verfolgen (importierte Hefte / Gesamtanzahl). Der Import-Fortschritt wird in der Datenbank persistiert und überlebt Server-Neustarts. | MUSS | DI |
+| DI-008 | Imports laufen asynchron im Hintergrund. Der Admin kann den Fortschritt anhand getrennter Ergebniszähler verfolgen. Fortschritt, Fehler und Abbruchwunsch werden in der Datenbank persistiert; nach einem Serverneustart ist ein unterbrochener Lauf als solcher sichtbar und kann als verknüpfter Vollscan wiederholt werden. | MUSS | DI |
 | DI-009 | Importierte Seriendaten sind für normale Nutzer zunächst nicht sichtbar. Admins müssen eine importierte Serie nach Prüfung der Daten explizit aktivieren, bevor sie für alle Nutzer zugänglich wird. | MUSS | DI |
 | DI-010 | Admins können nach einem Import die importierten Daten in einer Prüfansicht stichprobenartig kontrollieren, inklusive Cover-Vorschau, Metadaten und Link zum Wiki-Quelleneintrag. | MUSS | DI |
 | DI-011 | Die Modularität des Importers wird durch ein Trait-basiertes Adapter-System (`WikiAdapter`-Trait) in einer Shared Rust Library (`importer-core`) realisiert. Neue Adapter können durch Implementierung des Traits hinzugefügt werden, ohne Kern- oder Backend-Code zu ändern. | MUSS | DI |

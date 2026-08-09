@@ -2,15 +2,26 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
+#[cfg(test)]
+use chrono::Utc;
 use reqwest::Client;
 
-use crate::adapter::{AdapterError, WikiAdapter};
+use crate::adapter::{AdapterError, SourceDescriptor, WikiAdapter};
 use crate::cover_image::download_cover_image;
-use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus};
+use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
 
 const BASE_URL: &str = "https://www.gruselroman-wiki.de";
 const OVERVIEW_PAGE: &str = "JS_Romanhefte";
+const SOURCE_DESCRIPTOR: SourceDescriptor = SourceDescriptor {
+    source_key: "gruselroman-wiki",
+    display_name: "Gruselroman-Wiki",
+    allowed_host: "www.gruselroman-wiki.de",
+    series_name: "Geisterjäger John Sinclair",
+    series_slug: "john-sinclair",
+    series_record_id: OVERVIEW_PAGE,
+    series_url: "https://www.gruselroman-wiki.de/index.php?title=JS_Romanhefte",
+};
 const DEFAULT_DELAY_MS: u64 = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +39,7 @@ struct IssueSummary {
 pub struct JohnSinclairAdapter {
     client: Client,
     pub(crate) delay: Duration,
+    #[cfg(test)]
     today_override: Option<NaiveDate>,
     issue_index: tokio::sync::RwLock<HashMap<u32, IssueSummary>>,
 }
@@ -45,6 +57,7 @@ impl JohnSinclairAdapter {
                 .timeout(Duration::from_secs(30))
                 .build()?,
             delay: Duration::from_millis(DEFAULT_DELAY_MS),
+            #[cfg(test)]
             today_override: None,
             issue_index: tokio::sync::RwLock::new(HashMap::new()),
         })
@@ -67,6 +80,7 @@ impl JohnSinclairAdapter {
         tokio::time::sleep(self.delay).await;
     }
 
+    #[cfg(test)]
     fn today(&self) -> NaiveDate {
         self.today_override.unwrap_or_else(|| {
             Utc::now()
@@ -184,6 +198,7 @@ impl JohnSinclairAdapter {
         Ok(result)
     }
 
+    #[cfg(test)]
     fn filter_published(summaries: Vec<IssueSummary>, today: NaiveDate) -> Vec<IssueSummary> {
         summaries
             .into_iter()
@@ -212,6 +227,10 @@ impl WikiAdapter for JohnSinclairAdapter {
         "0.1"
     }
 
+    fn source_descriptor(&self) -> SourceDescriptor {
+        SOURCE_DESCRIPTOR
+    }
+
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
         Ok(SeriesData {
             name: "Geisterjäger John Sinclair".to_string(),
@@ -221,14 +240,17 @@ impl WikiAdapter for JohnSinclairAdapter {
             frequency: Some("wöchentlich".to_string()),
             total_issues: None,
             status: SeriesStatus::Running,
-            source_url: Some(format!("{BASE_URL}/index.php?title={OVERVIEW_PAGE}")),
+            source: SourceReference {
+                source_key: SOURCE_DESCRIPTOR.source_key.to_string(),
+                source_record_id: SOURCE_DESCRIPTOR.series_record_id.to_string(),
+                source_url: SOURCE_DESCRIPTOR.series_url.to_string(),
+            },
         })
     }
 
     async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError> {
         let wikitext = self.fetch_page_wikitext(OVERVIEW_PAGE).await?;
-        let today = self.today();
-        let summaries = Self::filter_published(Self::parse_overview(&wikitext)?, today);
+        let summaries = Self::parse_overview(&wikitext)?;
         let numbers = summaries
             .iter()
             .map(|summary| summary.issue_number)
@@ -250,58 +272,7 @@ impl WikiAdapter for JohnSinclairAdapter {
             .cloned()
             .ok_or_else(|| AdapterError::NotFound(format!("Issue {issue_number} not found")))?;
         let wikitext = self.fetch_page_wikitext(&summary.page_title).await?;
-        let fields = parse_infobox_fields(&wikitext);
-
-        let authors = fields
-            .get("Autoren")
-            .map_or_else(|| summary.authors.clone(), |value| parse_people(value));
-        let cover_artists = fields
-            .get("Cover")
-            .or_else(|| fields.get("Coverzeichner"))
-            .map_or_else(
-                || summary.cover_artists.clone(),
-                |value| parse_people(value),
-            );
-        let published_at = fields
-            .get("Erscheinungsdatum")
-            .and_then(|value| parse_german_date(value))
-            .or(summary.published_at);
-        let (detail_part_number, detail_part_total) = fields
-            .get("Teil")
-            .map_or((None, None), |value| parse_part_position(value));
-        let (part_number, part_total) = if detail_part_number.is_some() {
-            (detail_part_number, detail_part_total)
-        } else {
-            (summary.part_number, summary.part_total)
-        };
-        let notes = fields
-            .get("Besonderes")
-            .map(|value| {
-                strip_wiki_markup(value)
-                    .lines()
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(ToString::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Ok(IssueData {
-            issue_number,
-            title: summary.title,
-            authors,
-            published_at,
-            part_number,
-            part_total,
-            cycle: None,
-            cover_artists,
-            keywords: Vec::new(),
-            notes,
-            source_wiki_url: Some(format!(
-                "{BASE_URL}/index.php?title={}",
-                urlencoding::encode(&summary.page_title.replace(' ', "_"))
-            )),
-        })
+        Ok(map_issue_details(summary, &wikitext))
     }
 
     async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
@@ -328,6 +299,65 @@ impl WikiAdapter for JohnSinclairAdapter {
         download_cover_image(&self.client, &image_url)
             .await
             .map(Some)
+    }
+}
+
+fn map_issue_details(summary: IssueSummary, wikitext: &str) -> IssueData {
+    let fields = parse_infobox_fields(wikitext);
+    let authors = fields
+        .get("Autoren")
+        .map_or_else(|| summary.authors.clone(), |value| parse_people(value));
+    let cover_artists = fields
+        .get("Cover")
+        .or_else(|| fields.get("Coverzeichner"))
+        .map_or_else(
+            || summary.cover_artists.clone(),
+            |value| parse_people(value),
+        );
+    let published_at = fields
+        .get("Erscheinungsdatum")
+        .and_then(|value| parse_german_date(value))
+        .or(summary.published_at);
+    let (detail_part_number, detail_part_total) = fields
+        .get("Teil")
+        .map_or((None, None), |value| parse_part_position(value));
+    let (part_number, part_total) = if detail_part_number.is_some() {
+        (detail_part_number, detail_part_total)
+    } else {
+        (summary.part_number, summary.part_total)
+    };
+    let notes = fields
+        .get("Besonderes")
+        .map(|value| {
+            strip_wiki_markup(value)
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let source_record_id = summary.page_title;
+
+    IssueData {
+        issue_number: summary.issue_number,
+        title: summary.title,
+        authors,
+        published_at,
+        part_number,
+        part_total,
+        cycle: None,
+        cover_artists,
+        keywords: Vec::new(),
+        notes,
+        source: SourceReference {
+            source_key: SOURCE_DESCRIPTOR.source_key.to_string(),
+            source_url: format!(
+                "{BASE_URL}/index.php?title={}",
+                urlencoding::encode(&source_record_id.replace(' ', "_"))
+            ),
+            source_record_id,
+        },
     }
 }
 
@@ -597,6 +627,10 @@ mod tests {
         assert_eq!(adapter.display_name(), "Geisterjäger John Sinclair");
         assert_eq!(adapter.version(), "0.1");
         assert_eq!(adapter.delay, Duration::from_millis(DEFAULT_DELAY_MS));
+        let descriptor = adapter.source_descriptor();
+        assert_eq!(descriptor.source_key, "gruselroman-wiki");
+        assert_eq!(descriptor.series_record_id, "JS_Romanhefte");
+        assert_eq!(descriptor.allowed_host, "www.gruselroman-wiki.de");
     }
 
     #[tokio::test]
@@ -606,6 +640,57 @@ mod tests {
         assert_eq!(metadata.slug, "john-sinclair");
         assert_eq!(metadata.frequency.as_deref(), Some("wöchentlich"));
         assert_eq!(metadata.status, SeriesStatus::Running);
+        assert_eq!(metadata.source.source_key, "gruselroman-wiki");
+    }
+
+    #[test]
+    fn reference_issues_map_to_expected_metadata_and_provenance() {
+        const REFERENCE_OVERVIEW: &str =
+            include_str!("../../tests/fixtures/john_sinclair/reference-overview.wiki");
+        let summaries = JohnSinclairAdapter::parse_overview(REFERENCE_OVERVIEW).unwrap();
+        let references = [
+            (
+                1,
+                "Im Nachtclub der Vampire",
+                "Jason Dark",
+                NaiveDate::from_ymd_opt(1978, 1, 17).unwrap(),
+                include_str!("../../tests/fixtures/john_sinclair/js0001.wiki"),
+            ),
+            (
+                1000,
+                "Das Schwert des Salomo",
+                "Jason Dark",
+                NaiveDate::from_ymd_opt(1997, 9, 1).unwrap(),
+                include_str!("../../tests/fixtures/john_sinclair/js1000.wiki"),
+            ),
+            (
+                2303,
+                "Die Hure Babylon",
+                "Ian Rolf Hill",
+                NaiveDate::from_ymd_opt(2022, 8, 30).unwrap(),
+                include_str!("../../tests/fixtures/john_sinclair/js2303.wiki"),
+            ),
+        ];
+
+        for (number, title, author, date, fixture) in references {
+            let summary = summaries
+                .iter()
+                .find(|summary| summary.issue_number == number)
+                .unwrap()
+                .clone();
+            let issue = map_issue_details(summary, fixture);
+            let issue = crate::adapter::normalize_and_validate_issue(
+                SOURCE_DESCRIPTOR,
+                number,
+                issue,
+            )
+            .unwrap();
+            assert_eq!(issue.title, title);
+            assert_eq!(issue.authors, vec![author]);
+            assert_eq!(issue.published_at, Some(date));
+            assert_eq!(issue.source.source_key, "gruselroman-wiki");
+            assert!(issue.source.source_record_id.starts_with(&format!("JS {number:04}")));
+        }
     }
 
     #[test]

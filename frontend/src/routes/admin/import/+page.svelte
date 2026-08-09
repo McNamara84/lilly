@@ -45,6 +45,10 @@
 		return trigger === 'scheduled' ? 'Automatisch' : 'Manuell';
 	}
 
+	function processedCount(job: ImportJob): number {
+		return job.imported_issues + (job.skipped_issues ?? 0) + job.failed_issues;
+	}
+
 	async function handleStartImport() {
 		if (!selectedAdapter) return;
 		importing = true;
@@ -183,24 +187,30 @@
 							<tr style="border-bottom: 1px solid var(--border-default);" data-testid="history-row">
 								<td class="py-3 px-2" style="color: var(--text-primary);">
 									{job.adapter_name}
+									{#if job.source_key}<span class="block text-xs" style="color: var(--text-secondary);"
+										>{job.source_key}</span
+									>{/if}
 								</td>
 								<td class="py-3 px-2">
 									<span
 										class="inline-block px-2 py-0.5 rounded text-xs font-medium"
 										class:text-green-700={job.status === 'completed'}
 										class:text-orange-700={job.status === 'completed_with_errors'}
-										class:text-red-700={job.status === 'failed'}
+										class:text-red-700={job.status === 'failed' || job.status === 'interrupted'}
 										class:text-yellow-700={job.status === 'running'}
-										class:text-gray-700={job.status === 'pending'}
+										class:text-gray-700={job.status === 'pending' || job.status === 'cancelled'}
 									>
 										{job.status}
 									</span>
 								</td>
 								<td class="py-3 px-2" style="color: var(--text-secondary);">
 									{formatTrigger(job.trigger_type)}
+									{#if job.retry_of_job_id}<span class="block text-xs"
+										>Retry von #{job.retry_of_job_id}</span
+									>{/if}
 								</td>
 								<td class="py-3 px-2 text-center" style="color: var(--text-secondary);">
-									{job.imported_issues + job.failed_issues} / {job.total_issues}
+									{processedCount(job)} / {job.total_issues}
 								</td>
 								<td class="py-3 px-2" style="color: var(--text-secondary);">
 									{formatDate(job.started_at)}

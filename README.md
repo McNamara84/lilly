@@ -85,7 +85,8 @@ While generic book managers and general-purpose collector software exist, there 
 ### Series Data and Import
 - Initial series: **Maddrax – Die dunkle Zukunft der Erde** and **Geisterjäger John Sinclair**
 - Master data (issue number, title, author, publication date) imported from fan wikis ([Maddraxikon](https://de.maddraxikon.com), [Gruselroman-Wiki](https://gruselroman-wiki.de))
-- Regular sync via the timezone-aware backend scheduler to automatically capture new issues
+- Complete, idempotent synchronization via the timezone-aware backend scheduler to capture new issues and improved wiki metadata
+- Persistent progress with created/updated/unchanged/skipped/failed counters, cancellation and linked recovery runs
 - Modular import system – additional series can be added with new adapters
 
 ### Community
@@ -209,9 +210,11 @@ IMPORT_TIMEZONE=Europe/Berlin
 IMPORT_SCHEDULED_ADAPTERS=maddrax,john-sinclair
 ```
 
-With these settings, Maddrax and the regular first edition of John Sinclair are synchronized every Saturday at 06:10 local German time. The IANA timezone keeps the local execution time stable across daylight-saving changes. After a restart, the backend reserves at most the latest missed weekly slot; `(adapter, scheduled_for)` is unique, so repeated starts cannot create the same scheduled job twice. Scheduler state and the next run are visible to administrators on the import page.
+With these settings, Maddrax and the regular first edition of John Sinclair are fully compared with their authoritative wiki every Saturday at 06:10 local German time. Each source issue is classified as created, updated, unchanged, skipped or failed; unchanged covers are not downloaded again. The IANA timezone keeps the local execution time stable across daylight-saving changes. After a restart, the backend reserves at most the latest missed weekly slot; `(adapter, scheduled_for)` is unique, so repeated starts cannot create the same scheduled job twice. Scheduler state and the next run are visible to administrators on the import page.
 
-For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run and review the initial imports manually, activate the new series, and only then enable the scheduler.
+The start request returns a persistent job with HTTP 202 before wiki access begins. Administrators can cancel active jobs; jobs interrupted by a backend restart remain visible and can be retried as linked, idempotent full scans. The detail page polls MariaDB-backed progress every three seconds and exposes record-level error context.
+
+For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run and review both initial imports manually, verify the six documented reference issues, activate the new series, run an unchanged second synchronization, and only then enable the scheduler. See [Import sources and mapping contract](docs/import-sources.md) for source identities, mappings and recovery behavior.
 
 ---
 

@@ -11,6 +11,11 @@ pub mod users;
 #[cfg(test)]
 static TEST_MIGRATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+// Import lifecycle tests intentionally exercise global reconciliation queries. Serialize
+// them so a parallel test cannot interrupt a job that belongs to another test case.
+#[cfg(test)]
+pub static IMPORT_SYNC_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(test)]
 pub async fn migrate_test_database(
     pool: &sqlx::MySqlPool,

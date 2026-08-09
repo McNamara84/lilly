@@ -31,35 +31,60 @@ vi.mock('$app/paths', () => ({
 	resolve: (path: string) => path
 }));
 
+vi.mock('$app/navigation', () => ({
+	goto: vi.fn()
+}));
+
 vi.mock('$lib/api/admin', () => ({
 	fetchImportJob: vi.fn(),
 	fetchImportSeriesIssues: vi.fn(),
+	fetchImportErrors: vi.fn(),
+	cancelImport: vi.fn(),
+	retryImport: vi.fn(),
 	activateSeries: vi.fn()
 }));
 
-import { fetchImportJob, fetchImportSeriesIssues, activateSeries } from '$lib/api/admin';
+import {
+	fetchImportJob,
+	fetchImportSeriesIssues,
+	fetchImportErrors,
+	cancelImport,
+	retryImport,
+	activateSeries
+} from '$lib/api/admin';
+import { goto } from '$app/navigation';
 
 const completedJob = {
 	id: 5,
 	series_id: 1,
 	series_slug: 'maddrax',
 	adapter_name: 'maddrax',
+	source_key: 'maddraxikon',
 	trigger_type: 'manual' as const,
 	scheduled_for: null,
 	status: 'completed',
 	total_issues: 100,
 	imported_issues: 100,
+	created_issues: 100,
+	updated_issues: 0,
+	unchanged_issues: 0,
+	skipped_issues: 0,
 	failed_issues: 0,
 	error_message: null,
 	started_by: 1,
 	started_at: '2025-06-01T10:00:00Z',
-	completed_at: '2025-06-01T10:15:00Z'
+	completed_at: '2025-06-01T10:15:00Z',
+	created_at: '2025-06-01T10:00:00Z',
+	updated_at: '2025-06-01T10:15:00Z',
+	cancel_requested_at: null,
+	retry_of_job_id: null
 };
 
 const runningJob = {
 	...completedJob,
 	status: 'running',
 	imported_issues: 50,
+	created_issues: 50,
 	completed_at: null
 };
 
@@ -67,6 +92,7 @@ const failedJob = {
 	...completedJob,
 	status: 'failed',
 	imported_issues: 30,
+	created_issues: 30,
 	error_message: 'Wiki API unreachable'
 };
 
@@ -112,6 +138,12 @@ describe('Import Detail Page', () => {
 		vi.clearAllMocks();
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		mockPage.set({ params: { id: '5' } });
+		vi.mocked(fetchImportErrors).mockResolvedValue({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
 	});
 
 	afterEach(() => {
@@ -510,6 +542,7 @@ describe('Import Detail Page', () => {
 			...completedJob,
 			status: 'completed_with_errors',
 			imported_issues: 98,
+			created_issues: 98,
 			failed_issues: 2,
 			error_message: '#7: parse error'
 		});
@@ -525,7 +558,76 @@ describe('Import Detail Page', () => {
 			expect(screen.getByTestId('review-section')).toBeInTheDocument();
 		});
 		expect(screen.getByTestId('progress-count')).toHaveTextContent(
-			'98 erfolgreich, 2 fehlgeschlagen'
+			'98 neu, 0 geändert, 0 unverändert, 0 übersprungen, 2 fehlgeschlagen'
 		);
+	});
+
+	it('requests cancellation for an active import', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(runningJob);
+		vi.mocked(cancelImport).mockResolvedValue({
+			...runningJob,
+			cancel_requested_at: '2026-08-09T10:00:00Z'
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('cancel-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('cancel-import-button'));
+
+		expect(cancelImport).toHaveBeenCalledWith(5);
+		await waitFor(() => {
+			expect(screen.getByTestId('cancel-import-button')).toHaveTextContent('Abbruch angefordert');
+		});
+	});
+
+	it('starts a linked retry and navigates to the new job', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(retryImport).mockResolvedValue({
+			...runningJob,
+			id: 6,
+			status: 'pending',
+			retry_of_job_id: 5
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('retry-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('retry-import-button'));
+
+		expect(retryImport).toHaveBeenCalledWith(5);
+		expect(goto).toHaveBeenCalledWith('/admin/import/6');
+	});
+
+	it('shows persisted issue-level error context', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(fetchImportErrors).mockResolvedValue({
+			data: [{
+				id: 1,
+				job_id: 5,
+				source_key: 'maddraxikon',
+				issue_number: 409,
+				source_record_id: 'Quelle:MX409',
+				stage: 'validate',
+				message: 'missing author',
+				created_at: '2026-08-09T10:00:00Z'
+			}],
+			page: 1,
+			per_page: 50,
+			total: 1
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('job-errors-section')).toBeInTheDocument());
+		expect(screen.getByTestId('job-errors-section')).toHaveTextContent(
+			'Heft #409 (maddraxikon:Quelle:MX409) [validate]: missing author'
+		);
+	});
+
+	it.each(['cancelled', 'interrupted'])('treats %s as terminal', async (status) => {
+		vi.mocked(fetchImportJob).mockResolvedValue({ ...failedJob, status });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('job-status')).toHaveTextContent(status));
+		expect(screen.getByTestId('retry-import-button')).toBeInTheDocument();
 	});
 });

@@ -6,6 +6,9 @@ import {
 	fetchAdapters,
 	startImport,
 	fetchImportJob,
+	cancelImport,
+	retryImport,
+	fetchImportErrors,
 	fetchImportSeriesIssues,
 	fetchImportHistory,
 	fetchImportSchedule
@@ -138,6 +141,45 @@ describe('Admin API', () => {
 			mockFetch.mockResolvedValue(jsonResponse({ error: 'Not found' }, 404));
 
 			await expect(fetchImportJob(999)).rejects.toThrow('Not found');
+		});
+	});
+
+	describe('import lifecycle actions', () => {
+		it('requests cancellation with POST', async () => {
+			const job = { id: 5, status: 'running', cancel_requested_at: '2026-08-09T10:00:00' };
+			mockFetch.mockResolvedValue(jsonResponse(job, 202));
+
+			await expect(cancelImport(5)).resolves.toEqual(job);
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/cancel', {
+				method: 'POST',
+				credentials: 'same-origin'
+			});
+		});
+
+		it('starts a linked retry with POST', async () => {
+			const job = { id: 6, status: 'pending', retry_of_job_id: 5 };
+			mockFetch.mockResolvedValue(jsonResponse(job, 202));
+
+			await expect(retryImport(5)).resolves.toEqual(job);
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/retry', {
+				method: 'POST',
+				credentials: 'same-origin'
+			});
+		});
+
+		it('loads structured import errors', async () => {
+			const errors = {
+				data: [{ id: 1, job_id: 5, issue_number: 7, stage: 'parse', message: 'bad row' }],
+				page: 1,
+				per_page: 50,
+				total: 1
+			};
+			mockFetch.mockResolvedValue(jsonResponse(errors));
+
+			await expect(fetchImportErrors(5)).resolves.toEqual(errors);
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/admin/import/5/errors?page=1', {
+				credentials: 'same-origin'
+			});
 		});
 	});
 

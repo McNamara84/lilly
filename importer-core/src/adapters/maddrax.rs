@@ -3,11 +3,20 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use std::time::Duration;
 
-use crate::adapter::{AdapterError, WikiAdapter};
+use crate::adapter::{AdapterError, SourceDescriptor, WikiAdapter};
 use crate::cover_image::download_cover_image;
-use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus};
+use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
 
 const MADDRAXIKON_BASE: &str = "https://de.maddraxikon.com";
+const SOURCE_DESCRIPTOR: SourceDescriptor = SourceDescriptor {
+    source_key: "maddraxikon",
+    display_name: "Maddraxikon",
+    allowed_host: "de.maddraxikon.com",
+    series_name: "Maddrax – Die dunkle Zukunft der Erde",
+    series_slug: "maddrax",
+    series_record_id: "Hauptseite",
+    series_url: "https://de.maddraxikon.com/wiki/Hauptseite",
+};
 const DEFAULT_DELAY_MS: u64 = 500;
 /// `MediaWiki` API allows up to 50 titles per query request
 const BATCH_SIZE: u32 = 50;
@@ -212,6 +221,10 @@ impl WikiAdapter for MaddraxAdapter {
         "0.9"
     }
 
+    fn source_descriptor(&self) -> SourceDescriptor {
+        SOURCE_DESCRIPTOR
+    }
+
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
         Ok(SeriesData {
             name: "Maddrax \u{2013} Die dunkle Zukunft der Erde".to_string(),
@@ -221,7 +234,11 @@ impl WikiAdapter for MaddraxAdapter {
             frequency: Some("14-t\u{00e4}gig".to_string()),
             total_issues: None,
             status: SeriesStatus::Running,
-            source_url: Some(format!("{MADDRAXIKON_BASE}/wiki/Hauptseite")),
+            source: SourceReference {
+                source_key: SOURCE_DESCRIPTOR.source_key.to_string(),
+                source_record_id: SOURCE_DESCRIPTOR.series_record_id.to_string(),
+                source_url: SOURCE_DESCRIPTOR.series_url.to_string(),
+            },
         })
     }
 
@@ -297,90 +314,18 @@ impl WikiAdapter for MaddraxAdapter {
             .as_str()
             .ok_or_else(|| AdapterError::Parse("Missing wikitext in API response".to_string()))?;
 
-        let fields = Self::parse_wikitext_infobox(wikitext);
-
-        let title = fields.get("Titel").map_or_else(
-            || {
-                if wiki_title.is_empty() {
-                    format!("Maddrax {issue_number}")
-                } else {
-                    wiki_title.clone()
-                }
-            },
-            |s| Self::strip_wiki_markup(s),
-        );
-
-        let author = fields.get("Autor").map(|s| Self::strip_wiki_markup(s));
-
-        // Split comma-separated authors
-        let authors: Vec<String> = author
-            .map(|a| {
-                a.split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
-
         // Resolve cycle name from template header (e.g. "Roman Zyklus 05" → "Daa'muren")
         let cycle = match Self::extract_cycle_number(wikitext) {
             Some(num) => self.cycle_names.read().await.get(&num).cloned(),
             None => None,
         };
 
-        // Split comma-separated cover artists
-        let cover_artists: Vec<String> = fields
-            .get("Titelbildzeichner")
-            .map(|s| Self::strip_wiki_markup(s))
-            .map(|a| {
-                a.split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Split comma-separated keywords
-        let keywords: Vec<String> = fields
-            .get("Schlagworte")
-            .map(|s| Self::strip_wiki_markup(s))
-            .map(|a| {
-                a.split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Split comma-separated notes and normalize an optional multipart marker.
-        let raw_notes = fields
-            .get("Besonderes")
-            .map(|s| Self::strip_wiki_markup(s))
-            .unwrap_or_default();
-        let (part_number, part_total, notes) = parse_multipart_and_notes(&raw_notes);
-
-        let published_at = fields
-            .get("Erscheinungsdatum")
-            .and_then(|s| parse_german_date(s));
-
-        let source_wiki_url = format!(
-            "{MADDRAXIKON_BASE}/wiki/{}",
-            urlencoding::encode(&wiki_title)
-        );
-
-        Ok(IssueData {
+        Ok(map_issue_details(
             issue_number,
-            title,
-            authors,
-            published_at,
-            part_number,
-            part_total,
+            &wiki_title,
+            wikitext,
             cycle,
-            cover_artists,
-            keywords,
-            notes,
-            source_wiki_url: Some(source_wiki_url),
-        })
+        ))
     }
 
     async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
@@ -406,6 +351,92 @@ impl WikiAdapter for MaddraxAdapter {
         };
 
         download_cover_image(&self.client, &img_url).await.map(Some)
+    }
+}
+
+fn map_issue_details(
+    issue_number: u32,
+    wiki_title: &str,
+    wikitext: &str,
+    cycle: Option<String>,
+) -> IssueData {
+    let fields = MaddraxAdapter::parse_wikitext_infobox(wikitext);
+    let title = fields.get("Titel").map_or_else(
+        || {
+            if wiki_title.is_empty() {
+                format!("Maddrax {issue_number}")
+            } else {
+                wiki_title.to_string()
+            }
+        },
+        |s| MaddraxAdapter::strip_wiki_markup(s),
+    );
+    let author = fields
+        .get("Autor")
+        .map(|s| MaddraxAdapter::strip_wiki_markup(s));
+    let authors: Vec<String> = author
+        .map(|a| {
+            a.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Split comma-separated cover artists
+    let cover_artists: Vec<String> = fields
+        .get("Titelbildzeichner")
+        .map(|s| MaddraxAdapter::strip_wiki_markup(s))
+        .map(|a| {
+            a.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let keywords: Vec<String> = fields
+        .get("Schlagworte")
+        .map(|s| MaddraxAdapter::strip_wiki_markup(s))
+        .map(|a| {
+            a.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let raw_notes = fields
+        .get("Besonderes")
+        .map(|s| MaddraxAdapter::strip_wiki_markup(s))
+        .unwrap_or_default();
+    let (part_number, part_total, notes) = parse_multipart_and_notes(&raw_notes);
+
+    let published_at = fields
+        .get("Erscheinungsdatum")
+        .and_then(|s| parse_german_date(s));
+
+    let source_url = format!(
+        "{MADDRAXIKON_BASE}/wiki/{}",
+        urlencoding::encode(wiki_title)
+    );
+
+    IssueData {
+        issue_number,
+        title,
+        authors,
+        published_at,
+        part_number,
+        part_total,
+        cycle,
+        cover_artists,
+        keywords,
+        notes,
+        source: SourceReference {
+            source_key: SOURCE_DESCRIPTOR.source_key.to_string(),
+            source_record_id: format!("Quelle:MX{issue_number}"),
+            source_url,
+        },
     }
 }
 
@@ -503,6 +534,7 @@ fn parse_german_date(s: &str) -> Option<chrono::NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDate;
 
     #[test]
     fn test_adapter_name() {
@@ -522,6 +554,14 @@ mod tests {
         assert_eq!(adapter.version(), "0.9");
     }
 
+    #[test]
+    fn source_descriptor_is_stable_and_authoritative() {
+        let descriptor = MaddraxAdapter::new().unwrap().source_descriptor();
+        assert_eq!(descriptor.source_key, "maddraxikon");
+        assert_eq!(descriptor.series_record_id, "Hauptseite");
+        assert_eq!(descriptor.allowed_host, "de.maddraxikon.com");
+    }
+
     #[tokio::test]
     async fn test_fetch_series_metadata() {
         let adapter = MaddraxAdapter::new().unwrap();
@@ -529,6 +569,49 @@ mod tests {
         assert_eq!(metadata.slug, "maddrax");
         assert_eq!(metadata.status, SeriesStatus::Running);
         assert!(metadata.publisher.is_some());
+        assert_eq!(metadata.source.source_key, "maddraxikon");
+    }
+
+    #[test]
+    fn reference_issues_map_to_expected_metadata_and_provenance() {
+        let references = [
+            (
+                1,
+                "Der Gott aus dem Eis",
+                "Jo Zybell",
+                NaiveDate::from_ymd_opt(2000, 2, 8).unwrap(),
+                include_str!("../../tests/fixtures/maddrax/mx0001.wiki"),
+            ),
+            (
+                409,
+                "Falsche Götter",
+                "Jana Paradigi",
+                NaiveDate::from_ymd_opt(2015, 9, 22).unwrap(),
+                include_str!("../../tests/fixtures/maddrax/mx0409.wiki"),
+            ),
+            (
+                555,
+                "Das Echo des Wandlers",
+                "Lucy Guth",
+                NaiveDate::from_ymd_opt(2021, 4, 27).unwrap(),
+                include_str!("../../tests/fixtures/maddrax/mx0555.wiki"),
+            ),
+        ];
+
+        for (number, title, author, date, fixture) in references {
+            let issue = map_issue_details(number, title, fixture, None);
+            let issue = crate::adapter::normalize_and_validate_issue(
+                SOURCE_DESCRIPTOR,
+                number,
+                issue,
+            )
+            .unwrap();
+            assert_eq!(issue.title, title);
+            assert_eq!(issue.authors, vec![author]);
+            assert_eq!(issue.published_at, Some(date));
+            assert_eq!(issue.source.source_key, "maddraxikon");
+            assert_eq!(issue.source.source_record_id, format!("Quelle:MX{number}"));
+        }
     }
 
     #[test]

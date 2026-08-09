@@ -8,6 +8,9 @@ pub enum AppError {
     BadRequest(String),
 
     #[error("{0}")]
+    Conflict(String),
+
+    #[error("{0}")]
     Unauthorized(String),
 
     #[error("{message}")]
@@ -57,6 +60,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message, code) = match &self {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone(), None),
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None),
             AppError::Forbidden { message, code } => {
                 (StatusCode::FORBIDDEN, message.clone(), code.clone())
@@ -88,6 +92,13 @@ mod tests {
         let error = AppError::BadRequest("invalid input".to_string());
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_conflict_status() {
+        let error = AppError::Conflict("invalid state transition".to_string());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 
     #[test]

@@ -144,6 +144,8 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `total_issues` | INT UNSIGNED | NULL | Aktuelle Gesamtzahl Hefte (NULL bei laufenden Serien) |
 | `status` | ENUM | NOT NULL | 'running' \| 'completed' \| 'cancelled' |
 | `active` | BOOLEAN | NOT NULL, DEF 0 | Ob die Serie für normale Nutzer sichtbar ist. Importierte Serien starten als inaktiv und müssen von einem Admin nach Prüfung aktiviert werden. |
+| `source_key` | VARCHAR(64) | NULL, UQ mit Quell-ID | Stabile Quellenart, z. B. `maddraxikon` |
+| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart | Stabile ID des Serienrecords in der Quelle |
 | `source_url` | VARCHAR(500) | NULL | URL der Datenquelle (Wiki) |
 | `created_at` | TIMESTAMP | NOT NULL | Erstellungszeitpunkt |
 | `updated_at` | TIMESTAMP | NOT NULL | Letzter Sync-Zeitpunkt |
@@ -161,6 +163,8 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `cycle` | VARCHAR(255) | NULL | Zyklus / Handlungsabschnitt |
 | `cover_url` | VARCHAR(500) | NULL | URL zum Cover-Bild in der Wiki-Quelle |
 | `cover_local_path` | VARCHAR(500) | NULL | Relativer Pfad zum lokal gespeicherten Cover im /media-Volume |
+| `source_key` | VARCHAR(64) | NULL, UQ mit Quell-ID | Stabile Quellenart |
+| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart | Stabile ID des Hefts in der Quelle |
 | `source_wiki_url` | VARCHAR(500) | NULL | Link zum Wiki-Eintrag des Heftes |
 | `created_at` | TIMESTAMP | NOT NULL | Import-Zeitpunkt |
 
@@ -216,16 +220,21 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 | `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
 | `series_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf series.id (ON DELETE CASCADE) |
 | `adapter_name` | VARCHAR(100) | NOT NULL | Name des verwendeten Import-Adapters (z. B. „maddrax") |
-| `status` | ENUM | NOT NULL, DEF 'pending' | 'pending' \| 'running' \| 'completed' \| 'failed' |
-| `total_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Gesamtzahl zu importierender Hefte |
-| `imported_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Bisher importierte Hefte (für Fortschrittsanzeige) |
-| `error_message` | TEXT | NULL | Fehlermeldung bei Status 'failed' |
-| `started_by` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf users.id — Admin, der den Import gestartet hat |
-| `started_at` | TIMESTAMP | NULL | Zeitpunkt des Import-Starts |
-| `completed_at` | TIMESTAMP | NULL | Zeitpunkt des Import-Abschlusses |
-| `created_at` | TIMESTAMP | NOT NULL | Erstellungszeitpunkt des Jobs |
+| `source_key` | VARCHAR(64) | NULL | Snapshot der verwendeten Quellenart |
+| `status` | ENUM | NOT NULL, DEF 'pending' | `pending` \| `running` \| `completed` \| `completed_with_errors` \| `failed` \| `cancelled` \| `interrupted` |
+| `total_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Anzahl der im Vollscan gemeldeten Quellhefte |
+| `imported_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Legacy-Aggregat aus `created + updated + unchanged` |
+| `created_issues` / `updated_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Neu angelegte und fachlich geänderte Hefte |
+| `unchanged_issues` / `skipped_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Unveränderte und bewusst übersprungene Hefte |
+| `failed_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Recordbezogen fehlgeschlagene Hefte |
+| `error_message` | TEXT | NULL | Kompakte Fehlerzusammenfassung |
+| `cancel_requested_at` | DATETIME | NULL | Persistenter kooperativer Abbruchwunsch |
+| `retry_of_job_id` | INT UNSIGNED | FK, NULL | Verknüpfung zum Ursprungslauf |
+| `started_by` | INT UNSIGNED | FK, NULL | Admin bei manuellen Läufen; NULL beim Scheduler |
+| `started_at` / `completed_at` | DATETIME | NULL | Laufzeitgrenzen |
+| `created_at` / `updated_at` | DATETIME | NOT NULL | Anlage und letzter persistierter Fortschritt |
 
-*Der Import-Fortschritt wird in der Datenbank persistiert und überlebt Server-Neustarts. Die Import-Historie ist pro Serie einsehbar.*
+Recordbezogene Fehler liegen zusätzlich in `import_job_errors` mit Job, Quelle, optionaler Heftnummer und Quell-ID, Verarbeitungsstufe und Meldung. Verwaiste aktive Jobs werden nach einem Neustart als `interrupted` sichtbar; sie werden nicht still fortgesetzt.
 
 ### 4.7 Tabellen: trades, messages, comments
 
@@ -299,10 +308,13 @@ Alle Admin-Endpunkte erfordern einen authentifizierten Nutzer mit der Rolle `adm
 | **GET** | `/api/v1/admin/series` | Admin | Alle Serien (inkl. inaktive) auflisten |
 | **POST** | `/api/v1/admin/series/{slug}/activate` | Admin | Serie für normale Nutzer sichtbar machen |
 | **POST** | `/api/v1/admin/series/{slug}/deactivate` | Admin | Serie für normale Nutzer ausblenden |
-| **GET** | `/api/v1/admin/adapters` | Admin | Verfügbare Import-Adapter auflisten (Name, Version) |
-| **POST** | `/api/v1/admin/import` | Admin | Import starten (`{ "adapter": "maddrax" }`) → gibt Import-Job-ID zurück |
+| **GET** | `/api/v1/admin/adapters` | Admin | Verfügbare Import-Adapter einschließlich Quellenart auflisten |
+| **POST** | `/api/v1/admin/import` | Admin | Vollscan anlegen (`{ "adapter": "maddrax" }`) → HTTP 202 mit Job |
 | **GET** | `/api/v1/admin/import/{id}` | Admin | Import-Job-Status & Fortschritt abfragen |
-| **GET** | `/api/v1/admin/import/{id}/issues` | Admin | Importierte Hefte eines Jobs (paginiert, für Prüfansicht) |
+| **POST** | `/api/v1/admin/import/{id}/cancel` | Admin | Persistenten Abbruch für einen aktiven Job anfordern |
+| **POST** | `/api/v1/admin/import/{id}/retry` | Admin | Verknüpften neuen Vollscan für einen fehlgeschlagenen oder abgebrochenen Job anlegen |
+| **GET** | `/api/v1/admin/import/{id}/errors` | Admin | Persistierte Fehlerkontexte paginiert lesen |
+| **GET** | `/api/v1/admin/import/{id}/series-issues` | Admin | Serienhefte eines Jobs paginiert für die Prüfansicht lesen |
 | **GET** | `/api/v1/admin/import/history` | Admin | Import-Historie aller Jobs |
 
 ### 5.2 Abgeleiteter Status "Fehlend" (missing)
@@ -346,7 +358,7 @@ Die Import-Logik ist als eigenständiges Rust-Crate (`importer-core`) implementi
 
 Das Kernkonzept ist ein Adapter-Pattern mit Trait-basierter Architektur:
 
-- **Trait `WikiAdapter`:** Definiert die Schnittstelle, die jede Datenquelle implementieren muss: `fetch_series_metadata()`, `fetch_issue_list()`, `fetch_issue_details(number)`, `fetch_cover(number)`. Jeder Adapter gibt zusätzlich `name()`, `display_name()` und `version()` zurück.
+- **Trait `WikiAdapter`:** Definiert `source_descriptor()`, `fetch_series_metadata()`, `fetch_issue_list()`, `fetch_issue_details(number)` und `fetch_cover(number)`. Der statische Descriptor identifiziert Quelle und Zielserie bereits vor dem ersten Netzwerkzugriff.
 - **`AdapterRegistry`:** Zentrale Registrierung aller verfügbaren Adapter. Das Backend initialisiert die Registry beim Start und stellt sie via `AppState` bereit.
 - **`ProgressReporter`-Trait:** Entkoppelt die Fortschrittsmeldung von der Persistenz. Das Backend implementiert dieses Trait mit DB-Writes in die `import_jobs`-Tabelle, das CLI könnte es mit stdout-Output implementieren.
 - **`MaddraxAdapter` (v0.9):** Erster konkreter Adapter für de.maddraxikon.com. Nutzt eine Kombination aus MediaWiki-API (für strukturierte Daten) und HTML-Scraping (für Tabellen und Cover via `reqwest` + `scraper`).
@@ -368,15 +380,17 @@ importer-core/
 
 ### 6.2 Import-Ablauf
 
-1. **Admin startet Import:** Admin wählt in der WebUI einen verfügbaren Adapter und klickt „Import starten". Das Backend erstellt einen `import_jobs`-Eintrag mit Status `pending`.
-2. **Asynchrone Ausführung:** Ein `tokio::spawn`-Task führt den Import im Hintergrund aus. Der Fortschritt (importierte Hefte / Gesamtanzahl) wird laufend in der `import_jobs`-Tabelle aktualisiert.
-3. **Serien-Erstellung:** Der Adapter ruft `fetch_series_metadata()` auf und erstellt/aktualisiert den `series`-Eintrag mit `active = false` (für Nutzer noch nicht sichtbar).
-4. **Heft-Import:** Für jede Heftnummer: `fetch_issue_details()` + `fetch_cover()` → Heft-Upsert in `issues` + Cover lokal speichern.
-5. **Cover-Download:** Cover-Bilder werden lokal im `/media/covers/series-{series_id}/{number}.{ext}`-Format gespeichert (ext = jpg, png oder webp je nach Content-Type).
-6. **Fortschritts-Polling:** Admin pollt `GET /api/v1/admin/import/{id}` für den aktuellen Status.
-7. **Prüfung & Aktivierung:** Nach Abschluss prüft der Admin stichprobenartig die importierten Daten und aktiviert die Serie über `POST /api/v1/admin/series/{slug}/activate`.
-8. **Inkrementeller Sync (Follow-up):** Wöchentlicher Cronjob prüft auf neue Hefte und importiert nur die Differenz. Wird erst nach stabilem Erstimport implementiert.
-9. **Logging:** Jeder Import-Lauf wird in der `import_jobs`-Tabelle protokolliert (Anzahl Hefte, Fehler, Dauer). Import-Historie ist über die Admin-UI einsehbar.
+1. **Jobanlage:** Der Adminstart löst die Zielserie nur über den statischen Adapter-Descriptor auf, persistiert einen `pending`-Job und antwortet mit HTTP 202. Im Request findet kein Wiki-Zugriff statt.
+2. **Asynchrone Ausführung:** Ein `tokio::spawn`-Task markiert den Job konditional als `running`; MariaDB bleibt die alleinige Quelle für Status und Fortschritt.
+3. **Quellenprüfung:** Serien- und Heftdaten werden normalisiert und gegen `source_key`, Quell-ID, HTTPS-Host und Pflichtfelder validiert.
+4. **Vollscan:** Jeder Lauf liest die aktuelle Heftliste vollständig. Jedes gemeldete Heft erhält genau ein Ergebnis: `created`, `updated`, `unchanged`, `skipped` oder `failed`.
+5. **Idempotenter Vergleich:** Vorhandene Metadaten und Relationen werden gebündelt geladen. Nur neue oder geänderte Datensätze werden atomar geschrieben; unveränderte Relationen bleiben unberührt.
+6. **Cover:** Cover werden nur für neue Hefte oder bei fehlendem lokalem Cover geladen. Ein Coverfehler zerstört keine validen bibliografischen Daten.
+7. **Recovery:** Abbruchwünsche werden vor Abruf und Persistenz geprüft. Neustart-Waisen enden als `interrupted`; ein zulässiger Retry erzeugt einen neuen verknüpften Vollscan.
+8. **Polling und Prüfung:** Die Adminseite pollt den Job alle drei Sekunden, zeigt Detailzähler und Fehlerkontext und stoppt bei jedem terminalen Status.
+9. **Aktivierung:** Importierte Serien bleiben inaktiv, bis ein Admin die Stichprobe geprüft und die Serie explizit aktiviert hat.
+
+Die verbindlichen Hosts, Quell-IDs, Feldmappings und Referenz-Fixtures sind in [`docs/import-sources.md`](import-sources.md) dokumentiert.
 
 ### 6.3 Hinzufügen neuer Serien
 
