@@ -31,35 +31,60 @@ vi.mock('$app/paths', () => ({
 	resolve: (path: string) => path
 }));
 
+vi.mock('$app/navigation', () => ({
+	goto: vi.fn()
+}));
+
 vi.mock('$lib/api/admin', () => ({
 	fetchImportJob: vi.fn(),
 	fetchImportSeriesIssues: vi.fn(),
+	fetchImportErrors: vi.fn(),
+	cancelImport: vi.fn(),
+	retryImport: vi.fn(),
 	activateSeries: vi.fn()
 }));
 
-import { fetchImportJob, fetchImportSeriesIssues, activateSeries } from '$lib/api/admin';
+import {
+	fetchImportJob,
+	fetchImportSeriesIssues,
+	fetchImportErrors,
+	cancelImport,
+	retryImport,
+	activateSeries
+} from '$lib/api/admin';
+import { goto } from '$app/navigation';
 
 const completedJob = {
 	id: 5,
 	series_id: 1,
 	series_slug: 'maddrax',
 	adapter_name: 'maddrax',
+	source_key: 'maddraxikon',
 	trigger_type: 'manual' as const,
 	scheduled_for: null,
 	status: 'completed',
 	total_issues: 100,
 	imported_issues: 100,
+	created_issues: 100,
+	updated_issues: 0,
+	unchanged_issues: 0,
+	skipped_issues: 0,
 	failed_issues: 0,
 	error_message: null,
 	started_by: 1,
 	started_at: '2025-06-01T10:00:00Z',
-	completed_at: '2025-06-01T10:15:00Z'
+	completed_at: '2025-06-01T10:15:00Z',
+	created_at: '2025-06-01T10:00:00Z',
+	updated_at: '2025-06-01T10:15:00Z',
+	cancel_requested_at: null,
+	retry_of_job_id: null
 };
 
 const runningJob = {
 	...completedJob,
 	status: 'running',
 	imported_issues: 50,
+	created_issues: 50,
 	completed_at: null
 };
 
@@ -67,6 +92,7 @@ const failedJob = {
 	...completedJob,
 	status: 'failed',
 	imported_issues: 30,
+	created_issues: 30,
 	error_message: 'Wiki API unreachable'
 };
 
@@ -112,6 +138,12 @@ describe('Import Detail Page', () => {
 		vi.clearAllMocks();
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		mockPage.set({ params: { id: '5' } });
+		vi.mocked(fetchImportErrors).mockResolvedValue({
+			data: [],
+			page: 1,
+			per_page: 50,
+			total: 0
+		});
 	});
 
 	afterEach(() => {
@@ -510,6 +542,7 @@ describe('Import Detail Page', () => {
 			...completedJob,
 			status: 'completed_with_errors',
 			imported_issues: 98,
+			created_issues: 98,
 			failed_issues: 2,
 			error_message: '#7: parse error'
 		});
@@ -525,7 +558,241 @@ describe('Import Detail Page', () => {
 			expect(screen.getByTestId('review-section')).toBeInTheDocument();
 		});
 		expect(screen.getByTestId('progress-count')).toHaveTextContent(
-			'98 erfolgreich, 2 fehlgeschlagen'
+			'98 neu, 0 geändert, 0 unverändert, 0 übersprungen, 2 fehlgeschlagen'
 		);
+	});
+
+	it('requests cancellation for an active import', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(runningJob);
+		vi.mocked(cancelImport).mockResolvedValue({
+			...runningJob,
+			cancel_requested_at: '2026-08-09T10:00:00Z'
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('cancel-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('cancel-import-button'));
+
+		expect(cancelImport).toHaveBeenCalledWith(5);
+		await waitFor(() => {
+			expect(screen.getByTestId('cancel-import-button')).toHaveTextContent('Abbruch angefordert');
+		});
+	});
+
+	it.each([
+		[new Error('Cancellation rejected'), 'Cancellation rejected'],
+		['unexpected', 'Cancellation failed']
+	])('shows a cancellation error when the request fails', async (rejection, message) => {
+		vi.mocked(fetchImportJob).mockResolvedValue(runningJob);
+		vi.mocked(cancelImport).mockRejectedValue(rejection);
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('cancel-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('cancel-import-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent(message);
+		});
+	});
+
+	it('starts a linked retry and navigates to the new job', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(retryImport).mockResolvedValue({
+			...runningJob,
+			id: 6,
+			status: 'pending',
+			retry_of_job_id: 5
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('retry-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('retry-import-button'));
+
+		expect(retryImport).toHaveBeenCalledWith(5);
+		expect(goto).toHaveBeenCalledWith('/admin/import/6');
+		expect(screen.getByTestId('retry-import-button')).toBeEnabled();
+	});
+
+	it('resets persisted errors and their page when retry navigation reuses the route', async () => {
+		const oldError = {
+			id: 1,
+			job_id: 5,
+			source_key: 'maddraxikon',
+			issue_number: 409,
+			source_record_id: 'Quelle:MX409',
+			stage: 'validate',
+			message: 'old job error',
+			created_at: '2026-08-09T10:00:00Z'
+		};
+		const newError = {
+			...oldError,
+			id: 2,
+			job_id: 6,
+			issue_number: 410,
+			source_record_id: 'Quelle:MX410',
+			message: 'new job error'
+		};
+		vi.mocked(fetchImportJob)
+			.mockResolvedValueOnce(failedJob)
+			.mockResolvedValueOnce({ ...failedJob, id: 6, retry_of_job_id: 5 });
+		vi.mocked(fetchImportErrors)
+			.mockResolvedValueOnce({ data: [oldError], page: 1, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [oldError], page: 2, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [newError], page: 1, per_page: 50, total: 1 });
+		vi.mocked(retryImport).mockResolvedValue({
+			...runningJob,
+			id: 6,
+			status: 'pending',
+			retry_of_job_id: 5
+		});
+		vi.mocked(goto).mockImplementation(async () => {
+			mockPage.set({ params: { id: '6' } });
+		});
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() =>
+			expect(screen.getByTestId('job-errors-section')).toHaveTextContent('old job error')
+		);
+		await user.click(screen.getByTestId('next-errors-page'));
+		await waitFor(() => expect(screen.getByText('Seite 2')).toBeInTheDocument());
+
+		await user.click(screen.getByTestId('retry-import-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('import-title')).toHaveTextContent('Import #6');
+			expect(screen.getByTestId('job-errors-section')).toHaveTextContent('new job error');
+		});
+		expect(screen.queryByText(/old job error/)).not.toBeInTheDocument();
+		expect(fetchImportErrors).toHaveBeenLastCalledWith(6, 1);
+		expect(screen.getByTestId('retry-import-button')).toBeEnabled();
+	});
+
+	it.each([
+		[new Error('Retry rejected'), 'Retry rejected'],
+		['unexpected', 'Retry failed']
+	])('shows a retry error when the request fails', async (rejection, message) => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(retryImport).mockRejectedValue(rejection);
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('retry-import-button')).toBeInTheDocument());
+		await user.click(screen.getByTestId('retry-import-button'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent(message);
+		});
+		expect(goto).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[new Error('Error context unavailable'), 'Error context unavailable'],
+		['unexpected', 'Failed to load import errors']
+	])('shows an error when loading persisted error context fails', async (rejection, message) => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(fetchImportErrors).mockRejectedValue(rejection);
+
+		render(ImportDetailPage);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('error-message')).toHaveTextContent(message);
+		});
+	});
+
+	it('shows persisted issue-level error context', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(fetchImportErrors).mockResolvedValue({
+			data: [
+				{
+					id: 1,
+					job_id: 5,
+					source_key: 'maddraxikon',
+					issue_number: 409,
+					source_record_id: 'Quelle:MX409',
+					stage: 'validate',
+					message: 'missing author',
+					created_at: '2026-08-09T10:00:00Z'
+				}
+			],
+			page: 1,
+			per_page: 50,
+			total: 1
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('job-errors-section')).toBeInTheDocument());
+		expect(screen.getByTestId('job-errors-section')).toHaveTextContent(
+			'Heft #409 (maddraxikon:Quelle:MX409) [validate]: missing author'
+		);
+	});
+
+	it('paginates persisted error context in both directions', async () => {
+		const runError = {
+			id: 1,
+			job_id: 5,
+			source_key: 'maddraxikon',
+			issue_number: null,
+			source_record_id: null,
+			stage: 'fetch',
+			message: 'wiki unavailable',
+			created_at: '2026-08-09T10:00:00Z'
+		};
+		const issueError = {
+			...runError,
+			id: 51,
+			issue_number: 695,
+			message: 'invalid issue'
+		};
+		vi.mocked(fetchImportJob).mockResolvedValue(failedJob);
+		vi.mocked(fetchImportErrors)
+			.mockResolvedValueOnce({ data: [runError], page: 1, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [issueError], page: 2, per_page: 50, total: 51 })
+			.mockResolvedValueOnce({ data: [runError], page: 1, per_page: 50, total: 51 });
+		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('job-errors-section')).toHaveTextContent('Lauf'));
+		expect(screen.getByTestId('previous-errors-page')).toBeDisabled();
+		expect(screen.getByTestId('next-errors-page')).toBeEnabled();
+
+		await user.click(screen.getByTestId('next-errors-page'));
+		await waitFor(() => {
+			expect(fetchImportErrors).toHaveBeenLastCalledWith(5, 2);
+			expect(screen.getByTestId('job-errors-section')).toHaveTextContent('Heft #695');
+			expect(screen.getByText('Seite 2')).toBeInTheDocument();
+		});
+		expect(screen.getByTestId('previous-errors-page')).toBeEnabled();
+		expect(screen.getByTestId('next-errors-page')).toBeDisabled();
+
+		await user.click(screen.getByTestId('previous-errors-page'));
+		await waitFor(() => {
+			expect(fetchImportErrors).toHaveBeenLastCalledWith(5, 1);
+			expect(screen.getByText('Seite 1')).toBeInTheDocument();
+		});
+	});
+
+	it('shows source, retry origin and last update metadata', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...failedJob,
+			retry_of_job_id: 4
+		});
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('import-title')).toBeInTheDocument());
+		expect(screen.getByText(/Quelle: maddraxikon/)).toBeInTheDocument();
+		expect(screen.getByText(/Wiederholung von #4/)).toBeInTheDocument();
+		expect(screen.getByText(/Zuletzt aktualisiert:/)).toBeInTheDocument();
+	});
+
+	it.each(['cancelled', 'interrupted'])('treats %s as terminal', async (status) => {
+		vi.mocked(fetchImportJob).mockResolvedValue({ ...failedJob, status });
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('job-status')).toHaveTextContent(status));
+		expect(screen.getByTestId('retry-import-button')).toBeInTheDocument();
 	});
 });

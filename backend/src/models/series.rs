@@ -12,12 +12,14 @@ pub struct Series {
     pub total_issues: Option<u32>,
     pub status: String,
     pub active: bool,
+    pub source_key: Option<String>,
+    pub source_record_id: Option<String>,
     pub source_url: Option<String>,
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[allow(dead_code)]
 pub struct SeriesResponse {
     pub id: u32,
@@ -29,6 +31,8 @@ pub struct SeriesResponse {
     pub total_issues: Option<u32>,
     pub status: String,
     pub active: bool,
+    pub source_key: Option<String>,
+    pub source_record_id: Option<String>,
     pub source_url: Option<String>,
 }
 
@@ -46,12 +50,14 @@ pub struct Issue {
     pub cycle: Option<String>,
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
+    pub source_key: Option<String>,
+    pub source_record_id: Option<String>,
     pub source_wiki_url: Option<String>,
     pub metadata_synced_at: Option<chrono::NaiveDateTime>,
     pub created_at: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[allow(dead_code)]
 pub struct IssueResponse {
     pub id: u32,
@@ -69,6 +75,8 @@ pub struct IssueResponse {
     pub notes: Vec<String>,
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
+    pub source_key: Option<String>,
+    pub source_record_id: Option<String>,
     pub source_wiki_url: Option<String>,
 }
 
@@ -78,17 +86,25 @@ pub struct ImportJob {
     pub id: u32,
     pub series_id: u32,
     pub adapter_name: String,
+    pub source_key: Option<String>,
     pub trigger_type: String,
     pub scheduled_for: Option<chrono::NaiveDateTime>,
     pub status: String,
     pub total_issues: u32,
     pub imported_issues: u32,
+    pub created_issues: u32,
+    pub updated_issues: u32,
+    pub unchanged_issues: u32,
+    pub skipped_issues: u32,
     pub failed_issues: u32,
     pub error_message: Option<String>,
     pub started_by: Option<u32>,
     pub started_at: Option<chrono::NaiveDateTime>,
     pub completed_at: Option<chrono::NaiveDateTime>,
     pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+    pub cancel_requested_at: Option<chrono::NaiveDateTime>,
+    pub retry_of_job_id: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,16 +114,37 @@ pub struct ImportJobResponse {
     pub series_id: u32,
     pub series_slug: String,
     pub adapter_name: String,
+    pub source_key: Option<String>,
     pub trigger_type: String,
     pub scheduled_for: Option<chrono::NaiveDateTime>,
     pub status: String,
     pub total_issues: u32,
     pub imported_issues: u32,
+    pub created_issues: u32,
+    pub updated_issues: u32,
+    pub unchanged_issues: u32,
+    pub skipped_issues: u32,
     pub failed_issues: u32,
     pub error_message: Option<String>,
     pub started_by: Option<u32>,
     pub started_at: Option<chrono::NaiveDateTime>,
     pub completed_at: Option<chrono::NaiveDateTime>,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+    pub cancel_requested_at: Option<chrono::NaiveDateTime>,
+    pub retry_of_job_id: Option<u32>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ImportJobError {
+    pub id: u32,
+    pub job_id: u32,
+    pub source_key: String,
+    pub issue_number: Option<u32>,
+    pub source_record_id: Option<String>,
+    pub stage: String,
+    pub message: String,
+    pub created_at: chrono::NaiveDateTime,
 }
 
 impl From<&Series> for SeriesResponse {
@@ -122,6 +159,8 @@ impl From<&Series> for SeriesResponse {
             total_issues: s.total_issues,
             status: s.status.clone(),
             active: s.active,
+            source_key: s.source_key.clone(),
+            source_record_id: s.source_record_id.clone(),
             source_url: s.source_url.clone(),
         }
     }
@@ -151,6 +190,8 @@ impl IssueResponse {
             notes,
             cover_url: i.cover_url.clone(),
             cover_local_path: i.cover_local_path.clone(),
+            source_key: i.source_key.clone(),
+            source_record_id: i.source_record_id.clone(),
             source_wiki_url: i.source_wiki_url.clone(),
         }
     }
@@ -163,16 +204,25 @@ impl ImportJobResponse {
             series_id: j.series_id,
             series_slug,
             adapter_name: j.adapter_name.clone(),
+            source_key: j.source_key.clone(),
             trigger_type: j.trigger_type.clone(),
             scheduled_for: j.scheduled_for,
             status: j.status.clone(),
             total_issues: j.total_issues,
             imported_issues: j.imported_issues,
+            created_issues: j.created_issues,
+            updated_issues: j.updated_issues,
+            unchanged_issues: j.unchanged_issues,
+            skipped_issues: j.skipped_issues,
             failed_issues: j.failed_issues,
             error_message: j.error_message.clone(),
             started_by: j.started_by,
             started_at: j.started_at,
             completed_at: j.completed_at,
+            created_at: j.created_at,
+            updated_at: j.updated_at,
+            cancel_requested_at: j.cancel_requested_at,
+            retry_of_job_id: j.retry_of_job_id,
         }
     }
 }
@@ -193,6 +243,8 @@ mod tests {
             total_issues: Some(620),
             status: "running".to_string(),
             active: true,
+            source_key: Some("maddraxikon".to_string()),
+            source_record_id: Some("Hauptseite".to_string()),
             source_url: Some("https://maddraxikon.de".to_string()),
             created_at: chrono::NaiveDateTime::default(),
             updated_at: chrono::NaiveDateTime::default(),
@@ -217,6 +269,8 @@ mod tests {
             cycle: Some("Zyklus 3".to_string()),
             cover_url: None,
             cover_local_path: None,
+            source_key: Some("maddraxikon".to_string()),
+            source_record_id: Some("Quelle:MX42".to_string()),
             source_wiki_url: None,
             metadata_synced_at: None,
             created_at: chrono::NaiveDateTime::default(),
@@ -244,17 +298,25 @@ mod tests {
             id: 1,
             series_id: 1,
             adapter_name: "maddrax".to_string(),
+            source_key: Some("maddraxikon".to_string()),
             trigger_type: "manual".to_string(),
             scheduled_for: None,
             status: "running".to_string(),
             total_issues: 620,
             imported_issues: 150,
+            created_issues: 100,
+            updated_issues: 50,
+            unchanged_issues: 0,
+            skipped_issues: 0,
             failed_issues: 0,
             error_message: None,
             started_by: Some(1),
             started_at: Some(chrono::NaiveDateTime::default()),
             completed_at: None,
             created_at: chrono::NaiveDateTime::default(),
+            updated_at: chrono::NaiveDateTime::default(),
+            cancel_requested_at: None,
+            retry_of_job_id: None,
         };
         let resp = ImportJobResponse::from_job_with_slug(&job, "maddrax".to_string());
         assert_eq!(resp.adapter_name, "maddrax");
@@ -275,6 +337,8 @@ mod tests {
             total_issues: None,
             status: "running".to_string(),
             active: false,
+            source_key: None,
+            source_record_id: None,
             source_url: None,
         };
         let json = serde_json::to_value(&resp).unwrap();

@@ -1,0 +1,7 @@
+{{Roman Zyklus 01
+|Nummer = 1
+|Titel = Der Gott aus dem Eis
+|Autor = [[Jo Zybell]]
+|Erscheinungsdatum = 08.02.2000
+|Titelbildzeichner = Koveck
+}}

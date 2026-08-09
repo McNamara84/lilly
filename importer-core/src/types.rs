@@ -28,10 +28,10 @@ pub struct SeriesData {
     pub frequency: Option<String>,
     pub total_issues: Option<u32>,
     pub status: SeriesStatus,
-    pub source_url: Option<String>,
+    pub source: SourceReference,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueData {
     pub issue_number: u32,
     pub title: String,
@@ -43,7 +43,14 @@ pub struct IssueData {
     pub cover_artists: Vec<String>,
     pub keywords: Vec<String>,
     pub notes: Vec<String>,
-    pub source_wiki_url: Option<String>,
+    pub source: SourceReference,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceReference {
+    pub source_key: String,
+    pub source_record_id: String,
+    pub source_url: String,
 }
 
 #[derive(Debug)]
@@ -79,7 +86,11 @@ mod tests {
             frequency: Some("14-tägig".to_string()),
             total_issues: Some(620),
             status: SeriesStatus::Running,
-            source_url: Some("https://maddraxikon.de".to_string()),
+            source: SourceReference {
+                source_key: "maddraxikon".to_string(),
+                source_record_id: "Hauptseite".to_string(),
+                source_url: "https://de.maddraxikon.com/wiki/Hauptseite".to_string(),
+            },
         };
         assert_eq!(data.name, "Maddrax");
         assert_eq!(data.status, SeriesStatus::Running);
@@ -98,7 +109,11 @@ mod tests {
             cover_artists: vec!["Koveck".to_string()],
             keywords: vec!["Kometeneinschlag".to_string(), "Taratzen".to_string()],
             notes: vec![],
-            source_wiki_url: None,
+            source: SourceReference {
+                source_key: "maddraxikon".to_string(),
+                source_record_id: "Quelle:MX1".to_string(),
+                source_url: "https://de.maddraxikon.com/wiki/Dunkle_Zukunft".to_string(),
+            },
         };
         assert_eq!(data.issue_number, 1);
         assert_eq!(data.title, "Dunkle Zukunft");

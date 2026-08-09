@@ -1,11 +1,16 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { resolve } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import {
 		fetchImportJob,
 		fetchImportSeriesIssues,
+		fetchImportErrors,
+		cancelImport,
+		retryImport,
 		activateSeries,
 		type ImportJob,
+		type ImportJobError,
 		type IssueAdmin
 	} from '$lib/api/admin';
 
@@ -13,8 +18,12 @@
 	let issues = $state<IssueAdmin[]>([]);
 	let issuesTotal = $state(0);
 	let issuesPage = $state(1);
+	let jobErrors = $state<ImportJobError[]>([]);
+	let jobErrorsTotal = $state(0);
+	let jobErrorsPage = $state(1);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let actionPending = $state(false);
 	let polling = false;
 	let pollTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -30,15 +39,12 @@
 		try {
 			job = await fetchImportJob(jobId);
 
-			if (
-				job.status === 'completed' ||
-				job.status === 'completed_with_errors' ||
-				job.status === 'failed'
-			) {
+			if (isTerminal(job.status)) {
 				stopPolling();
 				if (job.status === 'completed' || job.status === 'completed_with_errors') {
 					await loadIssues();
 				}
+				await loadErrors();
 			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load import job';
@@ -46,6 +52,33 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function loadErrors() {
+		try {
+			const result = await fetchImportErrors(jobId, jobErrorsPage);
+			jobErrors = result.data;
+			jobErrorsTotal = result.total;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load import errors';
+		}
+	}
+
+	function isTerminal(status: ImportJob['status']): boolean {
+		return !['pending', 'running'].includes(status);
+	}
+
+	function canRetry(status: ImportJob['status']): boolean {
+		return ['failed', 'cancelled', 'interrupted'].includes(status);
+	}
+
+	function formatDate(date: string | undefined | null): string {
+		return date ? new Date(date).toLocaleString('de-DE') : '–';
+	}
+
+	async function changeErrorsPage(pageNumber: number) {
+		jobErrorsPage = pageNumber;
+		await loadErrors();
 	}
 
 	async function loadIssues() {
@@ -79,9 +112,28 @@
 		}
 	}
 
+	function resetPageState() {
+		stopPolling();
+		job = null;
+		issues = [];
+		issuesTotal = 0;
+		issuesPage = 1;
+		jobErrors = [];
+		jobErrorsTotal = 0;
+		jobErrorsPage = 1;
+		loading = true;
+		error = null;
+		actionPending = false;
+	}
+
 	function progressPercent(): number {
 		if (!job || job.total_issues === 0) return 0;
-		return Math.round(((job.imported_issues + job.failed_issues) / job.total_issues) * 100);
+		return Math.round((processedCount() / job.total_issues) * 100);
+	}
+
+	function processedCount(): number {
+		if (!job) return 0;
+		return job.imported_issues + (job.skipped_issues ?? 0) + job.failed_issues;
 	}
 
 	async function handleActivate(seriesSlug: string) {
@@ -93,9 +145,38 @@
 		}
 	}
 
+	async function handleCancel() {
+		if (!job) return;
+		actionPending = true;
+		error = null;
+		try {
+			job = await cancelImport(job.id);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Cancellation failed';
+		} finally {
+			actionPending = false;
+		}
+	}
+
+	async function handleRetry() {
+		if (!job) return;
+		actionPending = true;
+		error = null;
+		try {
+			const retry = await retryImport(job.id);
+			await goto(resolve(`/admin/import/${retry.id}`));
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Retry failed';
+		} finally {
+			actionPending = false;
+		}
+	}
+
 	$effect(() => {
+		const currentJobId = jobId;
+		resetPageState();
 		loadJob();
-		if (invalidJobId) return;
+		if (!Number.isFinite(currentJobId) || currentJobId < 1) return;
 		startPolling();
 
 		return () => stopPolling();
@@ -138,7 +219,10 @@
 	</h1>
 	<p class="text-sm mb-6" style="color: var(--text-secondary);">
 		Adapter: {job.adapter_name}
+		{#if job.source_key}· Quelle: {job.source_key}{/if}
 		· {job.trigger_type === 'scheduled' ? 'Automatischer Lauf' : 'Manueller Lauf'}
+		{#if job.retry_of_job_id}· Wiederholung von #{job.retry_of_job_id}{/if}
+		· Zuletzt aktualisiert: {formatDate(job.updated_at)}
 	</p>
 
 	<!-- Status & Progress -->
@@ -150,17 +234,18 @@
 					class="inline-block px-2 py-0.5 rounded text-xs font-medium ml-1"
 					class:text-green-700={job.status === 'completed'}
 					class:text-orange-700={job.status === 'completed_with_errors'}
-					class:text-red-700={job.status === 'failed'}
+					class:text-red-700={job.status === 'failed' || job.status === 'interrupted'}
+					class:text-gray-700={job.status === 'cancelled' || job.status === 'pending'}
 					class:text-yellow-700={job.status === 'running'}
-					class:text-gray-700={job.status === 'pending'}
 					data-testid="job-status"
 				>
 					{job.status}
 				</span>
 			</span>
 			<span class="text-sm" style="color: var(--text-secondary);" data-testid="progress-count">
-				{job.imported_issues + job.failed_issues} / {job.total_issues} bearbeitet ({job.imported_issues}
-				erfolgreich, {job.failed_issues} fehlgeschlagen)
+				{processedCount()} / {job.total_issues} bearbeitet ({job.created_issues ?? 0} neu,
+				{job.updated_issues ?? 0} geändert, {job.unchanged_issues ?? 0} unverändert,
+				{job.skipped_issues ?? 0} übersprungen, {job.failed_issues} fehlgeschlagen)
 			</span>
 		</div>
 
@@ -169,7 +254,7 @@
 			class="w-full h-3 rounded-full overflow-hidden"
 			style="background-color: var(--surface-base);"
 			role="progressbar"
-			aria-valuenow={job.imported_issues + job.failed_issues}
+			aria-valuenow={processedCount()}
 			aria-valuemin={0}
 			aria-valuemax={job.total_issues}
 			aria-label="Import-Fortschritt"
@@ -186,7 +271,61 @@
 				Fehler: {job.error_message}
 			</p>
 		{/if}
+
+		<div class="mt-4 flex gap-3">
+			{#if job.status === 'pending' || job.status === 'running'}
+				<button
+					onclick={handleCancel}
+					disabled={actionPending || job.cancel_requested_at != null}
+					class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-50"
+					style="background-color: var(--color-error-500); color: white;"
+					data-testid="cancel-import-button"
+				>
+					{job.cancel_requested_at ? 'Abbruch angefordert' : 'Import abbrechen'}
+				</button>
+			{:else if canRetry(job.status)}
+				<button
+					onclick={handleRetry}
+					disabled={actionPending}
+					class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-50"
+					style="background-color: var(--color-brand-500); color: white;"
+					data-testid="retry-import-button"
+				>
+					Erneut vollständig synchronisieren
+				</button>
+			{/if}
+		</div>
 	</section>
+
+	{#if jobErrors.length > 0}
+		<section class="glass-elevated p-6 rounded-lg mb-6" data-testid="job-errors-section">
+			<h2 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Fehlerkontext</h2>
+			<ul class="space-y-2 text-sm">
+				{#each jobErrors as item (item.id)}
+					<li style="color: var(--color-error-700);">
+						{item.issue_number === null ? 'Lauf' : `Heft #${item.issue_number}`}
+						({item.source_key}{item.source_record_id ? `:${item.source_record_id}` : ''}) [{item.stage}]:
+						{item.message}
+					</li>
+				{/each}
+			</ul>
+			{#if jobErrorsTotal > 50}
+				<div class="mt-4 flex items-center gap-3 text-sm">
+					<button
+						onclick={() => changeErrorsPage(jobErrorsPage - 1)}
+						disabled={jobErrorsPage <= 1}
+						data-testid="previous-errors-page">Zurück</button
+					>
+					<span>Seite {jobErrorsPage}</span>
+					<button
+						onclick={() => changeErrorsPage(jobErrorsPage + 1)}
+						disabled={jobErrorsPage * 50 >= jobErrorsTotal}
+						data-testid="next-errors-page">Weiter</button
+					>
+				</div>
+			{/if}
+		</section>
+	{/if}
 
 	<!-- Completed: Show issues & activate -->
 	{#if job.status === 'completed' || job.status === 'completed_with_errors'}

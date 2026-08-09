@@ -39,4 +39,5 @@ time = "0.3.55"
 lilly-importer-core = { path = "../importer-core" }
 
 [dev-dependencies]
+async-trait = "0.1.92"
 tower = { version = "0.5.2", features = ["util"] }

@@ -250,11 +250,13 @@ describe('Admin Import Page', () => {
 	it('renders every non-completed import status in the history', async () => {
 		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
 		vi.mocked(fetchImportHistory).mockResolvedValue(
-			(['failed', 'running', 'pending'] as const).map((status, index) => ({
-				...mockHistory[0],
-				id: index + 3,
-				status
-			}))
+			(['failed', 'running', 'pending', 'interrupted', 'cancelled'] as const).map(
+				(status, index) => ({
+					...mockHistory[0],
+					id: index + 3,
+					status
+				})
+			)
 		);
 		render(AdminImportPage);
 
@@ -263,6 +265,31 @@ describe('Admin Import Page', () => {
 		});
 		expect(screen.getByText('running')).toBeInTheDocument();
 		expect(screen.getByText('pending')).toBeInTheDocument();
+		expect(screen.getByText('interrupted')).toBeInTheDocument();
+		expect(screen.getByText('cancelled')).toBeInTheDocument();
+	});
+
+	it('shows source, retry origin and skipped issues in the history', async () => {
+		vi.mocked(fetchAdapters).mockResolvedValue(mockAdapters);
+		vi.mocked(fetchImportHistory).mockResolvedValue([
+			{
+				...mockHistory[0],
+				total_issues: 10,
+				imported_issues: 7,
+				skipped_issues: 1,
+				failed_issues: 2,
+				source_key: 'maddraxikon',
+				retry_of_job_id: 41
+			}
+		]);
+		render(AdminImportPage);
+
+		await waitFor(() => expect(screen.getByTestId('history-row')).toBeInTheDocument());
+
+		const row = screen.getByTestId('history-row');
+		expect(row).toHaveTextContent('maddraxikon');
+		expect(row).toHaveTextContent('Retry von #41');
+		expect(row).toHaveTextContent('10 / 10');
 	});
 
 	it('shows empty history message', async () => {

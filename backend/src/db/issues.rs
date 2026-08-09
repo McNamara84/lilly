@@ -14,6 +14,8 @@ pub struct IssueMetadataUpdate<'a> {
     pub cycle: Option<&'a str>,
     pub cover_url: Option<&'a str>,
     pub cover_local_path: Option<&'a str>,
+    pub source_key: &'a str,
+    pub source_record_id: &'a str,
     pub source_wiki_url: Option<&'a str>,
     pub authors: &'a [String],
     pub cover_artists: &'a [String],
@@ -33,12 +35,28 @@ pub async fn find_issues_by_series(
 
     sqlx::query_as::<_, Issue>(
         "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
-         cover_url, cover_local_path, source_wiki_url, metadata_synced_at, created_at \
+         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url, \
+         metadata_synced_at, created_at \
          FROM issues WHERE series_id = ? ORDER BY issue_number LIMIT ? OFFSET ?",
     )
     .bind(series_id)
     .bind(per_page)
     .bind(offset)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn find_all_issues_by_series(
+    pool: &MySqlPool,
+    series_id: u32,
+) -> Result<Vec<Issue>, sqlx::Error> {
+    sqlx::query_as::<_, Issue>(
+        "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
+         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url, \
+         metadata_synced_at, created_at \
+         FROM issues WHERE series_id = ? ORDER BY issue_number",
+    )
+    .bind(series_id)
     .fetch_all(pool)
     .await
 }
@@ -49,7 +67,8 @@ pub async fn find_issue_by_id(
 ) -> Result<Option<Issue>, sqlx::Error> {
     sqlx::query_as::<_, Issue>(
         "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
-         cover_url, cover_local_path, source_wiki_url, metadata_synced_at, created_at \
+         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url, \
+         metadata_synced_at, created_at \
          FROM issues WHERE id = ?",
     )
     .bind(issue_id)
@@ -93,15 +112,33 @@ async fn upsert_issue(
     connection: &mut MySqlConnection,
     update: &IssueMetadataUpdate<'_>,
 ) -> Result<u32, sqlx::Error> {
+    let source_owner: Option<(u32, u32, u32)> = sqlx::query_as(
+        "SELECT id, series_id, issue_number FROM issues \
+         WHERE source_key = ? AND source_record_id = ? FOR UPDATE",
+    )
+    .bind(update.source_key)
+    .bind(update.source_record_id)
+    .fetch_optional(&mut *connection)
+    .await?;
+    if let Some((_, owner_series_id, owner_issue_number)) = source_owner
+        && (owner_series_id != update.series_id || owner_issue_number != update.issue_number)
+    {
+        return Err(sqlx::Error::Protocol(format!(
+            "Source identity '{}:{}' belongs to series {owner_series_id}, issue {owner_issue_number}",
+            update.source_key, update.source_record_id
+        )));
+    }
+
     sqlx::query(
         "INSERT INTO issues (series_id, issue_number, title, published_at, part_number, part_total, cycle, \
-         cover_url, cover_local_path, source_wiki_url) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          ON DUPLICATE KEY UPDATE title = VALUES(title), \
          published_at = VALUES(published_at), part_number = VALUES(part_number), \
          part_total = VALUES(part_total), cycle = VALUES(cycle), \
          cover_url = COALESCE(VALUES(cover_url), cover_url), \
          cover_local_path = COALESCE(VALUES(cover_local_path), cover_local_path), \
+         source_key = VALUES(source_key), source_record_id = VALUES(source_record_id), \
          source_wiki_url = VALUES(source_wiki_url)",
     )
     .bind(update.series_id)
@@ -113,6 +150,8 @@ async fn upsert_issue(
     .bind(update.cycle)
     .bind(update.cover_url)
     .bind(update.cover_local_path)
+    .bind(update.source_key)
+    .bind(update.source_record_id)
     .bind(update.source_wiki_url)
     .execute(&mut *connection)
     .await?;
@@ -162,6 +201,14 @@ async fn mark_issue_metadata_synced(
     sqlx::query("UPDATE issues SET metadata_synced_at = CURRENT_TIMESTAMP WHERE id = ?")
         .bind(issue_id)
         .execute(&mut *connection)
+        .await?;
+    Ok(())
+}
+
+pub async fn mark_issue_checked(pool: &MySqlPool, issue_id: u32) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE issues SET metadata_synced_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(issue_id)
+        .execute(pool)
         .await?;
     Ok(())
 }

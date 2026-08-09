@@ -10,6 +10,8 @@ export interface Series {
 	total_issues: number | null;
 	status: string;
 	active: boolean;
+	source_key?: string | null;
+	source_record_id?: string | null;
 	source_url: string | null;
 }
 
@@ -28,6 +30,8 @@ export interface Issue {
 	notes: string[];
 	cover_url: string | null;
 	cover_local_path: string | null;
+	source_key?: string | null;
+	source_record_id?: string | null;
 	source_wiki_url: string | null;
 }
 

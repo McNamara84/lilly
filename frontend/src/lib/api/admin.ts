@@ -10,6 +10,8 @@ export interface SeriesAdmin {
 	total_issues: number | null;
 	status: string;
 	active: boolean;
+	source_key?: string | null;
+	source_record_id?: string | null;
 	source_url: string | null;
 }
 
@@ -17,23 +19,60 @@ export interface Adapter {
 	name: string;
 	display_name: string;
 	version: string;
+	source_key?: string;
 }
+
+export type ImportJobStatus =
+	| 'pending'
+	| 'running'
+	| 'completed'
+	| 'completed_with_errors'
+	| 'failed'
+	| 'cancelled'
+	| 'interrupted';
 
 export interface ImportJob {
 	id: number;
 	series_id: number;
 	series_slug: string;
 	adapter_name: string;
+	source_key?: string | null;
 	trigger_type: 'manual' | 'scheduled';
 	scheduled_for: string | null;
 	status: string;
 	total_issues: number;
 	imported_issues: number;
+	created_issues?: number;
+	updated_issues?: number;
+	unchanged_issues?: number;
+	skipped_issues?: number;
 	failed_issues: number;
 	error_message: string | null;
 	started_by: number | null;
 	started_at: string | null;
 	completed_at: string | null;
+	created_at?: string;
+	updated_at?: string;
+	cancel_requested_at?: string | null;
+	retry_of_job_id?: number | null;
+}
+
+export interface ImportJobError {
+	id: number;
+	job_id: number;
+	source_key: string;
+	issue_number: number | null;
+	source_record_id: string | null;
+	stage: string;
+	message: string;
+	created_at: string;
+}
+
+export interface PaginatedImportErrors {
+	data: ImportJobError[];
+	page: number;
+	per_page: number;
+	total: number;
 }
 
 export interface ImportScheduleStatus {
@@ -59,6 +98,8 @@ export interface IssueAdmin {
 	notes: string[];
 	cover_url: string | null;
 	cover_local_path: string | null;
+	source_key?: string | null;
+	source_record_id?: string | null;
 	source_wiki_url: string | null;
 }
 
@@ -128,6 +169,32 @@ export async function fetchImportJob(id: number): Promise<ImportJob> {
 		credentials: 'same-origin'
 	});
 	return handleResponse<ImportJob>(response);
+}
+
+export async function cancelImport(id: number): Promise<ImportJob> {
+	const response = await fetch(`${API_BASE}/admin/import/${id}/cancel`, {
+		method: 'POST',
+		credentials: 'same-origin'
+	});
+	return handleResponse<ImportJob>(response);
+}
+
+export async function retryImport(id: number): Promise<ImportJob> {
+	const response = await fetch(`${API_BASE}/admin/import/${id}/retry`, {
+		method: 'POST',
+		credentials: 'same-origin'
+	});
+	return handleResponse<ImportJob>(response);
+}
+
+export async function fetchImportErrors(
+	id: number,
+	page: number = 1
+): Promise<PaginatedImportErrors> {
+	const response = await fetch(`${API_BASE}/admin/import/${id}/errors?page=${page}`, {
+		credentials: 'same-origin'
+	});
+	return handleResponse<PaginatedImportErrors>(response);
 }
 
 export async function fetchImportSeriesIssues(

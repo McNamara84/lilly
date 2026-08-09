@@ -1,0 +1,7 @@
+{{Roman Zyklus 15
+|Nummer = 555
+|Titel = Das Echo des Wandlers
+|Autor = [[Lucy Guth]]
+|Erscheinungsdatum = 27.04.2021
+|Titelbildzeichner = Néstor Taylor
+}}
