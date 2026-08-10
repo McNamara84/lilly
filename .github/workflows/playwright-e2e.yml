@@ -7,6 +7,11 @@ on:
         description: Playwright browser project to execute
         required: true
         type: string
+      write_cache:
+        description: Publish refreshed Docker build caches
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   e2e:
@@ -21,25 +26,26 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4.1.0
 
-      - name: Build backend image
-        uses: docker/build-push-action@v7.2.0
+      - name: Build E2E images in parallel
+        if: ${{ !inputs.write_cache }}
+        uses: docker/bake-action@v7
         with:
-          context: .
-          file: backend/Dockerfile
+          source: .
+          files: docker-bake.e2e.hcl
+          targets: e2e
           load: true
-          tags: lilly-backend:e2e
-          cache-from: type=gha,scope=e2e-backend
-          cache-to: type=gha,mode=max,scope=e2e-backend
 
-      - name: Build frontend image
-        uses: docker/build-push-action@v7.2.0
+      - name: Build E2E images in parallel and refresh caches
+        if: ${{ inputs.write_cache }}
+        uses: docker/bake-action@v7
         with:
-          context: frontend
-          file: frontend/Dockerfile
+          source: .
+          files: docker-bake.e2e.hcl
+          targets: e2e
           load: true
-          tags: lilly-frontend:e2e
-          cache-from: type=gha,scope=e2e-frontend
-          cache-to: type=gha,mode=max,scope=e2e-frontend
+          set: |
+            backend.cache-to=type=gha,mode=max,scope=e2e-backend
+            frontend.cache-to=type=gha,mode=max,scope=e2e-frontend
 
       - name: Start services
         run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --no-build --wait

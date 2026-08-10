@@ -121,6 +121,7 @@ jobs:
     uses: ./.github/workflows/playwright-e2e.yml
     with:
       browser: ${{ matrix.browser }}
+      write_cache: ${{ matrix.browser == 'chromium' }}
 
   docker-build:
     name: Docker Build Validation

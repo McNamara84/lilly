@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use lilly_importer_core::adapter::{AdapterError, SourceDescriptor, WikiAdapter};
-use lilly_importer_core::types::{
-    CoverData, IssueData, SeriesData, SeriesStatus, SourceReference,
-};
+use lilly_importer_core::types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
 
 const DESCRIPTOR: SourceDescriptor = SourceDescriptor {
     source_key: "e2e-fixture",

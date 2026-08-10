@@ -1,3 +1,9 @@
+pub struct E2eConfig {
+    pub demo_seed_enabled: bool,
+    pub worker_count: u16,
+    pub fixture_adapter_enabled: bool,
+}
+
 pub struct AppConfig {
     pub database_url: String,
     pub jwt_secret: String,
@@ -14,9 +20,7 @@ pub struct AppConfig {
     pub admin_email: Option<String>,
     pub media_path: String,
     pub media_url_prefix: String,
-    pub demo_seed_enabled: bool,
-    pub e2e_worker_count: u16,
-    pub e2e_fixture_adapter_enabled: bool,
+    pub e2e: E2eConfig,
     pub import_scheduler_enabled: bool,
     pub import_schedule: String,
     pub import_timezone: String,
@@ -81,9 +85,11 @@ impl AppConfig {
             admin_email: get("ADMIN_EMAIL").filter(|s| !s.is_empty()),
             media_path: get("MEDIA_PATH").unwrap_or_else(|| "/media".to_string()),
             media_url_prefix: get("MEDIA_URL_PREFIX").unwrap_or_else(|| "/media".to_string()),
-            demo_seed_enabled,
-            e2e_worker_count,
-            e2e_fixture_adapter_enabled,
+            e2e: E2eConfig {
+                demo_seed_enabled,
+                worker_count: e2e_worker_count,
+                fixture_adapter_enabled: e2e_fixture_adapter_enabled,
+            },
             import_scheduler_enabled: get("IMPORT_SCHEDULER_ENABLED")
                 .unwrap_or_else(|| "false".to_string())
                 .parse()
@@ -126,9 +132,9 @@ mod tests {
         assert!(config.admin_email.is_none());
         assert_eq!(config.media_path, "/media");
         assert_eq!(config.media_url_prefix, "/media");
-        assert!(!config.demo_seed_enabled);
-        assert_eq!(config.e2e_worker_count, 0);
-        assert!(!config.e2e_fixture_adapter_enabled);
+        assert!(!config.e2e.demo_seed_enabled);
+        assert_eq!(config.e2e.worker_count, 0);
+        assert!(!config.e2e.fixture_adapter_enabled);
         assert!(!config.import_scheduler_enabled);
         assert_eq!(config.import_schedule, "0 10 6 * * Sat *");
         assert_eq!(config.import_timezone, "Europe/Berlin");
@@ -165,9 +171,9 @@ mod tests {
             "E2E_WORKER_COUNT" => Some("4".to_string()),
             _ => None,
         });
-        assert!(config.demo_seed_enabled);
-        assert_eq!(config.e2e_worker_count, 4);
-        assert!(config.e2e_fixture_adapter_enabled);
+        assert!(config.e2e.demo_seed_enabled);
+        assert_eq!(config.e2e.worker_count, 4);
+        assert!(config.e2e.fixture_adapter_enabled);
     }
 
     #[test]
