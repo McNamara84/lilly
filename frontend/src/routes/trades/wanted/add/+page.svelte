@@ -153,8 +153,12 @@
 
 <div class="min-h-[calc(100vh-3.5rem)] px-4 py-8 sm:px-6 lg:px-8">
 	<header class="mb-6">
-		<a href={resolve('/trades')} class="text-sm underline" style="color: var(--text-secondary);">
-			← Zurück zu den Tauschlisten
+		<a
+			href={resolve('/trades/wanted')}
+			class="text-sm underline"
+			style="color: var(--text-secondary);"
+		>
+			← Zurück zur Wunschliste
 		</a>
 		<h1 class="mt-3 text-2xl font-bold">Wünsche hinzufügen</h1>
 		<p class="mt-1 text-sm" style="color: var(--text-secondary);">

@@ -5,12 +5,14 @@
 	import { fetchCollectionStats, type CollectionStats } from '$lib/api/collection';
 	import StatsCard from '$lib/components/stats/StatsCard.svelte';
 	import SeriesProgressBar from '$lib/components/collection/SeriesProgressBar.svelte';
+	import { fetchMatches, type TradeMatch } from '$lib/api/trades';
 
 	const auth = getAuthState();
 
 	let stats = $state<CollectionStats | null>(null);
 	let statsLoading = $state(true);
 	let statsError = $state(false);
+	let tradeMatches = $state<TradeMatch[]>([]);
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -21,8 +23,17 @@
 	$effect(() => {
 		if (auth.isAuthenticated) {
 			loadStats();
+			loadTradeMatches();
 		}
 	});
+
+	async function loadTradeMatches() {
+		try {
+			tradeMatches = (await fetchMatches({ per_page: 3 })).data;
+		} catch {
+			tradeMatches = [];
+		}
+	}
 
 	async function loadStats() {
 		statsLoading = true;
@@ -136,14 +147,31 @@
 			</a>
 		</div>
 
-		<!-- Trade suggestions placeholder -->
-		<section class="glass-elevated rounded-lg p-6 mb-6" data-testid="trade-placeholder">
-			<h3 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				Tausch-Vorschläge
-			</h3>
-			<p class="text-sm" style="color: var(--text-tertiary);">
-				Noch keine Tausch-Vorschläge verfügbar.
-			</p>
+		<section class="glass-elevated mb-6 rounded-lg p-6" data-testid="trade-suggestions">
+			<div class="mb-3 flex items-center justify-between gap-3">
+				<h3 class="text-lg font-semibold" style="color: var(--text-primary);">Tausch-Vorschläge</h3>
+				<a
+					href={resolve('/trades')}
+					class="text-sm underline"
+					style="color: var(--color-brand-500);">Alle anzeigen</a
+				>
+			</div>
+			{#if tradeMatches.length === 0}
+				<p class="text-sm" style="color: var(--text-tertiary);">
+					Noch keine Tausch-Vorschläge verfügbar.
+				</p>
+			{:else}
+				<div class="grid gap-3 sm:grid-cols-3">
+					{#each tradeMatches as match (match.id)}
+						<a href={resolve('/trades')} class="rounded-lg p-3" style="background: var(--glass);">
+							<span class="block font-semibold">{match.partner.display_name}</span>
+							<span class="block text-xs" style="color: var(--text-secondary);">
+								{match.my_offers.length} ↔ {match.partner_offers.length} Hefte · {match.match_score}%
+							</span>
+						</a>
+					{/each}
+				</div>
+			{/if}
 		</section>
 
 		<!-- Activity timeline placeholder -->

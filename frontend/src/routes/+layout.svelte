@@ -3,6 +3,7 @@
 	import { initAuth, getAuthState, performLogout } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import NotificationBell from '$lib/components/notifications/NotificationBell.svelte';
 
 	let { children } = $props();
 
@@ -74,6 +75,14 @@
 				>
 					Tausch
 				</a>
+				<a
+					href={resolve('/messages')}
+					class="hidden rounded px-2 py-1 text-sm sm:inline"
+					style="color: var(--text-secondary);"
+					data-testid="messages-link"
+				>
+					Nachrichten
+				</a>
 				{#if auth.isAdmin}
 					<a
 						href={resolve('/admin')}
@@ -91,6 +100,7 @@
 				>
 					{auth.user.display_name}
 				</span>
+				<NotificationBell />
 				<button
 					onclick={handleLogout}
 					class="p-2 rounded-lg transition-colors cursor-pointer"

@@ -11,13 +11,20 @@
   },
 
   "components": {
-
     "AppShell": {
       "description": "Root layout component. Provides sidebar on desktop (>=1024px) and bottom navigation on mobile (<1024px). Uses Skeleton UI AppShell.",
       "file": "src/lib/components/layout/AppShell.svelte",
       "structure": {
-        "desktop": ["Sidebar (left, fixed)", "TopBar (sticky)", "MainContent (scrollable)"],
-        "mobile": ["TopBar (sticky)", "MainContent (scrollable)", "BottomNav (fixed)"]
+        "desktop": [
+          "Sidebar (left, fixed)",
+          "TopBar (sticky)",
+          "MainContent (scrollable)"
+        ],
+        "mobile": [
+          "TopBar (sticky)",
+          "MainContent (scrollable)",
+          "BottomNav (fixed)"
+        ]
       },
       "slots": ["default (main content)"],
       "behavior": {
@@ -31,17 +38,55 @@
       "file": "src/lib/components/layout/Sidebar.svelte",
       "style": "glassmorphism.sidebar",
       "nav_items": [
-        { "icon": "LayoutGrid",    "label": "Übersicht",     "route": "/",              "description": "Collection overview and stats" },
-        { "icon": "Library",       "label": "Sammlung",      "route": "/collection",    "description": "Full collection view with filters" },
-        { "icon": "ArrowLeftRight","label": "Tausch",         "route": "/trades",        "description": "Trade matching and active trades" },
-        { "icon": "MessageCircle", "label": "Nachrichten",    "route": "/messages",      "description": "Internal messaging system" },
-        { "icon": "Search",        "label": "Entdecken",      "route": "/explore",       "description": "Browse series, public collections" },
-        { "icon": "User",          "label": "Profil",         "route": "/profile",       "description": "User profile and settings" }
+        {
+          "icon": "LayoutGrid",
+          "label": "Übersicht",
+          "route": "/",
+          "description": "Collection overview and stats"
+        },
+        {
+          "icon": "Library",
+          "label": "Sammlung",
+          "route": "/collection",
+          "description": "Full collection view with filters"
+        },
+        {
+          "icon": "ArrowLeftRight",
+          "label": "Tausch",
+          "route": "/trades",
+          "description": "Trade matching and active trades"
+        },
+        {
+          "icon": "MessageCircle",
+          "label": "Nachrichten",
+          "route": "/messages",
+          "description": "Internal messaging system"
+        },
+        {
+          "icon": "Search",
+          "label": "Entdecken",
+          "route": "/explore",
+          "description": "Browse series, public collections"
+        },
+        {
+          "icon": "User",
+          "label": "Profil",
+          "route": "/profile",
+          "description": "User profile and settings"
+        }
       ],
       "props": {
-        "collapsed": { "type": "boolean", "default": false, "description": "Whether sidebar is in icon-only mode." }
+        "collapsed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether sidebar is in icon-only mode."
+        }
       },
-      "features": ["Active route highlighting with brand primary glow", "Unread message badge on Nachrichten item", "Collapse toggle button at bottom"]
+      "features": [
+        "Active route highlighting with brand primary glow",
+        "Unread message badge on Nachrichten item",
+        "Collapse toggle button at bottom"
+      ]
     },
 
     "BottomNav": {
@@ -50,11 +95,15 @@
       "style": "glassmorphism.navbar",
       "height": "64px",
       "items": [
-        { "icon": "LayoutGrid",     "label": "Übersicht",   "route": "/" },
-        { "icon": "Library",        "label": "Sammlung",    "route": "/collection" },
-        { "icon": "ArrowLeftRight", "label": "Tausch",      "route": "/trades" },
-        { "icon": "MessageCircle",  "label": "Nachrichten", "route": "/messages" },
-        { "icon": "User",           "label": "Profil",      "route": "/profile" }
+        { "icon": "LayoutGrid", "label": "Übersicht", "route": "/" },
+        { "icon": "Library", "label": "Sammlung", "route": "/collection" },
+        { "icon": "ArrowLeftRight", "label": "Tausch", "route": "/trades" },
+        {
+          "icon": "MessageCircle",
+          "label": "Nachrichten",
+          "route": "/messages"
+        },
+        { "icon": "User", "label": "Profil", "route": "/profile" }
       ],
       "behavior": {
         "active_indicator": "Pill-shaped highlight behind active icon with brand primary color and subtle glow.",
@@ -71,7 +120,11 @@
       "elements": {
         "left": "Logo (LILLY wordmark, brand primary color)",
         "center": "Search trigger button (opens CommandPalette)",
-        "right": ["ThemeToggle (sun/moon icon)", "NotificationBell (with badge)", "UserAvatar (links to profile)"]
+        "right": [
+          "ThemeToggle (sun/moon icon)",
+          "NotificationBell (with badge)",
+          "UserAvatar (links to profile)"
+        ]
       }
     },
 
@@ -81,9 +134,21 @@
       "style": "glassmorphism.card_elevated",
       "trigger": "Keyboard shortcut Cmd+K / Ctrl+K, or search icon in TopBar",
       "sections": [
-        { "label": "Serien",   "icon": "BookOpen",  "description": "Search series by name" },
-        { "label": "Hefte",    "icon": "FileText",  "description": "Search issues by title, number, or author" },
-        { "label": "Sammler",  "icon": "Users",     "description": "Search public collector profiles" }
+        {
+          "label": "Serien",
+          "icon": "BookOpen",
+          "description": "Search series by name"
+        },
+        {
+          "label": "Hefte",
+          "icon": "FileText",
+          "description": "Search issues by title, number, or author"
+        },
+        {
+          "label": "Sammler",
+          "icon": "Users",
+          "description": "Search public collector profiles"
+        }
       ],
       "behavior": {
         "debounce": "300ms input debounce before API call",
@@ -96,10 +161,26 @@
       "description": "Primary visual element: displays a single Heftroman cover with status overlay. Used in grids, search results, and trade views.",
       "file": "src/lib/components/collection/CoverCard.svelte",
       "props": {
-        "issue": { "type": "Issue", "required": true, "description": "Issue data including cover_url, title, issue_number" },
-        "collection_entry": { "type": "CollectionEntry | null", "required": false, "description": "If present, shows ownership status and condition" },
-        "size": { "type": "'sm' | 'md' | 'lg'", "default": "md", "description": "sm=100px, md=140px, lg=200px width" },
-        "interactive": { "type": "boolean", "default": true, "description": "Whether card is clickable/hoverable" }
+        "issue": {
+          "type": "Issue",
+          "required": true,
+          "description": "Issue data including cover_url, title, issue_number"
+        },
+        "collection_entry": {
+          "type": "CollectionEntry | null",
+          "required": false,
+          "description": "If present, shows ownership status and condition"
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "md",
+          "description": "sm=100px, md=140px, lg=200px width"
+        },
+        "interactive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether card is clickable/hoverable"
+        }
       },
       "visual": {
         "aspect_ratio": "2:3 (standard Heftroman proportion)",
@@ -134,10 +215,20 @@
       "description": "Responsive grid of CoverCards. Primary view for browsing a series or collection. Uses CSS Grid with auto-fill.",
       "file": "src/lib/components/collection/CoverGrid.svelte",
       "props": {
-        "items": { "type": "Array<{issue: Issue, collection_entry?: CollectionEntry}>", "required": true },
-        "min_column_width": { "type": "string", "default": "140px", "description": "Minimum column width for CSS Grid auto-fill" },
+        "items": {
+          "type": "Array<{issue: Issue, collection_entry?: CollectionEntry}>",
+          "required": true
+        },
+        "min_column_width": {
+          "type": "string",
+          "default": "140px",
+          "description": "Minimum column width for CSS Grid auto-fill"
+        },
         "loading": { "type": "boolean", "default": false },
-        "empty_message": { "type": "string", "default": "Keine Hefte gefunden." }
+        "empty_message": {
+          "type": "string",
+          "default": "Keine Hefte gefunden."
+        }
       },
       "css": "display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--min-col), 1fr)); gap: 1rem;",
       "features": [
@@ -170,7 +261,7 @@
     "IssueDetailSheet": {
       "description": "Bottom sheet (mobile) or side panel (desktop) showing full details of a single issue. Glassmorphism elevated card.",
       "file": "src/lib/components/collection/IssueDetailSheet.svelte",
-	  "trigger": "Tap/click on CoverCard or SeriesStatusGrid cell",
+      "trigger": "Tap/click on CoverCard or SeriesStatusGrid cell",
       "style": "glassmorphism.card_elevated",
       "layout": {
         "mobile": "Bottom sheet, slides up from bottom, max 85vh, draggable handle",
@@ -179,21 +270,39 @@
       "sections": [
         {
           "name": "header",
-          "content": ["Large cover image (swipeable if user has photos)", "Issue number + title", "Author + publication date", "Cycle/arc name"]
+          "content": [
+            "Large cover image (swipeable if user has photos)",
+            "Issue number + title",
+            "Author + publication date",
+            "Cycle/arc name"
+          ]
         },
         {
           "name": "collection_actions",
-		  "content": ["Status toggle (owned/duplicate/wanted)", "Condition selector (Z0–Z4 chips)", "Notes textarea (10,000 Unicode characters, clear to remove)", "Photo upload button"],
+          "content": [
+            "Status toggle (owned/duplicate/wanted)",
+            "Condition selector (Z0–Z4 chips)",
+            "Notes textarea (10,000 Unicode characters, clear to remove)",
+            "Photo upload button"
+          ],
           "description": "Only shown for authenticated users"
         },
         {
           "name": "community",
-          "content": ["Average community rating (stars)", "Comments list", "Add comment form"],
+          "content": [
+            "Average community rating (stars)",
+            "Comments list",
+            "Add comment form"
+          ],
           "description": "Visible to all, writable for authenticated users"
         },
         {
           "name": "trade_info",
-          "content": ["Number of collectors who have this issue as duplicate", "Number of collectors seeking this issue", "Quick trade match button"],
+          "content": [
+            "Number of collectors who have this issue as duplicate",
+            "Number of collectors seeking this issue",
+            "Quick trade match button"
+          ],
           "description": "Shows trade availability at a glance"
         }
       ]
@@ -204,15 +313,43 @@
       "file": "src/lib/components/collection/ConditionChips.svelte",
       "props": {
         "value": { "type": "'Z0'|'Z1'|'Z2'|'Z3'|'Z4'|null", "required": true },
-        "on_change": { "type": "(grade: 'Z0'|'Z1'|'Z2'|'Z3'|'Z4') => void", "required": true },
+        "on_change": {
+          "type": "(grade: 'Z0'|'Z1'|'Z2'|'Z3'|'Z4') => void",
+          "required": true
+        },
         "disabled": { "type": "boolean", "default": false }
       },
       "chips": [
-        { "value": "Z0", "label": "Z0", "sublabel": "Druckfrisch",         "color": "condition.Z0" },
-        { "value": "Z1", "label": "Z1", "sublabel": "Sehr gut erhalten",   "color": "condition.Z1" },
-        { "value": "Z2", "label": "Z2", "sublabel": "Gut erhalten",        "color": "condition.Z2" },
-        { "value": "Z3", "label": "Z3", "sublabel": "Stärker beschädigt",  "color": "condition.Z3" },
-        { "value": "Z4", "label": "Z4", "sublabel": "Stark beschädigt",    "color": "condition.Z4" }
+        {
+          "value": "Z0",
+          "label": "Z0",
+          "sublabel": "Druckfrisch",
+          "color": "condition.Z0"
+        },
+        {
+          "value": "Z1",
+          "label": "Z1",
+          "sublabel": "Sehr gut erhalten",
+          "color": "condition.Z1"
+        },
+        {
+          "value": "Z2",
+          "label": "Z2",
+          "sublabel": "Gut erhalten",
+          "color": "condition.Z2"
+        },
+        {
+          "value": "Z3",
+          "label": "Z3",
+          "sublabel": "Stärker beschädigt",
+          "color": "condition.Z3"
+        },
+        {
+          "value": "Z4",
+          "label": "Z4",
+          "sublabel": "Stark beschädigt",
+          "color": "condition.Z4"
+        }
       ],
       "visual": {
         "unselected": "Glass background, muted text",
@@ -221,44 +358,56 @@
       }
     },
 
-	"SeriesStatusGrid": {
-	  "description": "Responsive grid that joins every issue in a series with collection entries and renders four deterministic states.",
-	  "file": "src/lib/components/collection/SeriesStatusGrid.svelte",
-	  "props": {
-		"issues": { "type": "Issue[]", "required": true },
-		"entries": { "type": "CollectionEntry[]", "required": true },
-		"onselect": { "type": "(issue, entry, trigger) => void", "required": true }
-	  },
-	  "states": [
-		{ "value": "owned", "label": "Vorhanden", "marker": "V" },
-		{ "value": "duplicate", "label": "Doppelt/Tauschbar", "marker": "D" },
-		{ "value": "wanted", "label": "Gesucht", "marker": "G" },
-		{ "value": "missing", "label": "Fehlend", "marker": "F" }
-	  ],
-	  "priority": ["duplicate", "owned", "wanted", "missing"],
-	  "accessibility": "Every cell is a native button with issue, status and action in its accessible name; status is never conveyed by color alone."
-	},
+    "SeriesStatusGrid": {
+      "description": "Responsive grid that joins every issue in a series with collection entries and renders four deterministic states.",
+      "file": "src/lib/components/collection/SeriesStatusGrid.svelte",
+      "props": {
+        "issues": { "type": "Issue[]", "required": true },
+        "entries": { "type": "CollectionEntry[]", "required": true },
+        "onselect": {
+          "type": "(issue, entry, trigger) => void",
+          "required": true
+        }
+      },
+      "states": [
+        { "value": "owned", "label": "Vorhanden", "marker": "V" },
+        { "value": "duplicate", "label": "Doppelt/Tauschbar", "marker": "D" },
+        { "value": "wanted", "label": "Gesucht", "marker": "G" },
+        { "value": "missing", "label": "Fehlend", "marker": "F" }
+      ],
+      "priority": ["duplicate", "owned", "wanted", "missing"],
+      "accessibility": "Every cell is a native button with issue, status and action in its accessible name; status is never conveyed by color alone."
+    },
 
-	"CollectionStatusLegend": {
-	  "description": "Legend for all four grid states with visible markers and labels.",
-	  "file": "src/lib/components/collection/CollectionStatusLegend.svelte"
-	},
+    "CollectionStatusLegend": {
+      "description": "Legend for all four grid states with visible markers and labels.",
+      "file": "src/lib/components/collection/CollectionStatusLegend.svelte"
+    },
 
-	"CollectionNote": {
-	  "description": "Read-only escaped rendering of a personal collection note. Preserves line breaks and provides an explicit empty state.",
-	  "file": "src/lib/components/collection/CollectionNote.svelte",
-	  "props": {
-		"note": { "type": "string|null", "required": true },
-		"emptyText": { "type": "string", "default": "Keine öffentliche Notiz." }
-	  }
-	},
+    "CollectionNote": {
+      "description": "Read-only escaped rendering of a personal collection note. Preserves line breaks and provides an explicit empty state.",
+      "file": "src/lib/components/collection/CollectionNote.svelte",
+      "props": {
+        "note": { "type": "string|null", "required": true },
+        "emptyText": { "type": "string", "default": "Keine öffentliche Notiz." }
+      }
+    },
 
     "TradeMatchCard": {
       "description": "Card showing a potential trade match between current user and another collector. Shows what each side offers/seeks.",
       "file": "src/lib/components/trade/TradeMatchCard.svelte",
       "style": "glassmorphism.card",
       "props": {
-        "match": { "type": "TradeMatch", "required": true, "description": "Contains partner info, offered items, requested items, match score" }
+        "match": {
+          "type": "TradeMatch",
+          "required": true,
+          "description": "Contains privacy-safe partner info, offered items, requested items, match score and optional open trade"
+        },
+        "onproposed": {
+          "type": "(trade: Trade) => void",
+          "required": false,
+          "description": "Called after a proposal was created successfully"
+        }
       },
       "layout": {
         "top": "Partner avatar + display name + location (if public)",
@@ -275,13 +424,11 @@
       "description": "Chat-like message thread between two users, optionally linked to a trade. Bubble layout.",
       "file": "src/lib/components/messages/MessageThread.svelte",
       "props": {
-        "thread_id": { "type": "string", "required": true },
-        "partner": { "type": "UserProfile", "required": true }
+        "threadId": { "type": "number", "required": true }
       },
       "layout": {
-        "header": "Partner avatar + name + trade reference link (if linked)",
-        "messages": "Scrollable list, own messages right-aligned (brand primary), partner messages left-aligned (glass card)",
-        "input": "Fixed bottom: text input + send button. Glassmorphism background."
+        "messages": "Scrollable list, own messages right-aligned (brand primary), partner messages left-aligned (glass card), preserving plain-text line breaks",
+        "input": "Text area with a 4,000-character limit, character count and send button"
       }
     },
 
@@ -290,11 +437,37 @@
       "file": "src/lib/components/collection/CollectionFilterBar.svelte",
       "style": "glassmorphism.navbar",
       "filters": [
-        { "name": "series", "type": "select", "label": "Serie", "description": "Dropdown to filter by series" },
-        { "name": "status", "type": "chip_group", "options": ["Alle", "Vorhanden", "Doppelt", "Gesucht", "Fehlend"], "description": "Quick filter chips" },
-        { "name": "condition", "type": "range", "min": "Z0", "max": "Z4", "description": "Condition range slider" },
-        { "name": "sort", "type": "select", "options": ["Heftnummer", "Titel", "Zustand", "Hinzugefügt"], "description": "Sort order" },
-        { "name": "search", "type": "text", "placeholder": "Titel oder Autor...", "description": "Inline text filter" }
+        {
+          "name": "series",
+          "type": "select",
+          "label": "Serie",
+          "description": "Dropdown to filter by series"
+        },
+        {
+          "name": "status",
+          "type": "chip_group",
+          "options": ["Alle", "Vorhanden", "Doppelt", "Gesucht", "Fehlend"],
+          "description": "Quick filter chips"
+        },
+        {
+          "name": "condition",
+          "type": "range",
+          "min": "Z0",
+          "max": "Z4",
+          "description": "Condition range slider"
+        },
+        {
+          "name": "sort",
+          "type": "select",
+          "options": ["Heftnummer", "Titel", "Zustand", "Hinzugefügt"],
+          "description": "Sort order"
+        },
+        {
+          "name": "search",
+          "type": "text",
+          "placeholder": "Titel oder Autor...",
+          "description": "Inline text filter"
+        }
       ]
     },
 
@@ -303,10 +476,22 @@
       "file": "src/lib/components/stats/StatsCard.svelte",
       "style": "glassmorphism.card",
       "props": {
-        "label": { "type": "string", "required": true, "description": "e.g. 'Gesamte Hefte'" },
-        "value": { "type": "string | number", "required": true, "description": "e.g. '1.247'" },
+        "label": {
+          "type": "string",
+          "required": true,
+          "description": "e.g. 'Gesamte Hefte'"
+        },
+        "value": {
+          "type": "string | number",
+          "required": true,
+          "description": "e.g. '1.247'"
+        },
         "icon": { "type": "LucideIcon", "required": false },
-        "trend": { "type": "{ direction: 'up'|'down', value: string } | null", "required": false, "description": "e.g. '+12 diese Woche'" }
+        "trend": {
+          "type": "{ direction: 'up'|'down', value: string } | null",
+          "required": false,
+          "description": "e.g. '+12 diese Woche'"
+        }
       },
       "visual": {
         "value_style": "typography.styles.stat_number",
@@ -362,9 +547,20 @@
       "description": "Progress bar component for import jobs. Shows imported/total count with percentage and animated fill. Used in admin import detail view.",
       "file": "src/lib/components/admin/ImportProgressBar.svelte",
       "props": {
-        "imported": { "type": "number", "required": true, "description": "Number of issues imported so far" },
-        "total": { "type": "number", "required": true, "description": "Total number of issues to import" },
-        "status": { "type": "'pending' | 'running' | 'completed' | 'failed'", "required": true }
+        "imported": {
+          "type": "number",
+          "required": true,
+          "description": "Number of issues imported so far"
+        },
+        "total": {
+          "type": "number",
+          "required": true,
+          "description": "Total number of issues to import"
+        },
+        "status": {
+          "type": "'pending' | 'running' | 'completed' | 'failed'",
+          "required": true
+        }
       },
       "visual": {
         "bar_height": "12px",
@@ -384,10 +580,18 @@
       },
       "columns": [
         { "key": "name", "label": "Serie", "sortable": true },
-        { "key": "status", "label": "Status", "display": "Badge (running=cyan, completed=green, cancelled=gray)" },
+        {
+          "key": "status",
+          "label": "Status",
+          "display": "Badge (running=cyan, completed=green, cancelled=gray)"
+        },
         { "key": "active", "label": "Aktiv", "display": "Toggle switch" },
         { "key": "issue_count", "label": "Hefte", "sortable": true },
-        { "key": "last_import", "label": "Letzter Import", "display": "Relative time" }
+        {
+          "key": "last_import",
+          "label": "Letzter Import",
+          "display": "Relative time"
+        }
       ],
       "interactions": {
         "toggle_active": "Fires activate/deactivate API call, updates row immediately",

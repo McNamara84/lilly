@@ -10,6 +10,8 @@ pub mod admin;
 pub mod auth;
 pub mod collection;
 pub mod health;
+pub mod messages;
+pub mod notifications;
 pub mod profiles;
 pub mod series;
 pub mod trades;

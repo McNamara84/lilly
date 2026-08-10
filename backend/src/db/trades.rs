@@ -1,4 +1,4 @@
-use sqlx::MySqlPool;
+use sqlx::{MySql, MySqlConnection, MySqlPool, Transaction};
 
 use crate::models::trades::{
     BulkWantedResponse, TradeListEntryRow, TradeListQueryParams, WantedCandidateRow,
@@ -196,12 +196,23 @@ fn decide_wanted_mutation(entries: &[ExistingEntryStatus]) -> WantedDecision {
         })
 }
 
+#[allow(dead_code)]
 pub async fn add_wanted_entries(
     pool: &MySqlPool,
     user_id: u32,
     issue_ids: &[u32],
 ) -> Result<BulkWantedResponse, sqlx::Error> {
     let mut transaction = pool.begin().await?;
+    let response = add_wanted_entries_in_transaction(&mut transaction, user_id, issue_ids).await?;
+    transaction.commit().await?;
+    Ok(response)
+}
+
+pub async fn add_wanted_entries_in_transaction(
+    transaction: &mut Transaction<'_, MySql>,
+    user_id: u32,
+    issue_ids: &[u32],
+) -> Result<BulkWantedResponse, sqlx::Error> {
     let mut response = BulkWantedResponse::default();
 
     for &issue_id in issue_ids {
@@ -214,7 +225,7 @@ pub async fn add_wanted_entries(
              FOR UPDATE",
         )
         .bind(issue_id)
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await?;
 
         if active_issue_id.is_none() {
@@ -233,7 +244,7 @@ pub async fn add_wanted_entries(
         )
         .bind(user_id)
         .bind(issue_id)
-        .fetch_all(&mut *transaction)
+        .fetch_all(&mut **transaction)
         .await?;
 
         match decide_wanted_mutation(&entries) {
@@ -254,7 +265,7 @@ pub async fn add_wanted_entries(
                 )
                 .bind(user_id)
                 .bind(issue_id)
-                .execute(&mut *transaction)
+                .execute(&mut **transaction)
                 .await;
 
                 match result {
@@ -280,7 +291,7 @@ pub async fn add_wanted_entries(
                         )
                         .bind(user_id)
                         .bind(issue_id)
-                        .fetch_all(&mut *transaction)
+                        .fetch_all(&mut **transaction)
                         .await?;
 
                         match decide_wanted_mutation(&concurrent_entries) {
@@ -304,12 +315,21 @@ pub async fn add_wanted_entries(
         }
     }
 
-    transaction.commit().await?;
     Ok(response)
 }
 
+#[allow(dead_code)]
 pub async fn delete_wanted_entry(
     pool: &MySqlPool,
+    user_id: u32,
+    entry_id: u32,
+) -> Result<bool, sqlx::Error> {
+    let mut connection = pool.acquire().await?;
+    delete_wanted_entry_on_connection(&mut connection, user_id, entry_id).await
+}
+
+pub async fn delete_wanted_entry_on_connection(
+    connection: &mut MySqlConnection,
     user_id: u32,
     entry_id: u32,
 ) -> Result<bool, sqlx::Error> {
@@ -319,7 +339,7 @@ pub async fn delete_wanted_entry(
     )
     .bind(entry_id)
     .bind(user_id)
-    .execute(pool)
+    .execute(connection)
     .await?;
 
     Ok(result.rows_affected() > 0)

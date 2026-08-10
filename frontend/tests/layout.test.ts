@@ -95,6 +95,7 @@ describe('Layout', () => {
 		expect(screen.getByTestId('header-logout-button')).toBeInTheDocument();
 		expect(screen.getByTestId('profile-link')).toHaveAttribute('href', '/profile');
 		expect(screen.getByTestId('trades-link')).toHaveAttribute('href', '/trades');
+		expect(screen.getByTestId('messages-link')).toHaveAttribute('href', '/messages');
 	});
 
 	it('toggles theme when theme button is clicked', async () => {

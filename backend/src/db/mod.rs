@@ -3,9 +3,13 @@ pub mod demo;
 pub mod import_jobs;
 pub mod import_review;
 pub mod issues;
+pub mod messaging;
+pub mod notifications;
 pub mod profiles;
 pub mod refresh_tokens;
 pub mod series;
+pub mod trade_matching;
+pub mod trade_workflow;
 pub mod trades;
 pub mod users;
 

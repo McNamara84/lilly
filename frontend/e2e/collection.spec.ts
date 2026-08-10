@@ -380,19 +380,27 @@ test.describe('Collection End-to-End Workflow', () => {
 			await changeFirstEntryStatus('wanted');
 			await page.goto('/');
 			const wantedProgress = page.getByTestId('series-progress-bar').first();
-			await expect(wantedProgress).toContainText(/0 von \d+ — 0\.0%/);
-			await expect(wantedProgress.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+			await expect(wantedProgress).toContainText('1 Doppelte');
+			const wantedBar = wantedProgress.getByRole('progressbar');
+			const wantedLabel = await wantedBar.getAttribute('aria-label');
+			const wantedTotalMatch = wantedLabel?.match(/1 von (\d+) Heften/);
+			expect(wantedTotalMatch).not.toBeNull();
+			const wantedExpectedPercent = 100 / Number(wantedTotalMatch![1]);
+			expect(Number(await wantedBar.getAttribute('aria-valuenow'))).toBeCloseTo(
+				wantedExpectedPercent,
+				8
+			);
 
 			await changeFirstEntryStatus('duplicate');
 			await page.goto('/');
 			const duplicateProgress = page.getByTestId('series-progress-bar').first();
-			await expect(duplicateProgress).toContainText('1 Doppelte');
+			await expect(duplicateProgress).toContainText('2 Doppelte');
 			const duplicateBar = duplicateProgress.getByRole('progressbar');
 			const progressLabel = await duplicateBar.getAttribute('aria-label');
-			const totalMatch = progressLabel?.match(/1 von (\d+) Heften/);
+			const totalMatch = progressLabel?.match(/2 von (\d+) Heften/);
 			expect(totalMatch).not.toBeNull();
-			const expectedPercent = 100 / Number(totalMatch![1]);
-			await expect(duplicateProgress).toContainText(`1 von ${totalMatch![1]}`);
+			const expectedPercent = 200 / Number(totalMatch![1]);
+			await expect(duplicateProgress).toContainText(`2 von ${totalMatch![1]}`);
 			expect(Number(await duplicateBar.getAttribute('aria-valuenow'))).toBeCloseTo(
 				expectedPercent,
 				8

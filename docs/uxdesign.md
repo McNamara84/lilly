@@ -39,11 +39,11 @@ LILLY folgt der Ästhetik des **Glassmorphism**: halbtransparente, milchig-unsch
 
 Das UI/UX-Konzept ist in drei maschinenlesbare JSON-Dateien aufgeteilt, die von AI-Assistenten wie GitHub Copilot direkt interpretiert werden können:
 
-| Datei | Inhalt | Zweck |
-|---|---|---|
-| `design-tokens.json` | Farben, Typografie, Abstände, Glassmorphism-Parameter, Animationen, Breakpoints | Fundament des Design-Systems. Wird in Tailwind-Config und CSS Custom Properties überführt. |
-| `components.json` | Komponentenspezifikationen mit Props, Varianten, visuellem Verhalten, Dateistruktur | Blaupause für jede Svelte-Komponente. Copilot kann daraus Boilerplate generieren. |
-| `screens.json` | Seitenstruktur, Routing, Abschnitte pro Screen, Datenquellen, Interaktionen | Definiert jede Seite der App mit ihren Bestandteilen und Verhalten. |
+| Datei                | Inhalt                                                                              | Zweck                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `design-tokens.json` | Farben, Typografie, Abstände, Glassmorphism-Parameter, Animationen, Breakpoints     | Fundament des Design-Systems. Wird in Tailwind-Config und CSS Custom Properties überführt. |
+| `components.json`    | Komponentenspezifikationen mit Props, Varianten, visuellem Verhalten, Dateistruktur | Blaupause für jede Svelte-Komponente. Copilot kann daraus Boilerplate generieren.          |
+| `screens.json`       | Seitenstruktur, Routing, Abschnitte pro Screen, Datenquellen, Interaktionen         | Definiert jede Seite der App mit ihren Bestandteilen und Verhalten.                        |
 
 **Verwendung mit Copilot / AI-Assistenten:**
 
@@ -101,6 +101,7 @@ LILLY verwendet **Lucide Icons** (Open Source, MIT-Lizenz), die bereits als Svel
 Die App verwendet ein adaptives Shell-Layout, das sich am Breakpoint `lg` (1024px) grundlegend ändert:
 
 **Desktop (≥ 1024px):**
+
 ```
 ┌──────────────────────────────────────────────────────┐
 │  TopBar (sticky, glassmorphism)           🔍 🌓 🔔 👤│
@@ -119,6 +120,7 @@ Die App verwendet ein adaptives Shell-Layout, das sich am Breakpoint `lg` (1024p
 ```
 
 **Mobil (< 1024px):**
+
 ```
 ┌──────────────────────────┐
 │  TopBar (sticky, glass)  │
@@ -139,13 +141,13 @@ Die App verwendet ein adaptives Shell-Layout, das sich am Breakpoint `lg` (1024p
 
 Die fünf primären Navigationsziele sind in Sidebar und BottomNav identisch:
 
-| Icon | Label | Route | Funktion |
-|---|---|---|---|
-| LayoutGrid | Übersicht | `/` | Übersicht, Statistiken, Schnellzugriff |
-| Library | Sammlung | `/collection` | Eigene Sammlung verwalten |
-| ArrowLeftRight | Tausch | `/trades` | Tausch-Matching und aktive Tausche |
-| MessageCircle | Nachrichten | `/messages` | Internes Nachrichtensystem |
-| User | Profil | `/profile` | Eigenes Profil und Einstellungen |
+| Icon           | Label       | Route         | Funktion                               |
+| -------------- | ----------- | ------------- | -------------------------------------- |
+| LayoutGrid     | Übersicht   | `/`           | Übersicht, Statistiken, Schnellzugriff |
+| Library        | Sammlung    | `/collection` | Eigene Sammlung verwalten              |
+| ArrowLeftRight | Tausch      | `/trades`     | Tausch-Matching und aktive Tausche     |
+| MessageCircle  | Nachrichten | `/messages`   | Internes Nachrichtensystem             |
+| User           | Profil      | `/profile`    | Eigenes Profil und Einstellungen       |
 
 Die Sidebar enthält zusätzlich den sekundären Eintrag **Entdecken** (`/explore`, Icon: Search), der unterhalb der fünf Haupteinträge platziert ist. In der BottomNav ist Entdecken nicht enthalten – der Bereich ist mobil über die globale Suche (Command Palette) erreichbar.
 
@@ -207,6 +209,9 @@ Alle Screens sind in `screens.json` vollständig spezifiziert. Hier eine Übersi
 /series/[slug]            Seriendetail mit Heft-Grid (public)
 /issues/[id]              Heftdetail (public)
 /trades                   Tausch-Hub: Matches + Aktive (auth)
+/trades/offers            Tauschbare Hefte verwalten (auth)
+/trades/wanted            Wunschliste verwalten (auth)
+/trades/wanted/add        Wünsche gesammelt hinzufügen (auth)
 /trades/[id]              Einzelner Tausch (auth)
 /messages                 Nachrichtenübersicht (auth)
 /messages/[id]            Nachrichtenthread (auth)
@@ -230,7 +235,9 @@ Alle Screens sind in `screens.json` vollständig spezifiziert. Hier eine Übersi
 
 **Hefte verwalten (`/collection/add`):** Serienauswahl, dann responsives Nummern-Grid mit den vier farblich und textlich gekennzeichneten Zuständen „Vorhanden“, „Doppelt/Tauschbar“, „Gesucht“ und „Fehlend“. Ein Tap beziehungsweise Tastendruck öffnet die Heftdetails; Status, Zustand und persönliche Notiz werden dort bewusst gespeichert. Ein Rasterklick fügt nichts unmittelbar hinzu und löscht nichts unmittelbar.
 
-**Tausch (`/trades`):** Zwei-Tab-Ansicht mit "Vorschläge" (TradeMatchCards) und "Aktive Tausche". Semi-automatisches Matching wird visuell durch Match-Score-Ringe dargestellt.
+**Tausch (`/trades`):** Zwei-Tab-Ansicht mit "Vorschläge" (TradeMatchCards) und "Aktive Tausche". Semi-automatisches Matching wird visuell durch Match-Score-Ringe dargestellt. Die privaten Projektionen der tauschbaren Hefte und Wünsche werden über `/trades/offers` und `/trades/wanted` separat verwaltet.
+
+**Nachrichten (`/messages`):** Responsive Inbox aller tauschbezogenen Threads. Ein Eintrag öffnet `/messages/[id]`; derselbe Thread bleibt zusätzlich in `/trades/[id]` erreichbar. Neue Nachrichten werden während eines geöffneten Threads regelmäßig nachgeladen.
 
 **Anmelden (`/login`):** Zentrierte Glassmorphism-Karte auf animiertem Gradient-Mesh-Hintergrund. E-Mail/Passwort-Formular + OAuth-Buttons (Google, GitHub).
 
@@ -247,8 +254,9 @@ Der Admin-Bereich ist unter `/admin/` als eigener Routenpräfix vom Nutzer-Berei
 **Import starten (`/admin/import`):** Dropdown zur Auswahl des Import-Adapters (aus API: Name + Version). Button „Import starten". Darunter: Import-Historie als Tabelle (Datum, Adapter, Status, Dauer, importierte Hefte, gestartet von).
 
 **Import-Detail & Prüfansicht (`/admin/import/[id]`):**
-- *Während Import läuft:* Fortschrittsbalken mit „243 / 620 Hefte importiert", Status-Badge (pending → running → completed/failed). Automatisches Polling alle 3 Sekunden.
-- *Nach Abschluss:* Zusammenfassung (Gesamtzahl, Dauer, Fehler). Paginierte Liste der importierten Hefte (Nummer, Titel, Autor, Datum). Klick auf ein Heft öffnet Detail mit Cover-Vorschau, allen Metadaten und Link zum Wiki-Quelleneintrag. Button „Serie aktivieren" (wenn Serie noch inaktiv).
+
+- _Während Import läuft:_ Fortschrittsbalken mit „243 / 620 Hefte importiert", Status-Badge (pending → running → completed/failed). Automatisches Polling alle 3 Sekunden.
+- _Nach Abschluss:_ Zusammenfassung (Gesamtzahl, Dauer, Fehler). Paginierte Liste der importierten Hefte (Nummer, Titel, Autor, Datum). Klick auf ein Heft öffnet Detail mit Cover-Vorschau, allen Metadaten und Link zum Wiki-Quelleneintrag. Button „Serie aktivieren" (wenn Serie noch inaktiv).
 
 ---
 
@@ -278,13 +286,13 @@ SvelteKit Page Transitions mit Crossfade: ausgehende Seite fadet aus (200ms), ei
 
 ### 8.1 Breakpoints
 
-| Breakpoint | Breite | Layout-Änderungen |
-|---|---|---|
-| **< 640px** (sm) | Telefon | 2–3 Cover-Spalten, kompakte Stats, einzeilige FilterBar mit horizontalem Scroll |
-| **640–767px** (sm–md) | Großes Telefon | 3–4 Cover-Spalten |
-| **768–1023px** (md–lg) | Tablet | 4–5 Cover-Spalten, erweiterte FilterBar |
-| **≥ 1024px** (lg) | Desktop | Sidebar erscheint, BottomNav verschwindet, 5–8 Cover-Spalten, Zwei-Spalten-Layouts |
-| **≥ 1280px** (xl) | Großer Desktop | Max-Width-Container greift (1280px), zentrierter Content |
+| Breakpoint             | Breite         | Layout-Änderungen                                                                  |
+| ---------------------- | -------------- | ---------------------------------------------------------------------------------- |
+| **< 640px** (sm)       | Telefon        | 2–3 Cover-Spalten, kompakte Stats, einzeilige FilterBar mit horizontalem Scroll    |
+| **640–767px** (sm–md)  | Großes Telefon | 3–4 Cover-Spalten                                                                  |
+| **768–1023px** (md–lg) | Tablet         | 4–5 Cover-Spalten, erweiterte FilterBar                                            |
+| **≥ 1024px** (lg)      | Desktop        | Sidebar erscheint, BottomNav verschwindet, 5–8 Cover-Spalten, Zwei-Spalten-Layouts |
+| **≥ 1280px** (xl)      | Großer Desktop | Max-Width-Container greift (1280px), zentrierter Content                           |
 
 ### 8.2 Touch vs. Pointer
 
@@ -354,7 +362,7 @@ Glassmorphism-Farben werden als CSS Custom Properties definiert, die sich je nac
 /* Dark Mode (default or prefers-color-scheme: dark) */
 :root[data-theme="dark"] {
   --glass: rgba(255, 255, 255, 0.05);
-  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-border: rgba(255, 255, 255, 0.1);
   --glass-hover: rgba(255, 255, 255, 0.08);
   --surface-base: #0a0a0f;
   --surface-raised: #12121a;
@@ -364,8 +372,8 @@ Glassmorphism-Farben werden als CSS Custom Properties definiert, die sich je nac
 
 /* Light Mode */
 :root[data-theme="light"] {
-  --glass: rgba(255, 255, 255, 0.60);
-  --glass-border: rgba(255, 255, 255, 0.40);
+  --glass: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.4);
   --glass-hover: rgba(255, 255, 255, 0.75);
   --surface-base: #f8fafc;
   --surface-raised: #ffffff;
@@ -376,4 +384,4 @@ Glassmorphism-Farben werden als CSS Custom Properties definiert, die sich je nac
 
 ---
 
-*Ende des UI/UX-Konzepts*
+_Ende des UI/UX-Konzepts_

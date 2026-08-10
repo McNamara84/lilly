@@ -7,11 +7,16 @@ use super::AppState;
 use crate::auth::middleware::AuthUser;
 use crate::db::trades;
 use crate::error::AppError;
+use crate::models::trade_matching::{
+    CreateTradeProposalRequest, PageParams, PaginatedMatchesResponse, PaginatedTradesResponse,
+    TradeMatchResponse, TradeResponse,
+};
 use crate::models::trades::{
     BulkWantedRequest, BulkWantedResponse, PaginatedTradeOffersResponse,
     PaginatedWantedCandidatesResponse, PaginatedWantedResponse, TradeListQueryParams,
     TradeOfferResponse, WantedCandidateResponse, WantedEntryResponse, normalize_bulk_issue_ids,
 };
+use crate::services::{trade_matching as matching_service, trades as trade_service};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -20,6 +25,86 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/me/wanted/candidates", get(list_wanted_candidates))
         .route("/api/v1/me/wanted/bulk", post(add_wanted_entries))
         .route("/api/v1/me/wanted/{entry_id}", delete(delete_wanted_entry))
+        .route("/api/v1/me/matches", get(list_matches))
+        .route("/api/v1/me/matches/{match_id}", get(get_match))
+        .route(
+            "/api/v1/me/matches/{match_id}/proposals",
+            post(create_trade_proposal),
+        )
+        .route("/api/v1/me/trades", get(list_open_trades))
+        .route("/api/v1/me/trades/{trade_id}", get(get_trade))
+        .route("/api/v1/me/trades/{trade_id}/accept", post(accept_trade))
+        .route("/api/v1/me/trades/{trade_id}/cancel", post(cancel_trade))
+}
+
+async fn list_matches(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(params): Query<PageParams>,
+) -> Result<Json<PaginatedMatchesResponse>, AppError> {
+    Ok(Json(
+        matching_service::list_matches(&state.inner.pool, auth.user_id, &params).await?,
+    ))
+}
+
+async fn get_match(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(match_id): Path<u32>,
+) -> Result<Json<TradeMatchResponse>, AppError> {
+    Ok(Json(
+        matching_service::get_match(&state.inner.pool, auth.user_id, match_id).await?,
+    ))
+}
+
+async fn create_trade_proposal(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(match_id): Path<u32>,
+    Json(body): Json<CreateTradeProposalRequest>,
+) -> Result<(StatusCode, Json<TradeResponse>), AppError> {
+    let trade =
+        trade_service::create_proposal(&state.inner.pool, auth.user_id, match_id, &body).await?;
+    Ok((StatusCode::CREATED, Json(trade)))
+}
+
+async fn list_open_trades(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(params): Query<PageParams>,
+) -> Result<Json<PaginatedTradesResponse>, AppError> {
+    Ok(Json(
+        trade_service::list_open_trades(&state.inner.pool, auth.user_id, &params).await?,
+    ))
+}
+
+async fn get_trade(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(trade_id): Path<u32>,
+) -> Result<Json<TradeResponse>, AppError> {
+    Ok(Json(
+        trade_service::get_trade(&state.inner.pool, auth.user_id, trade_id).await?,
+    ))
+}
+
+async fn accept_trade(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(trade_id): Path<u32>,
+) -> Result<Json<TradeResponse>, AppError> {
+    Ok(Json(
+        trade_service::accept_trade(&state.inner.pool, auth.user_id, trade_id).await?,
+    ))
+}
+
+async fn cancel_trade(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(trade_id): Path<u32>,
+) -> Result<StatusCode, AppError> {
+    trade_service::cancel_trade(&state.inner.pool, auth.user_id, trade_id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_trade_offers(
@@ -99,7 +184,14 @@ async fn add_wanted_entries(
     Json(body): Json<BulkWantedRequest>,
 ) -> Result<Json<BulkWantedResponse>, AppError> {
     let issue_ids = normalize_bulk_issue_ids(&body.issue_ids).map_err(AppError::BadRequest)?;
-    let result = trades::add_wanted_entries(&state.inner.pool, auth.user_id, &issue_ids).await?;
+    let mut transaction = state.inner.pool.begin().await?;
+    let result =
+        trades::add_wanted_entries_in_transaction(&mut transaction, auth.user_id, &issue_ids)
+            .await?;
+    if !result.created.is_empty() {
+        crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
+    }
+    transaction.commit().await?;
     Ok(Json(result))
 }
 
@@ -112,10 +204,27 @@ async fn delete_wanted_entry(
         return Err(wanted_entry_not_found());
     }
 
-    let deleted = trades::delete_wanted_entry(&state.inner.pool, auth.user_id, entry_id).await?;
+    let wanted =
+        crate::db::collection::find_entry_by_id_and_user(&state.inner.pool, entry_id, auth.user_id)
+            .await?;
+    if wanted.as_ref().is_none_or(|entry| entry.status != "wanted") {
+        return Err(wanted_entry_not_found());
+    }
+    let mut transaction = state.inner.pool.begin().await?;
+    matching_service::prepare_entry_mutation_in_transaction(
+        &mut transaction,
+        auth.user_id,
+        entry_id,
+    )
+    .await?;
+    let deleted =
+        trades::delete_wanted_entry_on_connection(&mut transaction, auth.user_id, entry_id).await?;
     if !deleted {
         return Err(wanted_entry_not_found());
     }
+
+    crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
+    transaction.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -172,6 +281,18 @@ mod tests {
                 None,
             ),
             request(Method::DELETE, "/api/v1/me/wanted/1", "", None),
+            request(Method::GET, "/api/v1/me/matches", "", None),
+            request(Method::GET, "/api/v1/me/matches/1", "", None),
+            request(
+                Method::POST,
+                "/api/v1/me/matches/1/proposals",
+                r#"{"offered_entry_ids":[1],"requested_entry_ids":[2]}"#,
+                None,
+            ),
+            request(Method::GET, "/api/v1/me/trades", "", None),
+            request(Method::GET, "/api/v1/me/trades/1", "", None),
+            request(Method::POST, "/api/v1/me/trades/1/accept", "", None),
+            request(Method::POST, "/api/v1/me/trades/1/cancel", "", None),
         ];
 
         for request in requests {
@@ -233,6 +354,26 @@ mod tests {
             request(
                 Method::DELETE,
                 "/api/v1/me/wanted/not-a-number",
+                "",
+                Some(1),
+            ),
+            request(Method::GET, "/api/v1/me/matches/not-a-number", "", Some(1)),
+            request(
+                Method::POST,
+                "/api/v1/me/matches/1/proposals",
+                r#"{"offered_entry_ids":[],"requested_entry_ids":[2]}"#,
+                Some(1),
+            ),
+            request(
+                Method::POST,
+                "/api/v1/me/matches/1/proposals",
+                r#"{"offered_entry_ids":[1],"requested_entry_ids":[0]}"#,
+                Some(1),
+            ),
+            request(Method::GET, "/api/v1/me/trades/not-a-number", "", Some(1)),
+            request(
+                Method::POST,
+                "/api/v1/me/trades/not-a-number/accept",
                 "",
                 Some(1),
             ),
