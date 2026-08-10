@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 use chrono::NaiveDate;
-use lilly_importer_core::adapter::{AdapterError, SourceDescriptor, WikiAdapter};
+use lilly_importer_core::adapter::{AdapterError, ReferenceRecord, SourceDescriptor, WikiAdapter};
 use lilly_importer_core::types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
 
 const DESCRIPTOR: SourceDescriptor = SourceDescriptor {
     source_key: "e2e-fixture",
     display_name: "E2E Fixture",
     allowed_host: "example.test",
-    series_name: "E2E Fixture Series",
+    series_name: "ZZZ E2E Fixture Series",
     series_slug: "e2e-fixture-series",
     series_record_id: "Series:E2E",
     series_url: "https://example.test/series/e2e",
@@ -31,6 +31,15 @@ impl WikiAdapter for E2eFixtureAdapter {
 
     fn source_descriptor(&self) -> SourceDescriptor {
         DESCRIPTOR
+    }
+
+    fn reference_records(&self) -> Vec<ReferenceRecord> {
+        vec![ReferenceRecord {
+            issue_number: 1,
+            title: "Deterministic E2E Issue",
+            authors: &["LILLY Test Suite"],
+            published_at: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        }]
     }
 
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
@@ -93,14 +102,15 @@ mod tests {
 
         assert_eq!(adapter.name(), "e2e-fixture");
         assert_eq!(adapter.fetch_issue_list().await.unwrap(), vec![1]);
-        assert_eq!(
-            adapter.fetch_series_metadata().await.unwrap().slug,
-            "e2e-fixture-series"
-        );
+        let series = adapter.fetch_series_metadata().await.unwrap();
+        assert_eq!(series.slug, "e2e-fixture-series");
+        assert_eq!(series.name, "ZZZ E2E Fixture Series");
         assert_eq!(
             adapter.fetch_issue_details(1).await.unwrap().title,
             "Deterministic E2E Issue"
         );
+        assert_eq!(adapter.reference_records().len(), 1);
+        assert_eq!(adapter.reference_records()[0].issue_number, 1);
         assert!(adapter.fetch_cover(1).await.unwrap().is_none());
     }
 
