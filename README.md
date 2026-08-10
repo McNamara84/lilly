@@ -232,10 +232,19 @@ npm run test:coverage    # With coverage report
 ### Frontend E2E Tests (Playwright)
 
 ```bash
+# From the repository root, start the isolated E2E stack:
+docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build --wait
+
 cd frontend
 npx playwright install   # Install browsers (first time)
-npm run test:e2e         # Run E2E tests (requires Docker stack running)
-npm run test:e2e:ui      # Interactive UI mode
+npm run test:e2e         # Chromium only (requires Docker stack running)
+npm run test:e2e:all     # Chromium, Firefox, and WebKit
+npm run test:e2e:mobile  # Mobile Chrome emulation
+npm run test:e2e:ui      # Chromium in interactive UI mode
+
+# From the repository root after the tests:
+cd ..
+docker compose -f docker-compose.yml -f docker-compose.e2e.yml down
 ```
 
 ### Backend Tests (Rust)
@@ -277,10 +286,11 @@ GitHub Actions workflows run automatically:
 - **On Pull Requests** (`.github/workflows/ci.yml`):
   - Frontend: lint, format check, type check, unit tests with coverage, build
   - Backend: rustfmt, clippy, unit tests (with MariaDB service)
-  - E2E: full Docker stack + Playwright tests
+  - E2E: full Docker stack + Chromium Playwright tests
 
 - **On Push to Main** (`.github/workflows/main.yml`):
-  - All PR checks + Docker image build validation
+  - All PR checks + parallel Chromium, Firefox, and WebKit E2E jobs
+  - Docker image build validation
 
 ---
 

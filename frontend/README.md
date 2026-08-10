@@ -13,10 +13,19 @@ npm run dev          # Start dev server on http://localhost:5173
 
 ## Testing
 
+Start the isolated E2E stack from the `frontend` directory before running Playwright:
+
+```bash
+docker compose -f ../docker-compose.yml -f ../docker-compose.e2e.yml up -d --build --wait
+```
+
 ```bash
 npm run test             # Unit tests (Vitest)
 npm run test:coverage    # Unit tests with coverage
-npm run test:e2e         # E2E tests (Playwright, requires Docker stack)
+npm run test:e2e         # Chromium E2E tests (requires Docker stack)
+npm run test:e2e:all     # Chromium, Firefox, and WebKit
+npm run test:e2e:mobile  # Mobile Chrome emulation
+npm run test:e2e:ui      # Chromium in Playwright UI mode
 ```
 
 ## Linting & Formatting

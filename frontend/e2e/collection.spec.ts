@@ -1,13 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
-
-/** Shared login helper — logs in as demo user before each test. */
-async function loginAsDemo(page: Page) {
-	await page.goto('/login');
-	await page.getByTestId('email-input').fill('demo@lilly.app');
-	await page.getByTestId('password-input').fill('demo1234');
-	await page.getByTestId('submit-button').click();
-	await expect(page).toHaveURL('/', { timeout: 15000 });
-}
+import { expect, test, unauthenticatedTest } from './fixtures';
 
 // ---------------------------------------------------------------------------
 // Collection overview page
@@ -15,7 +6,7 @@ async function loginAsDemo(page: Page) {
 
 test.describe('Collection Overview', () => {
 	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
+		await page.goto('/');
 	});
 
 	test('header nav link navigates to collection page', async ({ page }) => {
@@ -128,7 +119,6 @@ test.describe('Collection Overview', () => {
 
 test.describe('Add to Collection', () => {
 	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
 		await page.goto('/collection/add');
 	});
 
@@ -261,10 +251,6 @@ test.describe('Add to Collection', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Collection End-to-End Workflow', () => {
-	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
-	});
-
 	test('full workflow: add issue, see in collection, use filters', async ({ page }) => {
 		// Step 1: Go to add page
 		await page.goto('/collection/add');
@@ -474,13 +460,13 @@ test.describe('Collection End-to-End Workflow', () => {
 // Unauthenticated access
 // ---------------------------------------------------------------------------
 
-test.describe('Collection – Unauthenticated', () => {
-	test('redirects to login when not authenticated', async ({ page }) => {
+unauthenticatedTest.describe('Collection – Unauthenticated', () => {
+	unauthenticatedTest('redirects to login when not authenticated', async ({ page }) => {
 		await page.goto('/collection');
 		await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
 	});
 
-	test('add page redirects to login when not authenticated', async ({ page }) => {
+	unauthenticatedTest('add page redirects to login when not authenticated', async ({ page }) => {
 		await page.goto('/collection/add');
 		await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
 	});

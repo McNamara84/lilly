@@ -1,13 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-
-async function loginAsDemo(page: Page) {
-	await page.goto('/login');
-	await page.getByTestId('email-input').fill('demo@lilly.app');
-	await page.getByTestId('password-input').fill('demo1234');
-	await page.getByTestId('submit-button').click();
-	await expect(page).toHaveURL('/', { timeout: 15000 });
-}
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 async function firstMaddraxIssueId(page: Page): Promise<number> {
 	return page.evaluate(async () => {
@@ -52,7 +45,7 @@ async function removeCollectionEntry(page: Page, issueId: number) {
 
 test.describe('Trade lists', () => {
 	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
+		await page.goto('/');
 	});
 
 	test('duplicate offer and wanted issue workflows stay synchronized with the collection', async ({

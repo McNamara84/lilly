@@ -15,6 +15,7 @@ services:
       retries: 5
 
   backend:
+    image: lilly-backend:e2e
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -26,6 +27,8 @@ services:
       RUST_LOG: ${RUST_LOG}
       BACKEND_PORT: ${BACKEND_PORT}
       ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
+      E2E_WORKER_COUNT: ${E2E_WORKER_COUNT:-0}
+      ENABLE_E2E_FIXTURE_ADAPTER: ${ENABLE_E2E_FIXTURE_ADAPTER:-false}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       MEDIA_PATH: /media
       IMPORT_SCHEDULER_ENABLED: ${IMPORT_SCHEDULER_ENABLED:-false}
@@ -45,6 +48,7 @@ services:
       start_period: 30s
 
   frontend:
+    image: lilly-frontend:e2e
     build:
       context: ./frontend
     depends_on:

@@ -1,0 +1,6 @@
+services:
+  backend:
+    environment:
+      ENABLE_DEMO_SEED: "true"
+      E2E_WORKER_COUNT: "4"
+      ENABLE_E2E_FIXTURE_ADAPTER: "true"
