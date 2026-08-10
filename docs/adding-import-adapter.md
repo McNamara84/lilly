@@ -68,8 +68,11 @@ impl WikiAdapter for ExampleAdapter {
 
 Pflichtfelder eines Hefts sind positive Heftnummer, Titel, mindestens ein Autor,
 Erscheinungsdatum und vollständige Provenienz. Adapter liefern Transportfehler als
-`AdapterError::Network`, nicht gefundene Datensätze als `NotFound` und nicht interpretierbare
-Quellinhalte als `Parse`. Leere Teilrecords dürfen nicht persistiert werden.
+`AdapterError::Network`, nicht gefundene Datensätze als `NotFound` und eine Antwort, die sich
+gar nicht als Heft interpretieren lässt, als `Parse`. Eine syntaktisch interpretierbare
+Antwort darf fehlende Pflichtfelder zunächst als leere Werte beziehungsweise `None` abbilden.
+Die generische Orchestrierung ruft anschließend `normalize_and_validate_issue()` auf und
+verwirft solche Teilrecords vor jeder Persistenz als recordbezogenen Fehler.
 
 Für jede produktive Quelle sollen mindestens drei `reference_records()` gepflegt werden:
 ein früher Datensatz, ein Datensatz aus der Mitte und ein aktueller Datensatz. Diese Werte
@@ -83,7 +86,7 @@ liefert sie an den echten Parser. Jede Adapter-Suite muss mindestens abdecken:
 
 - einen vollständigen Erfolgsfall mit allen Referenzrecords,
 - wiederholte, identische Ergebnisse für Serie, Liste, Details und Cover,
-- fehlende Pflichtfelder,
+- fehlende Pflichtfelder einschließlich der Ablehnung durch die generische Validierung,
 - HTTP- und Parserfehler,
 - Quellhost und Quellidentität,
 - quellenspezifische Randfälle des Mappings.

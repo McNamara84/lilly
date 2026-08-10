@@ -44,6 +44,7 @@ mod tests {
         Valid,
         InvalidMandatoryFields,
         InvalidJson,
+        TruncatedBody,
         ServerError,
         Slow,
     }
@@ -81,7 +82,11 @@ mod tests {
                 };
                 let response = format!(
                     "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
+                    if mode == FixtureMode::TruncatedBody {
+                        body.len() + 64
+                    } else {
+                        body.len()
+                    }
                 );
                 let _ = stream.write_all(response.as_bytes()).await;
             }
@@ -302,7 +307,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn every_adapter_rejects_missing_mandatory_fields() {
+    async fn every_adapter_preserves_body_read_failures_as_network_errors() {
+        let (maddrax_url, maddrax_server) =
+            spawn_fixture_server(FixtureSource::Maddrax, FixtureMode::TruncatedBody).await;
+        let maddrax = MaddraxAdapter::new()
+            .unwrap()
+            .with_delay(Duration::ZERO)
+            .with_request_base_url(maddrax_url);
+        let maddrax_error = maddrax.fetch_issue_list().await.unwrap_err();
+        assert!(
+            matches!(maddrax_error, AdapterError::Network(_)),
+            "expected a retryable network error, got {maddrax_error:?}"
+        );
+        maddrax_server.abort();
+
+        let (sinclair_url, sinclair_server) =
+            spawn_fixture_server(FixtureSource::JohnSinclair, FixtureMode::TruncatedBody).await;
+        let sinclair = JohnSinclairAdapter::new()
+            .unwrap()
+            .with_delay(Duration::ZERO)
+            .with_request_base_url(sinclair_url);
+        let sinclair_error = sinclair.fetch_issue_list().await.unwrap_err();
+        assert!(
+            matches!(sinclair_error, AdapterError::Network(_)),
+            "expected a retryable network error, got {sinclair_error:?}"
+        );
+        sinclair_server.abort();
+    }
+
+    #[tokio::test]
+    async fn generic_validation_rejects_missing_mandatory_fields_from_every_adapter() {
         let (maddrax_url, maddrax_server) =
             spawn_fixture_server(FixtureSource::Maddrax, FixtureMode::InvalidMandatoryFields).await;
         let maddrax = MaddraxAdapter::new()

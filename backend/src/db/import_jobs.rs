@@ -535,6 +535,19 @@ mod tests {
             .unwrap();
         assert!(trigger_job.cancel_requested_at.is_some());
         assert_eq!(trigger_job.cancel_requested_by, Some(user_id));
+        let first_requested_at = trigger_job.cancel_requested_at;
+        sqlx::query("UPDATE import_jobs SET cancel_requested_by = ? WHERE id = ?")
+            .bind(other_user_id)
+            .bind(trigger_job.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let replacement_attempt = find_import_job_by_id(&pool, trigger_job.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replacement_attempt.cancel_requested_by, Some(user_id));
+        assert_eq!(replacement_attempt.cancel_requested_at, first_requested_at);
         cancel_import_job(&pool, trigger_job.id).await.unwrap();
 
         let running_job = create_import_job_if_idle(
@@ -584,6 +597,49 @@ mod tests {
             "cancelled"
         );
 
+        let actor_deletion_job = create_import_job_if_idle(
+            &pool,
+            &NewImportJob {
+                series_id,
+                adapter_name: "test-adapter",
+                source_key: "test-wiki",
+                started_by: Some(user_id),
+                trigger_type: "manual",
+                scheduled_for: None,
+                retry_of_job_id: Some(first_job),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            request_import_cancellation(&pool, actor_deletion_job, other_user_id)
+                .await
+                .unwrap()
+        );
+        let actor_deletion_job_before = find_import_job_by_id(&pool, actor_deletion_job)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            actor_deletion_job_before.cancel_requested_by,
+            Some(other_user_id)
+        );
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(other_user_id)
+            .execute(&pool)
+            .await
+            .expect("cancellation actor fixture must be deleted");
+        let actor_deletion_job_after = find_import_job_by_id(&pool, actor_deletion_job)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actor_deletion_job_after.cancel_requested_by, None);
+        assert_eq!(
+            actor_deletion_job_after.cancel_requested_at,
+            actor_deletion_job_before.cancel_requested_at
+        );
+
         let concurrent_job = NewImportJob {
             series_id,
             adapter_name: "test-adapter",
@@ -625,11 +681,6 @@ mod tests {
             .execute(&pool)
             .await
             .expect("series fixture must be deleted");
-        sqlx::query("DELETE FROM users WHERE id = ?")
-            .bind(other_user_id)
-            .execute(&pool)
-            .await
-            .expect("second user fixture must be deleted");
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(user_id)
             .execute(&pool)

@@ -11,6 +11,7 @@ use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
+use crate::models::user::normalize_email;
 use crate::services::admin_roles::{PromotionResult, RoleChangeMethod};
 
 mod auth;
@@ -195,6 +196,13 @@ async fn bootstrap_admin(pool: &sqlx::MySqlPool, admin_email: &str) {
 }
 
 async fn run_admin_promotion(email: &str) -> i32 {
+    let email = match normalize_email(email) {
+        Ok(email) => email,
+        Err(message) => {
+            eprintln!("{message}");
+            return EXIT_INVALID_INPUT;
+        }
+    };
     let Ok(database_url) = std::env::var("DATABASE_URL") else {
         eprintln!("DATABASE_URL must be set");
         return EXIT_DATABASE_ERROR;
@@ -215,7 +223,7 @@ async fn run_admin_promotion(email: &str) -> i32 {
         return EXIT_DATABASE_ERROR;
     }
 
-    match services::admin_roles::promote_user_to_admin(&pool, email, RoleChangeMethod::Cli).await {
+    match services::admin_roles::promote_user_to_admin(&pool, &email, RoleChangeMethod::Cli).await {
         Ok(result) => {
             match result {
                 PromotionResult::Promoted { user_id } => {
@@ -344,5 +352,10 @@ mod tests {
             promotion_result_exit_code(PromotionResult::UserNotFound),
             EXIT_USER_NOT_FOUND
         );
+    }
+
+    #[tokio::test]
+    async fn admin_cli_rejects_invalid_email_before_database_setup() {
+        assert_eq!(run_admin_promotion("invalid").await, EXIT_INVALID_INPUT);
     }
 }

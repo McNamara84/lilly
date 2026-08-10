@@ -81,9 +81,14 @@ pub trait WikiAdapter: Send + Sync {
     /// performs a second validation before any persistence occurs.
     async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError>;
 
-    /// Fetch and map one issue with mandatory title, author, publication date,
-    /// and complete provenance. Malformed source data returns
-    /// [`AdapterError::Parse`] instead of a partial record.
+    /// Fetch and map one issue from the source-specific representation.
+    ///
+    /// A successfully decoded source response may still contain empty mandatory
+    /// fields. Generic orchestration must pass every returned record through
+    /// [`normalize_and_validate_issue`] before persistence. Use
+    /// [`AdapterError::Parse`] when the source response itself cannot be
+    /// interpreted as an issue record, not merely for a generically missing
+    /// mandatory field.
     async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError>;
 
     /// Fetch an optional, sanitized reference cover.
