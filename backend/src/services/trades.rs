@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::json;
 use sqlx::MySqlPool;
@@ -205,10 +205,21 @@ pub async fn list_open_trades(
 ) -> Result<PaginatedTradesResponse, AppError> {
     let total = trade_workflow::count_open_trades(pool, user_id).await?;
     let rows = trade_workflow::find_open_trades(pool, user_id, params).await?;
-    let mut data = Vec::with_capacity(rows.len());
-    for row in rows {
-        data.push(build_trade(pool, user_id, row).await?);
+    let trade_ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
+    let mut items_by_trade = BTreeMap::new();
+    for item in trade_workflow::find_trade_items_for_trades(pool, &trade_ids).await? {
+        items_by_trade
+            .entry(item.trade_id)
+            .or_insert_with(Vec::new)
+            .push(item);
     }
+    let data = rows
+        .into_iter()
+        .map(|row| {
+            let items = items_by_trade.remove(&row.id).unwrap_or_default();
+            build_trade(user_id, row, &items)
+        })
+        .collect();
     Ok(PaginatedTradesResponse {
         data,
         page: params.page(),
@@ -225,15 +236,15 @@ pub async fn get_trade(
     let row = trade_workflow::find_trade_for_participant(pool, user_id, trade_id)
         .await?
         .ok_or_else(resource_not_found)?;
-    build_trade(pool, user_id, row).await
+    let items = trade_workflow::find_trade_items(pool, row.id).await?;
+    Ok(build_trade(user_id, row, &items))
 }
 
-async fn build_trade(
-    pool: &MySqlPool,
+fn build_trade(
     user_id: u32,
     row: TradeListRow,
-) -> Result<TradeResponse, AppError> {
-    let items = trade_workflow::find_trade_items(pool, row.id).await?;
+    items: &[crate::models::trade_matching::TradeItemViewRow],
+) -> TradeResponse {
     let my_offers = items
         .iter()
         .filter(|item| item.offered_by_user_id == user_id)
@@ -244,7 +255,7 @@ async fn build_trade(
         .filter(|item| item.offered_by_user_id != user_id)
         .map(TradeItemResponse::from)
         .collect();
-    Ok(TradeResponse {
+    TradeResponse {
         id: row.id,
         match_id: row.match_id,
         status: row.status,
@@ -273,7 +284,7 @@ async fn build_trade(
         accepted_at: row.accepted_at,
         cancelled_at: row.cancelled_at,
         updated_at: row.updated_at,
-    })
+    }
 }
 
 fn resource_not_found() -> AppError {

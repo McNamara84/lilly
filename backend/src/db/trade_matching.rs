@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::{MySql, MySqlConnection, MySqlPool, Transaction};
+use sqlx::{MySql, MySqlConnection, MySqlPool, QueryBuilder, Transaction};
 
+use crate::db::trade_workflow;
 use crate::models::trade_matching::{
     MatchItemRecord, MatchItemViewRow, MatchListRow, MatchRecord, PageParams,
 };
@@ -175,7 +176,8 @@ pub async fn reconcile_user_matches(
                 .bind(record.id)
                 .execute(&mut **transaction)
                 .await?;
-            cancel_invalid_proposals(transaction, record.id).await?;
+            trade_workflow::cancel_proposals_for_match(transaction, record.id, Some(user_id))
+                .await?;
             stats.staled = stats.staled.saturating_add(1);
         }
     }
@@ -231,6 +233,59 @@ async fn find_existing_pairs(
     .into_iter()
     .map(|row| (row.user_low_id, row.user_high_id))
     .collect())
+}
+
+/// Serializes collection mutations that can affect the same reciprocal match.
+/// Call this before changing any collection row for the supplied issues so the
+/// first candidate snapshot taken by reconciliation observes prior commits.
+pub async fn lock_reconciliation_users_for_issues(
+    connection: &mut MySqlConnection,
+    user_id: u32,
+    issue_ids: &[u32],
+) -> Result<(), sqlx::Error> {
+    if !issue_ids.is_empty() {
+        let mut issues = QueryBuilder::<MySql>::new("SELECT id FROM issues WHERE id IN (");
+        let mut separated = issues.separated(", ");
+        for issue_id in issue_ids.iter().copied().collect::<BTreeSet<_>>() {
+            separated.push_bind(issue_id);
+        }
+        separated.push_unseparated(") ORDER BY id FOR UPDATE");
+        issues
+            .build_query_scalar::<u32>()
+            .fetch_all(&mut *connection)
+            .await?;
+    }
+
+    let mut user_ids = BTreeSet::from([user_id]);
+    if !issue_ids.is_empty() {
+        let mut partners = QueryBuilder::<MySql>::new(
+            "SELECT DISTINCT user_id FROM collection_entries
+             WHERE user_id <> ",
+        );
+        partners.push_bind(user_id).push(" AND issue_id IN (");
+        let mut separated = partners.separated(", ");
+        for issue_id in issue_ids {
+            separated.push_bind(issue_id);
+        }
+        separated.push_unseparated(")");
+        user_ids.extend(
+            partners
+                .build_query_scalar::<u32>()
+                .fetch_all(&mut *connection)
+                .await?,
+        );
+    }
+
+    let mut lock = QueryBuilder::<MySql>::new("SELECT id FROM users WHERE id IN (");
+    let mut separated = lock.separated(", ");
+    for candidate_user_id in user_ids {
+        separated.push_bind(candidate_user_id);
+    }
+    separated.push_unseparated(") ORDER BY id FOR UPDATE");
+    lock.build_query_scalar::<u32>()
+        .fetch_all(connection)
+        .await?;
+    Ok(())
 }
 
 async fn lock_user_pair(
@@ -421,22 +476,6 @@ fn item_summaries(items: &[CandidateItem], offered_by: u32) -> Vec<serde_json::V
         .collect()
 }
 
-async fn cancel_invalid_proposals(
-    connection: &mut MySqlConnection,
-    match_id: u32,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE trades
-         SET status = 'cancelled', open_match_id = NULL,
-             cancellation_reason = 'items_changed', cancelled_at = CURRENT_TIMESTAMP
-         WHERE match_id = ? AND status = 'proposed'",
-    )
-    .bind(match_id)
-    .execute(connection)
-    .await?;
-    Ok(())
-}
-
 fn fingerprint_items(items: &[CandidateItem]) -> String {
     let mut hasher = Sha256::new();
     for item in items {
@@ -554,11 +593,43 @@ pub async fn find_match_item_views(
     .await
 }
 
+pub async fn find_match_item_views_for_matches(
+    pool: &MySqlPool,
+    match_ids: &[u32],
+) -> Result<Vec<MatchItemViewRow>, sqlx::Error> {
+    if match_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut query = QueryBuilder::<MySql>::new(
+        "SELECT mi.match_id, mi.offer_entry_id, mi.wanted_entry_id, mi.issue_id,
+                mi.offered_by_user_id, i.issue_number, i.title,
+                s.id AS series_id, s.name AS series_name, s.slug AS series_slug,
+                i.cover_url, i.cover_local_path, offer.copy_number,
+                offer.condition_grade
+         FROM trade_match_items mi
+         JOIN collection_entries offer ON offer.id = mi.offer_entry_id
+         JOIN issues i ON i.id = mi.issue_id
+         JOIN series s ON s.id = i.series_id
+         WHERE mi.match_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for match_id in match_ids {
+        separated.push_bind(match_id);
+    }
+    separated.push_unseparated(
+        ") ORDER BY mi.match_id, mi.offered_by_user_id, s.name,
+                    i.issue_number, offer.copy_number",
+    );
+    query.build_query_as().fetch_all(pool).await
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use sqlx::mysql::MySqlPoolOptions;
+    use tokio::sync::Barrier;
 
     use super::*;
     use crate::error::AppError;
@@ -711,7 +782,7 @@ mod tests {
             .expect("reactivated match must be readable");
         assert_eq!(reactivated_match.revision, 3);
 
-        let proposal = trades::create_proposal(
+        let mut proposal = trades::create_proposal(
             &pool,
             first_user_id,
             match_id,
@@ -746,6 +817,93 @@ mod tests {
             duplicate_proposal,
             Err(AppError::ConflictWithCode { ref code, .. }) if code == "open_trade_exists"
         ));
+
+        matching_service::prepare_entry_mutation(&pool, first_user_id, first_offer_id)
+            .await
+            .expect("a relevant mutation must cancel a proposal");
+        assert_eq!(trade_status(&pool, proposal.id).await, "cancelled");
+        assert_eq!(
+            trade_notification_count(&pool, second_user_id, proposal.id, "trade_cancelled").await,
+            1
+        );
+
+        let stale_proposal = trades::create_proposal(
+            &pool,
+            first_user_id,
+            match_id,
+            &CreateTradeProposalRequest {
+                offered_entry_ids: vec![first_offer_id],
+                requested_entry_ids: vec![second_offer_id],
+            },
+        )
+        .await
+        .expect("a replacement proposal must be created");
+        sqlx::query("UPDATE collection_entries SET status = 'owned' WHERE id = ?")
+            .bind(first_offer_id)
+            .execute(&pool)
+            .await
+            .expect("offer must become owned");
+        assert_eq!(reconcile(&pool, first_user_id).await.staled, 1);
+        assert_eq!(trade_status(&pool, stale_proposal.id).await, "cancelled");
+        assert_eq!(
+            trade_notification_count(&pool, second_user_id, stale_proposal.id, "trade_cancelled")
+                .await,
+            1
+        );
+        sqlx::query("UPDATE collection_entries SET status = 'duplicate' WHERE id = ?")
+            .bind(first_offer_id)
+            .execute(&pool)
+            .await
+            .expect("offer must become duplicate again");
+        assert_eq!(reconcile(&pool, first_user_id).await.reactivated, 1);
+        proposal = trades::create_proposal(
+            &pool,
+            first_user_id,
+            match_id,
+            &CreateTradeProposalRequest {
+                offered_entry_ids: vec![first_offer_id],
+                requested_entry_ids: vec![second_offer_id],
+            },
+        )
+        .await
+        .expect("the lifecycle proposal must be recreated");
+
+        let proposal_notification_id = sqlx::query_scalar::<_, u32>(
+            "SELECT id FROM notifications
+             WHERE user_id = ? AND trade_id = ? AND kind = 'trade_proposed'",
+        )
+        .bind(second_user_id)
+        .bind(proposal.id)
+        .fetch_one(&pool)
+        .await
+        .expect("proposal notification must exist");
+        assert!(
+            crate::db::notifications::mark_notification_read(
+                &pool,
+                second_user_id,
+                proposal_notification_id
+            )
+            .await
+            .expect("first read update must succeed")
+        );
+        assert!(
+            crate::db::notifications::mark_notification_read(
+                &pool,
+                second_user_id,
+                proposal_notification_id
+            )
+            .await
+            .expect("idempotent read update must succeed")
+        );
+        assert!(
+            !crate::db::notifications::mark_notification_read(
+                &pool,
+                first_user_id,
+                proposal_notification_id
+            )
+            .await
+            .expect("foreign notification lookup must succeed")
+        );
 
         let request = SendMessageRequest {
             client_message_id: "123e4567-e89b-12d3-a456-426614174000".to_string(),
@@ -840,6 +998,131 @@ mod tests {
             .expect("series fixture must be deleted");
     }
 
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn complementary_collection_mutations_are_serialized_before_reconciliation() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("test database must be reachable");
+        crate::db::migrate_test_database(&pool)
+            .await
+            .expect("test migrations must succeed");
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        let first_user_id = insert_user(
+            &pool,
+            &format!("matching-concurrent-first-{suffix}@example.test"),
+            "Concurrent First",
+        )
+        .await;
+        let second_user_id = insert_user(
+            &pool,
+            &format!("matching-concurrent-second-{suffix}@example.test"),
+            "Concurrent Second",
+        )
+        .await;
+        let series_id = insert_series(&pool, suffix.saturating_add(1)).await;
+        let first_issue_id = insert_issue(&pool, series_id, 1, "Concurrent First").await;
+        let second_issue_id = insert_issue(&pool, series_id, 2, "Concurrent Second").await;
+        insert_entry(
+            &pool,
+            second_user_id,
+            second_issue_id,
+            "duplicate",
+            Some("Z2"),
+        )
+        .await;
+        insert_entry(&pool, first_user_id, second_issue_id, "wanted", None).await;
+
+        let barrier = Arc::new(Barrier::new(2));
+        let first_pool = pool.clone();
+        let first_barrier = barrier.clone();
+        let first = async move {
+            let mut transaction = first_pool.begin().await?;
+            first_barrier.wait().await;
+            lock_reconciliation_users_for_issues(
+                &mut transaction,
+                first_user_id,
+                &[first_issue_id],
+            )
+            .await?;
+            crate::db::collection::add_entry_on_connection(
+                &mut transaction,
+                first_user_id,
+                first_issue_id,
+                1,
+                Some("Z1"),
+                "duplicate",
+                None,
+            )
+            .await?;
+            reconcile_user_matches(&mut transaction, first_user_id).await?;
+            transaction.commit().await
+        };
+        let second_pool = pool.clone();
+        let second_barrier = barrier.clone();
+        let second = async move {
+            let mut transaction = second_pool.begin().await?;
+            second_barrier.wait().await;
+            lock_reconciliation_users_for_issues(
+                &mut transaction,
+                second_user_id,
+                &[first_issue_id],
+            )
+            .await?;
+            crate::db::collection::add_entry_on_connection(
+                &mut transaction,
+                second_user_id,
+                first_issue_id,
+                1,
+                None,
+                "wanted",
+                None,
+            )
+            .await?;
+            reconcile_user_matches(&mut transaction, second_user_id).await?;
+            transaction.commit().await
+        };
+
+        let (first_result, second_result): (Result<(), sqlx::Error>, Result<(), sqlx::Error>) =
+            tokio::join!(first, second);
+        first_result.expect("first concurrent mutation must commit");
+        second_result.expect("second concurrent mutation must commit");
+        let match_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM trade_matches
+             WHERE user_low_id = LEAST(?, ?) AND user_high_id = GREATEST(?, ?)
+               AND status = 'active'",
+        )
+        .bind(first_user_id)
+        .bind(second_user_id)
+        .bind(first_user_id)
+        .bind(second_user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("match must be countable");
+        assert_eq!(match_count, 1);
+
+        sqlx::query("DELETE FROM users WHERE id IN (?, ?)")
+            .bind(first_user_id)
+            .bind(second_user_id)
+            .execute(&pool)
+            .await
+            .expect("user fixtures must be deleted");
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .expect("series fixture must be deleted");
+    }
+
     async fn reconcile(pool: &MySqlPool, user_id: u32) -> ReconciliationStats {
         let mut transaction = pool.begin().await.expect("transaction must start");
         let stats = reconcile_user_matches(&mut transaction, user_id)
@@ -912,6 +1195,32 @@ mod tests {
             .fetch_one(pool)
             .await
             .expect("notifications must be countable")
+    }
+
+    async fn trade_notification_count(
+        pool: &MySqlPool,
+        user_id: u32,
+        trade_id: u32,
+        kind: &str,
+    ) -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM notifications
+             WHERE user_id = ? AND trade_id = ? AND kind = ?",
+        )
+        .bind(user_id)
+        .bind(trade_id)
+        .bind(kind)
+        .fetch_one(pool)
+        .await
+        .expect("trade notifications must be countable")
+    }
+
+    async fn trade_status(pool: &MySqlPool, trade_id: u32) -> String {
+        sqlx::query_scalar("SELECT status FROM trades WHERE id = ?")
+            .bind(trade_id)
+            .fetch_one(pool)
+            .await
+            .expect("trade status must be readable")
     }
 
     async fn row_count(pool: &MySqlPool, table: &str, id: u32) -> i64 {

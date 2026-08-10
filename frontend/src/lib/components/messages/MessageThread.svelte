@@ -6,17 +6,46 @@
 	let messages = $state<TradeMessage[]>([]);
 	let content = $state('');
 	let loading = $state(true);
+	let loadingOlder = $state(false);
 	let sending = $state(false);
 	let error = $state<string | null>(null);
 	let announcement = $state('');
+	let nextBeforeId = $state<number | null>(null);
+	const contentLength = $derived(Array.from(content).length);
+
+	function mergeMessages(...pages: TradeMessage[][]): TradeMessage[] {
+		const byId: Record<string, TradeMessage> = {};
+		for (const page of pages) {
+			for (const message of page) byId[String(message.id)] = message;
+		}
+		return Object.values(byId).sort((first, second) => first.id - second.id);
+	}
+
+	async function markLatestIncomingRead(candidates: TradeMessage[]) {
+		const lastIncoming = [...candidates]
+			.reverse()
+			.find((message) => !message.is_mine && message.read_at === null);
+		if (!lastIncoming) return;
+		await markThreadRead(threadId, lastIncoming.id);
+		const readAt = new Date().toISOString();
+		messages = messages.map((message) =>
+			!message.is_mine && message.id <= lastIncoming.id && message.read_at === null
+				? { ...message, read_at: readAt }
+				: message
+		);
+	}
 
 	async function load(silent = false) {
 		if (!silent) loading = true;
 		try {
 			const result = await fetchMessages(threadId, { limit: 100 });
-			messages = result.data;
-			const lastIncoming = [...messages].reverse().find((message) => !message.is_mine);
-			if (lastIncoming) await markThreadRead(threadId, lastIncoming.id);
+			if (silent) {
+				messages = mergeMessages(messages, result.data);
+			} else {
+				messages = result.data;
+				nextBeforeId = result.next_before_id;
+			}
+			await markLatestIncomingRead(result.data);
 			error = null;
 		} catch (cause) {
 			if (!silent) {
@@ -25,6 +54,23 @@
 			}
 		} finally {
 			if (!silent) loading = false;
+		}
+	}
+
+	async function loadOlder() {
+		if (nextBeforeId === null || loadingOlder) return;
+		loadingOlder = true;
+		error = null;
+		try {
+			const result = await fetchMessages(threadId, { before_id: nextBeforeId, limit: 100 });
+			messages = mergeMessages(result.data, messages);
+			nextBeforeId = result.next_before_id;
+			await markLatestIncomingRead(result.data);
+		} catch (cause) {
+			error =
+				cause instanceof Error ? cause.message : 'Ältere Nachrichten konnten nicht geladen werden.';
+		} finally {
+			loadingOlder = false;
 		}
 	}
 
@@ -38,7 +84,7 @@
 
 	async function submit() {
 		const trimmed = content.trim();
-		if (!trimmed || trimmed.length > 4000 || sending) return;
+		if (!trimmed || Array.from(trimmed).length > 4000 || sending) return;
 		sending = true;
 		error = null;
 		try {
@@ -68,6 +114,18 @@
 				Noch keine Nachrichten. Beginne die Abstimmung zum Tausch.
 			</p>
 		{:else}
+			{#if nextBeforeId !== null}
+				<div class="text-center">
+					<button
+						type="button"
+						disabled={loadingOlder}
+						onclick={loadOlder}
+						class="cursor-pointer text-sm underline disabled:cursor-wait disabled:opacity-60"
+					>
+						{loadingOlder ? 'Ältere Nachrichten werden geladen …' : 'Ältere Nachrichten laden'}
+					</button>
+				</div>
+			{/if}
 			{#each messages as message (message.id)}
 				<div class:ml-auto={message.is_mine} class="max-w-[85%] sm:max-w-[70%]">
 					<div
@@ -101,15 +159,14 @@
 			id="message-{threadId}"
 			bind:value={content}
 			rows="3"
-			maxlength="4000"
 			class="w-full resize-y rounded-lg p-3 text-sm"
 			style="background: var(--glass); border: 1px solid var(--glass-border);"
 			placeholder="Versand, Zustand oder andere Details abstimmen …"></textarea>
 		<div class="mt-2 flex items-center justify-between gap-3">
-			<span class="text-xs" style="color: var(--text-tertiary);">{content.length}/4000</span>
+			<span class="text-xs" style="color: var(--text-tertiary);">{contentLength}/4000</span>
 			<button
 				type="submit"
-				disabled={sending || content.trim().length === 0 || content.length > 4000}
+				disabled={sending || content.trim().length === 0 || contentLength > 4000}
 				class="cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
 				style="background: var(--color-brand-500); color: #000;"
 			>

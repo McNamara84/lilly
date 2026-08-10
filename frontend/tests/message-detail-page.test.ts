@@ -88,6 +88,19 @@ describe('Message detail page', () => {
 		const view = render(MessageDetailPage);
 
 		await waitFor(() => expect(mocks.goto).toHaveBeenCalledWith('/login'));
+		expect(screen.queryByTestId('message-thread')).not.toBeInTheDocument();
+		expect(mocks.fetchMessages).not.toHaveBeenCalled();
+		view.unmount();
+	});
+
+	it('shows an authentication loading state without requesting the thread', () => {
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: true, user: null });
+		const view = render(MessageDetailPage);
+
+		expect(screen.getByTestId('message-auth-loading')).toHaveTextContent('Anmeldung wird geprüft');
+		expect(screen.queryByTestId('message-thread')).not.toBeInTheDocument();
+		expect(mocks.fetchMessages).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
 		view.unmount();
 	});
 });

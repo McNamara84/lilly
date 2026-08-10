@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 
 async function firstMaddraxIssueId(page: Page): Promise<number> {
@@ -100,26 +100,36 @@ test.describe('Trade lists', () => {
 		page,
 		playwright
 	}, testInfo) => {
-		await page.goto('/trades');
-		const match = page
-			.getByTestId('trade-match-card')
-			.filter({ hasText: `E2E Partner ${testInfo.parallelIndex}` });
-		await expect(match).toHaveCount(1);
-		await match.getByRole('button', { name: 'Tausch vorschlagen' }).click();
-		const tradeLink = page.getByRole('link', { name: 'Details und Nachrichten' });
-		await expect(tradeLink).toBeVisible();
-		await Promise.all([page.waitForURL(/\/trades\/\d+\/?$/), tradeLink.click()]);
-		await expect(page.getByRole('heading', { name: /Tausch mit E2E Partner/ })).toBeVisible();
-		const tradePath = new URL(page.url()).pathname;
-		const tradeIdMatch = tradePath.match(/^\/trades\/(\d+)\/?$/);
-		expect(tradeIdMatch).not.toBeNull();
-		const tradeId = Number(tradeIdMatch![1]);
-		expect(tradeId).toBeGreaterThan(0);
-
-		const baseURL = testInfo.project.use.baseURL;
-		if (typeof baseURL !== 'string') throw new TypeError('E2E baseURL must be configured');
-		const partner = await playwright.request.newContext({ baseURL });
+		let tradeId: number | undefined;
+		let partner: APIRequestContext | undefined;
 		try {
+			await page.goto('/trades');
+			const match = page
+				.getByTestId('trade-match-card')
+				.filter({ hasText: `E2E Partner ${testInfo.parallelIndex}` });
+			await expect(match).toHaveCount(1);
+			const proposalResponsePromise = page.waitForResponse(
+				(response) =>
+					response.request().method() === 'POST' &&
+					/\/api\/v1\/me\/matches\/\d+\/proposals$/.test(new URL(response.url()).pathname)
+			);
+			await match.getByRole('button', { name: 'Tausch vorschlagen' }).click();
+			const proposalResponse = await proposalResponsePromise;
+			expect(proposalResponse.ok()).toBe(true);
+			tradeId = ((await proposalResponse.json()) as { id: number }).id;
+			expect(tradeId).toBeGreaterThan(0);
+			const tradeLink = page.getByRole('link', { name: 'Details und Nachrichten' });
+			await expect(tradeLink).toBeVisible();
+			await Promise.all([page.waitForURL(/\/trades\/\d+\/?$/), tradeLink.click()]);
+			await expect(page.getByRole('heading', { name: /Tausch mit E2E Partner/ })).toBeVisible();
+			const tradePath = new URL(page.url()).pathname;
+			const tradeIdMatch = tradePath.match(/^\/trades\/(\d+)\/?$/);
+			expect(tradeIdMatch).not.toBeNull();
+			expect(Number(tradeIdMatch![1])).toBe(tradeId);
+
+			const baseURL = testInfo.project.use.baseURL;
+			if (typeof baseURL !== 'string') throw new TypeError('E2E baseURL must be configured');
+			partner = await playwright.request.newContext({ baseURL });
 			const login = await partner.post('/api/v1/auth/login', {
 				data: {
 					email: `e2e-partner-${testInfo.parallelIndex}@lilly.app`,
@@ -149,7 +159,11 @@ test.describe('Trade lists', () => {
 			expect(history.ok()).toBe(true);
 			expect(await history.text()).toContain('Perfekt, danke!');
 		} finally {
-			await partner.dispose();
+			if (tradeId !== undefined) {
+				const cancelled = await page.request.post(`/api/v1/me/trades/${tradeId}/cancel`);
+				expect(cancelled.ok()).toBe(true);
+			}
+			await partner?.dispose();
 		}
 	});
 

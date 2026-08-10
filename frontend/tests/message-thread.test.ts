@@ -128,6 +128,63 @@ describe('MessageThread', () => {
 		view.unmount();
 	});
 
+	it('does not mark an incoming message that is already read', async () => {
+		mocks.fetchMessages.mockResolvedValue({
+			data: [{ ...incoming, read_at: '2026-08-10T09:00:00Z' }],
+			next_before_id: null
+		});
+		const view = render(MessageThread, { threadId: 7 });
+
+		await waitFor(() => expect(screen.getByText('<b>Hallo</b> & willkommen')).toBeInTheDocument());
+		expect(mocks.markThreadRead).not.toHaveBeenCalled();
+		view.unmount();
+	});
+
+	it('loads and prepends older message pages through the cursor', async () => {
+		const newest = { ...outgoing, id: 200, content: 'Neueste Nachricht' };
+		const older = {
+			...incoming,
+			id: 50,
+			content: 'Älteste Nachricht',
+			read_at: '2026-08-10T09:00:00Z'
+		};
+		mocks.fetchMessages
+			.mockResolvedValueOnce({ data: [newest], next_before_id: 100 })
+			.mockResolvedValueOnce({ data: [older], next_before_id: null });
+		const view = render(MessageThread, { threadId: 7 });
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Ältere Nachrichten laden' }));
+
+		await waitFor(() =>
+			expect(mocks.fetchMessages).toHaveBeenLastCalledWith(7, { before_id: 100, limit: 100 })
+		);
+		expect(screen.getByText('Älteste Nachricht')).toBeInTheDocument();
+		expect(screen.getByText('Neueste Nachricht')).toBeInTheDocument();
+		expect(
+			screen.queryByRole('button', { name: 'Ältere Nachrichten laden' })
+		).not.toBeInTheDocument();
+		view.unmount();
+	});
+
+	it('counts Unicode code points consistently with the backend limit', async () => {
+		mocks.fetchMessages.mockResolvedValue({ data: [], next_before_id: null });
+		const view = render(MessageThread, { threadId: 7 });
+		await waitFor(() => expect(screen.getByText(/Noch keine Nachrichten/)).toBeInTheDocument());
+		const textarea = screen.getByLabelText('Nachricht');
+		const sendButton = screen.getByRole('button', { name: 'Senden' });
+
+		expect(textarea).not.toHaveAttribute('maxlength');
+		await fireEvent.input(textarea, { target: { value: '😀'.repeat(4000) } });
+		expect(screen.getByText('4000/4000')).toBeInTheDocument();
+		expect(sendButton).toBeEnabled();
+
+		await fireEvent.input(textarea, { target: { value: '😀'.repeat(4001) } });
+		expect(screen.getByText('4001/4000')).toBeInTheDocument();
+		expect(sendButton).toBeDisabled();
+		view.unmount();
+	});
+
 	it('does not append a message already returned by the server', async () => {
 		mocks.fetchMessages.mockResolvedValue({ data: [outgoing], next_before_id: null });
 		mocks.sendMessage.mockResolvedValue(outgoing);
@@ -147,7 +204,13 @@ describe('MessageThread', () => {
 		vi.useFakeTimers();
 		let hidden = false;
 		const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
-		mocks.fetchMessages.mockResolvedValue({ data: [], next_before_id: null });
+		mocks.fetchMessages
+			.mockResolvedValueOnce({
+				data: [{ ...incoming, read_at: '2026-08-10T09:00:00Z' }],
+				next_before_id: null
+			})
+			.mockResolvedValueOnce({ data: [outgoing], next_before_id: null })
+			.mockRejectedValueOnce(new Error('Temporärer Pollingfehler'));
 		const view = render(MessageThread, { threadId: 7 });
 
 		try {
@@ -156,18 +219,24 @@ describe('MessageThread', () => {
 			});
 			expect(mocks.fetchMessages).toHaveBeenCalledTimes(1);
 
-			mocks.fetchMessages.mockRejectedValueOnce(new Error('Temporärer Pollingfehler'));
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(10_000);
 			});
 			expect(mocks.fetchMessages).toHaveBeenCalledTimes(2);
+			expect(screen.getByText('<b>Hallo</b> & willkommen')).toBeInTheDocument();
+			expect(screen.getByText('Gern!')).toBeInTheDocument();
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(10_000);
+			});
+			expect(mocks.fetchMessages).toHaveBeenCalledTimes(3);
 			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
 			hidden = true;
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(10_000);
 			});
-			expect(mocks.fetchMessages).toHaveBeenCalledTimes(2);
+			expect(mocks.fetchMessages).toHaveBeenCalledTimes(3);
 		} finally {
 			view.unmount();
 			hiddenSpy.mockRestore();

@@ -185,6 +185,12 @@ async fn add_wanted_entries(
 ) -> Result<Json<BulkWantedResponse>, AppError> {
     let issue_ids = normalize_bulk_issue_ids(&body.issue_ids).map_err(AppError::BadRequest)?;
     let mut transaction = state.inner.pool.begin().await?;
+    crate::db::trade_matching::lock_reconciliation_users_for_issues(
+        &mut transaction,
+        auth.user_id,
+        &issue_ids,
+    )
+    .await?;
     let result =
         trades::add_wanted_entries_in_transaction(&mut transaction, auth.user_id, &issue_ids)
             .await?;

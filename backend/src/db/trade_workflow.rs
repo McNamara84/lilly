@@ -1,5 +1,7 @@
-use sqlx::{MySql, MySqlConnection, MySqlPool, Transaction};
+use serde_json::json;
+use sqlx::{MySql, MySqlConnection, MySqlPool, QueryBuilder, Transaction};
 
+use crate::db::notifications;
 use crate::models::trade_matching::{PageParams, TradeItemViewRow, TradeListRow, TradeRecord};
 
 #[derive(Debug, sqlx::FromRow)]
@@ -21,6 +23,14 @@ pub struct ProposalItemRow {
     pub wanted_by_user_id: u32,
     pub copy_number: u8,
     pub condition_grade: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProposalCancellationRow {
+    pub id: u32,
+    pub match_id: u32,
+    pub initiator_id: u32,
+    pub responder_id: u32,
 }
 
 pub async fn lock_match_for_participant(
@@ -332,6 +342,36 @@ pub async fn find_trade_items(
     .await
 }
 
+pub async fn find_trade_items_for_trades(
+    pool: &MySqlPool,
+    trade_ids: &[u32],
+) -> Result<Vec<TradeItemViewRow>, sqlx::Error> {
+    if trade_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut query = QueryBuilder::<MySql>::new(
+        "SELECT ti.trade_id, ti.offer_entry_id, ti.wanted_entry_id, ti.issue_id,
+                ti.offered_by_user_id, ti.receiving_user_id,
+                i.issue_number, i.title, s.id AS series_id,
+                s.name AS series_name, s.slug AS series_slug,
+                i.cover_url, i.cover_local_path, ti.copy_number_snapshot,
+                ti.condition_grade_snapshot
+         FROM trade_items ti
+         JOIN issues i ON i.id = ti.issue_id
+         JOIN series s ON s.id = i.series_id
+         WHERE ti.trade_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for trade_id in trade_ids {
+        separated.push_bind(trade_id);
+    }
+    separated.push_unseparated(
+        ") ORDER BY ti.trade_id, ti.offered_by_user_id, s.name,
+                    i.issue_number, ti.copy_number_snapshot",
+    );
+    query.build_query_as().fetch_all(pool).await
+}
+
 pub async fn entry_is_reserved(
     connection: &mut MySqlConnection,
     entry_id: u32,
@@ -365,12 +405,28 @@ pub async fn lock_owned_entry(
     .is_some())
 }
 
+pub async fn find_owned_entry_issue(
+    connection: &mut MySqlConnection,
+    user_id: u32,
+    entry_id: u32,
+) -> Result<Option<u32>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT issue_id FROM collection_entries
+         WHERE id = ? AND user_id = ? FOR UPDATE",
+    )
+    .bind(entry_id)
+    .bind(user_id)
+    .fetch_optional(connection)
+    .await
+}
+
 pub async fn cancel_proposals_for_entry(
     connection: &mut MySqlConnection,
     entry_id: u32,
+    actor_user_id: Option<u32>,
 ) -> Result<Vec<u32>, sqlx::Error> {
-    let trade_ids = sqlx::query_scalar::<_, u32>(
-        "SELECT DISTINCT t.id
+    let proposals = sqlx::query_as::<_, ProposalCancellationRow>(
+        "SELECT DISTINCT t.id, t.match_id, t.initiator_id, t.responder_id
          FROM trades t
          JOIN trade_items ti ON ti.trade_id = t.id
          WHERE t.status = 'proposed'
@@ -381,8 +437,57 @@ pub async fn cancel_proposals_for_entry(
     .bind(entry_id)
     .fetch_all(&mut *connection)
     .await?;
-    for trade_id in &trade_ids {
-        cancel_trade(&mut *connection, *trade_id, "items_changed").await?;
+    cancel_proposals_with_notifications(connection, &proposals, "items_changed", actor_user_id)
+        .await?;
+    Ok(proposals.iter().map(|proposal| proposal.id).collect())
+}
+
+pub async fn cancel_proposals_for_match(
+    connection: &mut MySqlConnection,
+    match_id: u32,
+    actor_user_id: Option<u32>,
+) -> Result<Vec<u32>, sqlx::Error> {
+    let proposals = sqlx::query_as::<_, ProposalCancellationRow>(
+        "SELECT id, match_id, initiator_id, responder_id
+         FROM trades
+         WHERE match_id = ? AND status = 'proposed'
+         ORDER BY id FOR UPDATE",
+    )
+    .bind(match_id)
+    .fetch_all(&mut *connection)
+    .await?;
+    cancel_proposals_with_notifications(connection, &proposals, "items_changed", actor_user_id)
+        .await?;
+    Ok(proposals.iter().map(|proposal| proposal.id).collect())
+}
+
+async fn cancel_proposals_with_notifications(
+    connection: &mut MySqlConnection,
+    proposals: &[ProposalCancellationRow],
+    reason: &str,
+    actor_user_id: Option<u32>,
+) -> Result<(), sqlx::Error> {
+    for proposal in proposals {
+        cancel_trade(&mut *connection, proposal.id, reason).await?;
+        let recipients = match actor_user_id {
+            Some(actor) if actor == proposal.initiator_id => vec![proposal.responder_id],
+            Some(actor) if actor == proposal.responder_id => vec![proposal.initiator_id],
+            _ => vec![proposal.initiator_id, proposal.responder_id],
+        };
+        for recipient_id in recipients {
+            notifications::insert_notification(
+                &mut *connection,
+                recipient_id,
+                actor_user_id,
+                "trade_cancelled",
+                Some(proposal.match_id),
+                Some(proposal.id),
+                None,
+                &format!("trade:{}:cancelled", proposal.id),
+                &json!({ "trade_id": proposal.id, "reason": reason }),
+            )
+            .await?;
+        }
     }
-    Ok(trade_ids)
+    Ok(())
 }

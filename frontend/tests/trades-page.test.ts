@@ -165,8 +165,11 @@ describe('Trades hub', () => {
 		const user = userEvent.setup();
 
 		await waitFor(() => expect(screen.getByTestId('matches-panel')).toBeInTheDocument());
+		expect(screen.queryByRole('tab')).not.toBeInTheDocument();
 		await user.click(screen.getByTestId('active-trades-tab'));
 
+		expect(screen.getByTestId('active-trades-tab')).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByTestId('matches-tab')).toHaveAttribute('aria-pressed', 'false');
 		expect(screen.getByTestId('trade-summary-card')).toHaveTextContent(
 			'Tausch mit Tauschpartnerin'
 		);

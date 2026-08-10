@@ -79,11 +79,10 @@
 		</nav>
 	</header>
 
-	<div class="mb-6 flex gap-2" role="tablist" aria-label="Tauschbereiche">
+	<nav class="mb-6 flex gap-2" aria-label="Tauschbereiche">
 		<button
 			type="button"
-			role="tab"
-			aria-selected={activeTab === 'matches'}
+			aria-pressed={activeTab === 'matches'}
 			onclick={() => (activeTab = 'matches')}
 			class="cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold"
 			style={activeTab === 'matches'
@@ -95,8 +94,7 @@
 		</button>
 		<button
 			type="button"
-			role="tab"
-			aria-selected={activeTab === 'trades'}
+			aria-pressed={activeTab === 'trades'}
 			onclick={() => (activeTab = 'trades')}
 			class="cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold"
 			style={activeTab === 'trades'
@@ -106,7 +104,7 @@
 		>
 			Aktive Tausche ({trades.length})
 		</button>
-	</div>
+	</nav>
 
 	{#if error}
 		<div class="glass-elevated rounded-lg p-4" role="alert">
@@ -115,7 +113,7 @@
 	{:else if loading}
 		<p data-testid="trades-loading">Tauschdaten werden geladen …</p>
 	{:else if activeTab === 'matches'}
-		<div role="tabpanel" class="space-y-4" data-testid="matches-panel">
+		<div class="space-y-4" data-testid="matches-panel">
 			{#if matches.length === 0}
 				<div class="glass-elevated rounded-xl p-8 text-center">
 					<h2 class="text-lg font-semibold">Noch keine Tauschvorschläge</h2>
@@ -131,7 +129,7 @@
 			{/if}
 		</div>
 	{:else}
-		<div role="tabpanel" class="grid gap-4 sm:grid-cols-2" data-testid="active-trades-panel">
+		<div class="grid gap-4 sm:grid-cols-2" data-testid="active-trades-panel">
 			{#if trades.length === 0}
 				<div class="glass-elevated rounded-xl p-8 text-center sm:col-span-2">
 					<h2 class="text-lg font-semibold">Noch keine offenen Tausche</h2>

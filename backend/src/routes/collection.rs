@@ -180,6 +180,14 @@ async fn add_to_collection(
     let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
 
     let mut transaction = state.inner.pool.begin().await?;
+    if matches!(status, "duplicate" | "wanted") {
+        crate::db::trade_matching::lock_reconciliation_users_for_issues(
+            &mut transaction,
+            auth.user_id,
+            &[body.issue_id],
+        )
+        .await?;
+    }
     let entry_id = collection::add_entry_on_connection(
         &mut transaction,
         auth.user_id,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import {
@@ -14,6 +15,8 @@
 	let open = $state(false);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+	let triggerButton = $state<HTMLButtonElement>();
+	let popover = $state<HTMLDivElement>();
 
 	function label(kind: AppNotification['kind']): string {
 		return {
@@ -39,6 +42,8 @@
 		if (!open) return;
 		loading = true;
 		error = null;
+		await tick();
+		popover?.focus();
 		try {
 			notifications = (await fetchNotifications({ per_page: 10 })).data;
 		} catch (cause) {
@@ -47,6 +52,19 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function closeAndRestoreFocus() {
+		open = false;
+		await tick();
+		triggerButton?.focus();
+	}
+
+	function handlePopoverKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		event.preventDefault();
+		event.stopPropagation();
+		void closeAndRestoreFocus();
 	}
 
 	async function openNotification(notification: AppNotification) {
@@ -90,12 +108,15 @@
 
 <div class="relative">
 	<button
+		bind:this={triggerButton}
 		type="button"
 		onclick={toggle}
 		class="relative cursor-pointer rounded-lg p-2"
 		style="background: var(--glass);"
 		aria-label={`Benachrichtigungen${count ? `, ${count} ungelesen` : ''}`}
 		aria-expanded={open}
+		aria-controls="notification-popover"
+		aria-haspopup="dialog"
 	>
 		<span aria-hidden="true">🔔</span>
 		{#if count > 0}
@@ -111,11 +132,17 @@
 
 	{#if open}
 		<div
+			bind:this={popover}
+			id="notification-popover"
+			role="dialog"
+			aria-labelledby="notification-popover-title"
+			tabindex="-1"
+			onkeydown={handlePopoverKeydown}
 			class="glass-elevated absolute right-0 top-12 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl"
 			data-testid="notification-popover"
 		>
 			<header class="mb-2 flex items-center justify-between gap-2">
-				<h2 class="font-semibold">Benachrichtigungen</h2>
+				<h2 id="notification-popover-title" class="font-semibold">Benachrichtigungen</h2>
 				{#if count > 0}
 					<button type="button" class="cursor-pointer text-xs underline" onclick={markAll}>
 						Alle gelesen

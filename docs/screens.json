@@ -225,7 +225,7 @@
           "label": "Vorschläge",
           "icon": "ArrowLeftRight",
           "component": "TradeMatchCard",
-          "data_source": "GET /api/v1/matches?page={n}",
+          "data_source": "GET /api/v1/me/matches?page={n}",
           "empty_state": {
             "icon": "ArrowLeftRight",
             "title": "Noch keine Tauschvorschläge",
@@ -233,7 +233,7 @@
           },
           "interactions": {
             "select_items": "Selects one or more currently matching entries in both directions.",
-            "propose": "POST /api/v1/matches/{id}/proposal, then switches to the active-trades tab."
+            "propose": "POST /api/v1/me/matches/{id}/proposals, then switches to the active-trades view."
           }
         },
         {
@@ -242,7 +242,7 @@
           "icon": "MessageCircle",
           "component": "TradeSummaryCard",
           "description": "Proposed and accepted trades of the authenticated user.",
-          "data_source": "GET /api/v1/trades?page={n}",
+          "data_source": "GET /api/v1/me/trades?page={n}",
           "interactions": {
             "open_trade": "Navigates to /trades/{id}."
           }

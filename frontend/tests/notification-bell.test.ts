@@ -103,6 +103,25 @@ describe('NotificationBell', () => {
 		view.unmount();
 	});
 
+	it('exposes dialog semantics and restores trigger focus after Escape', async () => {
+		const view = render(NotificationBell);
+		const user = userEvent.setup();
+		await waitFor(() => expect(screen.getByTestId('notification-count')).toBeInTheDocument());
+		const bell = screen.getByRole('button', { name: /Benachrichtigungen/ });
+
+		await user.click(bell);
+		const dialog = await screen.findByRole('dialog', { name: 'Benachrichtigungen' });
+		expect(bell).toHaveAttribute('aria-controls', 'notification-popover');
+		expect(bell).toHaveAttribute('aria-haspopup', 'dialog');
+		expect(dialog).toHaveFocus();
+
+		await user.keyboard('{Escape}');
+
+		expect(screen.queryByRole('dialog', { name: 'Benachrichtigungen' })).not.toBeInTheDocument();
+		expect(bell).toHaveFocus();
+		view.unmount();
+	});
+
 	it('caps the badge and reports popover loading errors', async () => {
 		mocks.fetchUnreadNotificationCount.mockResolvedValue(120);
 		mocks.fetchNotifications.mockRejectedValueOnce(new Error('Dienst nicht erreichbar'));

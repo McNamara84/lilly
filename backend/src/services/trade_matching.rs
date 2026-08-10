@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use sqlx::MySqlPool;
 
 use crate::db::{trade_matching, trade_workflow};
@@ -14,10 +16,21 @@ pub async fn list_matches(
 ) -> Result<PaginatedMatchesResponse, AppError> {
     let total = trade_matching::count_matches(pool, user_id).await?;
     let rows = trade_matching::find_matches(pool, user_id, params).await?;
-    let mut data = Vec::with_capacity(rows.len());
-    for row in rows {
-        data.push(build_match(pool, user_id, row).await?);
+    let match_ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
+    let mut items_by_match = BTreeMap::new();
+    for item in trade_matching::find_match_item_views_for_matches(pool, &match_ids).await? {
+        items_by_match
+            .entry(item.match_id)
+            .or_insert_with(Vec::new)
+            .push(item);
     }
+    let data = rows
+        .into_iter()
+        .map(|row| {
+            let items = items_by_match.remove(&row.id).unwrap_or_default();
+            build_match(user_id, row, &items)
+        })
+        .collect();
     Ok(PaginatedMatchesResponse {
         data,
         page: params.page(),
@@ -34,7 +47,8 @@ pub async fn get_match(
     let row = trade_matching::find_match_for_participant(pool, user_id, match_id)
         .await?
         .ok_or_else(resource_not_found)?;
-    build_match(pool, user_id, row).await
+    let items = trade_matching::find_match_item_views(pool, row.id).await?;
+    Ok(build_match(user_id, row, &items))
 }
 
 #[allow(dead_code)]
@@ -62,6 +76,10 @@ pub async fn prepare_entry_mutation_in_transaction(
     user_id: u32,
     entry_id: u32,
 ) -> Result<(), AppError> {
+    let issue_id = trade_workflow::find_owned_entry_issue(transaction, user_id, entry_id)
+        .await?
+        .ok_or_else(resource_not_found)?;
+    trade_matching::lock_reconciliation_users_for_issues(transaction, user_id, &[issue_id]).await?;
     if !trade_workflow::lock_owned_entry(transaction, user_id, entry_id).await? {
         return Err(resource_not_found());
     }
@@ -71,16 +89,15 @@ pub async fn prepare_entry_mutation_in_transaction(
             code: "entry_reserved_by_trade".to_string(),
         });
     }
-    trade_workflow::cancel_proposals_for_entry(transaction, entry_id).await?;
+    trade_workflow::cancel_proposals_for_entry(transaction, entry_id, Some(user_id)).await?;
     Ok(())
 }
 
-async fn build_match(
-    pool: &MySqlPool,
+fn build_match(
     user_id: u32,
     row: MatchListRow,
-) -> Result<TradeMatchResponse, AppError> {
-    let items = trade_matching::find_match_item_views(pool, row.id).await?;
+    items: &[crate::models::trade_matching::MatchItemViewRow],
+) -> TradeMatchResponse {
     let my_offers = items
         .iter()
         .filter(|item| item.offered_by_user_id == user_id)
@@ -91,7 +108,7 @@ async fn build_match(
         .filter(|item| item.offered_by_user_id != user_id)
         .map(MatchIssueResponse::from)
         .collect::<Vec<_>>();
-    Ok(TradeMatchResponse {
+    TradeMatchResponse {
         id: row.id,
         status: row.status.clone(),
         revision: row.revision,
@@ -102,7 +119,7 @@ async fn build_match(
         partner_offers,
         open_trade_id: row.open_trade_id,
         open_trade_status: row.open_trade_status,
-    })
+    }
 }
 
 fn resource_not_found() -> AppError {

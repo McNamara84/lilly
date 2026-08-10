@@ -78,14 +78,23 @@ pub async fn mark_notification_read(
     notification_id: u32,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
-        "UPDATE notifications SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-         WHERE id = ? AND user_id = ?",
+        "UPDATE notifications SET read_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND user_id = ? AND read_at IS NULL",
     )
     .bind(notification_id)
     .bind(user_id)
     .execute(pool)
     .await?;
-    Ok(result.rows_affected() > 0)
+    if result.rows_affected() > 0 {
+        return Ok(true);
+    }
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM notifications WHERE id = ? AND user_id = ?)",
+    )
+    .bind(notification_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
 }
 
 pub async fn mark_all_notifications_read(
