@@ -112,36 +112,6 @@ pub async fn find_user_by_id(pool: &MySqlPool, user_id: u32) -> Result<Option<Us
     Ok(user)
 }
 
-pub async fn ensure_admin_role(pool: &MySqlPool, email: &str) {
-    match sqlx::query("UPDATE users SET role = 'admin' WHERE email = ? AND role != 'admin'")
-        .bind(email)
-        .execute(pool)
-        .await
-    {
-        Ok(result) if result.rows_affected() > 0 => {
-            tracing::info!("Promoted user {email} to admin via ADMIN_EMAIL");
-        }
-        Ok(_) => {
-            tracing::debug!(
-                "ADMIN_EMAIL={email} — user not found or already admin, skipping promotion"
-            );
-        }
-        Err(e) => {
-            tracing::error!("Failed to promote {email} to admin: {e}");
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub async fn promote_user_to_admin(pool: &MySqlPool, email: &str) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query("UPDATE users SET role = 'admin' WHERE email = ?")
-        .bind(email)
-        .execute(pool)
-        .await?;
-
-    Ok(result.rows_affected() > 0)
-}
-
 pub async fn seed_demo_user(pool: &MySqlPool) -> Result<u32, anyhow::Error> {
     let password_hash =
         crate::auth::password::hash_password("demo1234").map_err(|e| anyhow::anyhow!("{e}"))?;

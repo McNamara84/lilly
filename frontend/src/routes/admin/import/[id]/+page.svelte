@@ -55,6 +55,13 @@
 		return date ? new Date(date).toLocaleString('de-DE') : '–';
 	}
 
+	function cancellationAuditText(currentJob: ImportJob): string {
+		const auditText = `Abbruch angefordert am ${formatDate(currentJob.cancel_requested_at)}`;
+		return currentJob.cancel_requested_by
+			? `${auditText} von Admin #${currentJob.cancel_requested_by}`
+			: auditText;
+	}
+
 	function processedCount(currentJob: ImportJob): number {
 		return currentJob.imported_issues + (currentJob.skipped_issues ?? 0) + currentJob.failed_issues;
 	}
@@ -333,6 +340,11 @@
 				>
 			{/if}
 		</div>
+		{#if job.cancel_requested_at}
+			<p class="mt-3 text-sm" style="color: var(--text-secondary);" data-testid="cancel-audit">
+				{cancellationAuditText(job)}
+			</p>
+		{/if}
 	</section>
 
 	{#if jobErrors.length > 0}

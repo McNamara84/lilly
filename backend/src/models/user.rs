@@ -1,6 +1,23 @@
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+#[derive(Debug, Validate)]
+struct EmailAddress {
+    #[validate(email(message = "Invalid email format"))]
+    email: String,
+}
+
+/// Normalize an email address consistently across authentication and admin tooling.
+pub fn normalize_email(value: &str) -> Result<String, String> {
+    let email = value.trim().to_lowercase();
+    EmailAddress {
+        email: email.clone(),
+    }
+    .validate()
+    .map_err(|_| "Invalid email format".to_string())?;
+    Ok(email)
+}
+
 #[derive(Debug, sqlx::FromRow)]
 pub struct User {
     pub id: u32,
@@ -86,6 +103,22 @@ mod tests {
             password: "secret123".to_string(),
         };
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn email_normalization_trims_lowercases_and_validates() {
+        assert_eq!(
+            normalize_email("  Admin.User@Example.COM ").unwrap(),
+            "admin.user@example.com"
+        );
+        assert_eq!(
+            normalize_email("invalid"),
+            Err("Invalid email format".to_string())
+        );
+        assert_eq!(
+            normalize_email("   "),
+            Err("Invalid email format".to_string())
+        );
     }
 
     #[test]

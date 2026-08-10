@@ -9,12 +9,14 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 COPY Cargo.toml Cargo.lock ./
 COPY backend/Cargo.toml backend/Cargo.toml
 COPY importer-core/Cargo.toml importer-core/Cargo.toml
+COPY importer-adapters/Cargo.toml importer-adapters/Cargo.toml
 COPY importer/Cargo.toml importer/Cargo.toml
 
 # Create dummy sources to build dependencies
-RUN mkdir -p backend/src importer-core/src importer/src && \
+RUN mkdir -p backend/src importer-core/src importer-adapters/src importer/src && \
     echo "fn main() {}" > backend/src/main.rs && \
     echo "" > importer-core/src/lib.rs && \
+    echo "" > importer-adapters/src/lib.rs && \
     echo "fn main() {}" > importer/src/main.rs
 RUN cargo build --release -p lilly-backend 2>/dev/null || true
 
@@ -23,9 +25,10 @@ COPY backend/src/ backend/src/
 COPY backend/migrations/ backend/migrations/
 COPY backend/.sqlx/ backend/.sqlx/
 COPY importer-core/src/ importer-core/src/
+COPY importer-adapters/src/ importer-adapters/src/
 
 # Touch main.rs so cargo rebuilds it
-RUN touch backend/src/main.rs importer-core/src/lib.rs
+RUN touch backend/src/main.rs importer-core/src/lib.rs importer-adapters/src/lib.rs
 
 # Build with SQLX_OFFLINE since we don't have a DB at build time
 ENV SQLX_OFFLINE=true

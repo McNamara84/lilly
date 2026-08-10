@@ -104,6 +104,7 @@ pub struct ImportJob {
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
     pub cancel_requested_at: Option<chrono::NaiveDateTime>,
+    pub cancel_requested_by: Option<u32>,
     pub retry_of_job_id: Option<u32>,
 }
 
@@ -132,6 +133,7 @@ pub struct ImportJobResponse {
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
     pub cancel_requested_at: Option<chrono::NaiveDateTime>,
+    pub cancel_requested_by: Option<u32>,
     pub retry_of_job_id: Option<u32>,
 }
 
@@ -224,6 +226,7 @@ impl ImportJobResponse {
             created_at: j.created_at,
             updated_at: j.updated_at,
             cancel_requested_at: j.cancel_requested_at,
+            cancel_requested_by: j.cancel_requested_by,
             retry_of_job_id: j.retry_of_job_id,
         }
     }
@@ -318,6 +321,7 @@ mod tests {
             created_at: chrono::NaiveDateTime::default(),
             updated_at: chrono::NaiveDateTime::default(),
             cancel_requested_at: None,
+            cancel_requested_by: None,
             retry_of_job_id: None,
         };
         let resp = ImportJobResponse::from_job_with_slug(&job, "maddrax".to_string());

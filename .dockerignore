@@ -14,5 +14,9 @@
 !importer-core/Cargo.toml
 !importer-core/src/
 !importer-core/src/**
+!importer-adapters/
+!importer-adapters/Cargo.toml
+!importer-adapters/src/
+!importer-adapters/src/**
 !importer/
 !importer/Cargo.toml

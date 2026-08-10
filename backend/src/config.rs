@@ -82,7 +82,12 @@ impl AppConfig {
                 .unwrap_or_else(|| "false".to_string())
                 .parse()
                 .unwrap_or(false),
-            admin_email: get("ADMIN_EMAIL").filter(|s| !s.is_empty()),
+            admin_email: get("ADMIN_EMAIL")
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| {
+                    crate::models::user::normalize_email(&value)
+                        .expect("ADMIN_EMAIL must be a valid email address")
+                }),
             media_path: get("MEDIA_PATH").unwrap_or_else(|| "/media".to_string()),
             media_url_prefix: get("MEDIA_URL_PREFIX").unwrap_or_else(|| "/media".to_string()),
             e2e: E2eConfig {
@@ -160,6 +165,31 @@ mod tests {
             config.import_scheduled_adapters,
             vec!["maddrax", "john-sinclair"]
         );
+    }
+
+    #[test]
+    fn admin_email_is_normalized() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "ADMIN_EMAIL" => Some("  First.Admin@Example.COM ".to_string()),
+            _ => None,
+        });
+        assert_eq!(
+            config.admin_email.as_deref(),
+            Some("first.admin@example.com")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "ADMIN_EMAIL must be a valid email address")]
+    fn invalid_admin_email_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "ADMIN_EMAIL" => Some("not-an-email".to_string()),
+            _ => None,
+        });
     }
 
     #[test]

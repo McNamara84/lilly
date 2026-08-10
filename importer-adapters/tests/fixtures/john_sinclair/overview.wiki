@@ -1,3 +1,4 @@
+<!-- Deterministic local test fixture; never fetched live. -->
 | 1 || [[JS 0001 - Im Nachtclub der Vampire|Im Nachtclub der Vampire]] || [[Jason Dark]] || [[Vicente Ballestar]] || || 17.01.1978
 | 11 || [[JS 0011 - Der Irre mit der Teufelsgeige|Der Irre mit der Teufelsgeige]] || [[Jason Dark]] || || 1/2 ||
 | 12 || [[JS 0012 - Lebendig begraben|Lebendig begraben]] || [[Jason Dark]] || || 2/2 ||

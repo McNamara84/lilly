@@ -60,4 +60,25 @@ Die Parser-Tests prüfen mindestens:
 - Maddrax 1, 409 und 555
 - John Sinclair 1, 1000 und 2303
 
-Bei Mappingänderungen müssen die lokalen Fixtures bewusst aktualisiert und sämtliche `importer-core`-Tests ausgeführt werden. Live-Wiki-Inhalte sind keine reproduzierbare Testgrundlage.
+Bei Mappingänderungen müssen die lokalen Fixtures bewusst aktualisiert und sämtliche
+Workspace-Tests ausgeführt werden. Live-Wiki-Inhalte sind keine reproduzierbare
+Testgrundlage. Die quellenspezifischen Parser und Fixtures liegen im Crate
+`importer-adapters`; `importer-core` enthält ausschließlich den generischen Vertrag und die
+gemeinsame Vertragsprüfung. Der Ablauf für weitere Quellen ist unter
+[Neuen Import-Adapter hinzufügen](adding-import-adapter.md) dokumentiert.
+
+Die Vertragsprüfung ruft jeden Adapter zweimal gegen lokale Fixtures auf, prüft eindeutige
+positive Heftnummern, die gepinnten Referenzrecords, Pflichtfelder, Provenienz und
+Idempotenz. Ein zusätzlicher MariaDB-Test persistiert alle sechs Referenzhefte und erwartet
+beim zweiten Lauf ausschließlich `unchanged`.
+
+## Abbruchnachweis
+
+Ein manueller Abbruch schreibt `cancel_requested_at` und `cancel_requested_by` atomar in den
+Importjob. Wiederholte Abbruchanforderungen verändern den zuerst protokollierten Admin nicht.
+Wird das Benutzerkonto später gelöscht, bleibt der Zeitpunkt erhalten und der Fremdschlüssel
+wird auf `NULL` gesetzt. Der Worker prüft den persistenten Abbruchwunsch vor externen Abrufen
+und unmittelbar vor schreibenden Verarbeitungsschritten. MariaDB-Trigger für Insert und
+Update ergänzen den Zeitpunkt auch dann, wenn der Akteur außerhalb des regulären
+Anwendungspfads gesetzt würde. Eine `CHECK`-Constraint ist hier nicht mit dem für die
+Audit-Aufbewahrung notwendigen `ON DELETE SET NULL` kombinierbar.

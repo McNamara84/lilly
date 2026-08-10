@@ -231,12 +231,17 @@ erlaubt für die beiden Provenienzfelder nur gemeinsam `NULL` oder gemeinsam ges
 | `failed_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Recordbezogen fehlgeschlagene Hefte |
 | `error_message` | TEXT | NULL | Kompakte Fehlerzusammenfassung |
 | `cancel_requested_at` | DATETIME | NULL | Persistenter kooperativer Abbruchwunsch |
+| `cancel_requested_by` | INT UNSIGNED | FK, NULL | Erster Admin, der den Abbruch angefordert hat; `ON DELETE SET NULL` |
 | `retry_of_job_id` | INT UNSIGNED | FK, NULL | Verknüpfung zum Ursprungslauf |
 | `started_by` | INT UNSIGNED | FK, NULL | Admin bei manuellen Läufen; NULL beim Scheduler |
 | `started_at` / `completed_at` | DATETIME | NULL | Laufzeitgrenzen |
 | `created_at` / `updated_at` | DATETIME | NOT NULL | Anlage und letzter persistierter Fortschritt |
 
 Recordbezogene Fehler liegen zusätzlich in `import_job_errors` mit Job, Quelle, optionaler Heftnummer und Quell-ID, Verarbeitungsstufe und Meldung. Verwaiste aktive Jobs werden nach einem Neustart als `interrupted` sichtbar; sie werden nicht still fortgesetzt.
+
+Rollenbeförderungen werden separat in `role_change_events` gespeichert. Das Audit enthält
+vorherige und neue Rolle, Methode (`admin_email_bootstrap` oder `cli`) und Zeitpunkt. Es
+entsteht nur bei einer echten Rollenänderung und bleibt nach einer Accountlöschung erhalten.
 
 ### 4.7 Tabellen: trades, messages, comments
 
@@ -352,6 +357,7 @@ Die Authentifizierung basiert auf einem JWT-Paar:
 
 - **Access Token:** Kurzlebig (15 Minuten), wird als httpOnly-Cookie gespeichert. Enthält user_id, display_name und role als Claims.
 - **Refresh Token:** Langlebig (30 Tage), wird als httpOnly-Cookie gespeichert. Dient ausschließlich zur Erneuerung des Access Tokens.
+- **Rollenwechsel:** Bereits ausgestellte Access Tokens behalten ihre Rolle bis zum Ablauf. Ein Refresh liest die aktuelle Rolle aus MariaDB und stellt danach einen Token mit der neuen Rolle aus.
 - **OAuth2 Flow:** Authorization Code Flow mit PKCE für Google und GitHub. Nach erfolgreicher OAuth-Authentifizierung wird ein lokaler JWT ausgestellt.
 - **Passwort-Hashing:** argon2id mit empfohlenen Parametern (m=19456, t=2, p=1).
 
@@ -361,28 +367,35 @@ Die Authentifizierung basiert auf einem JWT-Paar:
 
 ### 6.1 Modulares Adapter-System
 
-Die Import-Logik ist als eigenständiges Rust-Crate (`importer-core`) implementiert, das als Shared Library sowohl vom Backend (Axum) als auch optional vom CLI-Tool (`importer/`) genutzt werden kann. Imports werden über die Admin-WebUI gestartet und laufen asynchron als Tokio-Background-Tasks im Backend.
+Die generische Import-Logik ist als eigenständiges Rust-Crate (`importer-core`)
+implementiert. Quellenspezifische Parser, Fixtures und HTTP-Zugriffe liegen getrennt in
+`importer-adapters`. Das Backend komponiert beide Crates und startet Imports über die
+Admin-WebUI als asynchrone Tokio-Background-Tasks.
 
 Das Kernkonzept ist ein Adapter-Pattern mit Trait-basierter Architektur:
 
 - **Trait `WikiAdapter`:** Definiert `source_descriptor()`, `fetch_series_metadata()`, `fetch_issue_list()`, `fetch_issue_details(number)` und `fetch_cover(number)`. Der statische Descriptor identifiziert Quelle und Zielserie bereits vor dem ersten Netzwerkzugriff.
-- **`AdapterRegistry`:** Zentrale Registrierung aller verfügbaren Adapter. Das Backend initialisiert die Registry beim Start und stellt sie via `AppState` bereit.
+- **`AdapterRegistry`:** Zentrale Registrierung aller verfügbaren Adapter. Doppelte Namen werden abgelehnt, die Ausgabe ist deterministisch sortiert. Das Backend erhält die produktive Registry ausschließlich von `importer-adapters::builtin_registry()` und stellt sie via `AppState` bereit.
 - **`ProgressReporter`-Trait:** Entkoppelt die Fortschrittsmeldung von der Persistenz. Das Backend implementiert dieses Trait mit DB-Writes in die `import_jobs`-Tabelle, das CLI könnte es mit stdout-Output implementieren.
 - **`MaddraxAdapter` (v0.9):** Erster konkreter Adapter für de.maddraxikon.com. Nutzt eine Kombination aus MediaWiki-API (für strukturierte Daten) und HTML-Scraping (für Tabellen und Cover via `reqwest` + `scraper`).
 
 **Crate-Struktur:**
 
 ```
-importer-core/
-├── Cargo.toml
+importer-core/             # Quellenunabhängiger Vertrag
 └── src/
-    ├── lib.rs            # Öffentliche API, re-exports
-    ├── adapter.rs        # WikiAdapter-Trait + AdapterRegistry
-    ├── types.rs          # SeriesData, IssueData, CoverData
-    ├── progress.rs       # ProgressReporter-Trait
-    └── adapters/
-        ├── mod.rs        # Adapter-Registrierung
-        └── maddrax.rs    # MaddraxAdapter v0.9
+    ├── lib.rs             # Öffentliche API und Re-Exports
+    ├── adapter.rs         # WikiAdapter-Trait + AdapterRegistry
+    ├── contract.rs        # Wiederverwendbare Adapter-Vertragsprüfung
+    ├── types.rs           # SeriesData, IssueData, CoverData
+    └── progress.rs        # ProgressReporter-Trait
+importer-adapters/         # Konkrete Quellen und lokale Fixtures
+├── src/
+│   ├── lib.rs             # builtin_registry()
+│   └── adapters/
+│       ├── maddrax.rs
+│       └── john_sinclair.rs
+└── tests/fixtures/
 ```
 
 ### 6.2 Import-Ablauf
@@ -403,12 +416,14 @@ Die verbindlichen Hosts, Quell-IDs, Feldmappings und Referenz-Fixtures sind in [
 
 Um eine neue Serie (z. B. Perry Rhodan via Perrypedia) zu integrieren, sind folgende Schritte erforderlich:
 
-- Neuen Adapter implementieren, der den `WikiAdapter`-Trait erfüllt (neue Datei unter `importer-core/src/adapters/`).
-- Adapter in der `AdapterRegistry` registrieren (`importer-core/src/adapters/mod.rs`).
+- Neuen Adapter unter `importer-adapters/src/adapters/` implementieren und mit lokalen Fixtures gegen `verify_adapter_contract` testen.
+- Adapter einmalig in `importer-adapters::builtin_registry()` registrieren.
 - Backend neu bauen und deployen — der neue Adapter erscheint automatisch in der Admin-UI.
 - Admin startet den Import über die WebUI und aktiviert die Serie nach Prüfung.
 
 Es sind keine Änderungen am Frontend, an der Datenbank oder an der Backend-Kern-Logik notwendig.
+Eine vollständige Anleitung einschließlich Minimalbeispiel und Testmatrix steht in
+[Neuen Import-Adapter hinzufügen](adding-import-adapter.md).
 
 ---
 
@@ -449,12 +464,17 @@ Sensible Konfigurationswerte werden über eine `.env`-Datei injiziert:
 
 - `DATABASE_URL` – MariaDB-Verbindungsstring
 - `JWT_SECRET` – Signaturschlüssel für JWT-Tokens
-- `ADMIN_EMAIL` – E-Mail-Adresse des initialen Admin-Nutzers (wird beim Serverstart zum Admin befördert, sofern der Account existiert)
+- `ADMIN_EMAIL` – normalisierte E-Mail-Adresse eines bestehenden Kontos; beim Serverstart wird eine echte Beförderung transaktional auditiert
 - `MEDIA_PATH` – Pfad zum Media-Volume für Cover-Bilder und Nutzer-Uploads (Standard: `/media`)
 - `OAUTH_GOOGLE_CLIENT_ID` / `SECRET`
 - `OAUTH_GITHUB_CLIENT_ID` / `SECRET`
 - `DOMAIN` – Öffentliche Domain für Caddy (Let's Encrypt)
 - `RUST_LOG` – Log-Level für das Backend
+
+Weitere Admins werden ohne Passwortübergabe über denselben transaktionalen Rollenservice
+befördert: `lilly-backend admin promote --email user@example.org`. Eine Beförderung liefert
+Exitcode 0, eine bereits bestehende Adminrolle 4, ungültige Eingaben 2, unbekannte Konten 3
+und Datenbankfehler 1.
 
 ### 8.4 Backup-Strategie
 
@@ -470,7 +490,7 @@ Das Monorepo ist für folgende Zielstruktur geplant (noch nicht im Repository an
 
 ```
 lilly/
-├── Cargo.toml                # Workspace-Root (members: backend, importer, importer-core)
+├── Cargo.toml                # Workspace-Root (backend, importer, importer-core, importer-adapters)
 ├── frontend/                 # SvelteKit PWA
 │   ├── src/
 │   │   ├── routes/           # SvelteKit File-Based Routing
@@ -496,15 +516,16 @@ lilly/
 │   │   └── services/         # Business-Logik (Email, Import-Orchestrierung)
 │   ├── migrations/           # SQLx-Datenbankmigrationen
 │   └── Dockerfile
-├── importer-core/            # Shared Library: WikiAdapter-Trait + Adapter-Implementierungen
+├── importer-core/            # Quellenunabhängiger WikiAdapter-Vertrag
 │   └── src/
 │       ├── lib.rs            # Öffentliche API
 │       ├── adapter.rs        # WikiAdapter-Trait + AdapterRegistry
 │       ├── types.rs          # SeriesData, IssueData, CoverData
 │       ├── progress.rs       # ProgressReporter-Trait
-│       └── adapters/
-│           ├── mod.rs        # Adapter-Registrierung
-│           └── maddrax.rs    # MaddraxAdapter v0.9
+│       └── contract.rs       # Gemeinsame Adapter-Vertragsprüfung
+├── importer-adapters/        # Built-in-Adapter, Parser und Offline-Fixtures
+│   ├── src/adapters/         # Maddrax und John Sinclair
+│   └── tests/fixtures/       # Deterministische Quellantworten
 ├── importer/                 # Wiki-Datenimport CLI (nutzt importer-core)
 │   ├── src/
 │   │   └── main.rs           # CLI-Wrapper

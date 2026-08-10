@@ -1,3 +1,4 @@
+<!-- Deterministic local test fixture; never fetched live. -->
 | Autoren || [[Ian Rolf Hill]]
 |-
 | Erscheinungsdatum || 30.08.2022

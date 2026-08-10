@@ -1,3 +1,4 @@
+<!-- Deterministic local test fixture; never fetched live. -->
 {{Roman Zyklus 12
 |Nummer = 409
 |Titel = Falsche Götter

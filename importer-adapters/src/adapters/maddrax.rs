@@ -3,9 +3,12 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use std::time::Duration;
 
-use crate::adapter::{AdapterError, SourceDescriptor, WikiAdapter};
 use crate::cover_image::download_cover_image;
-use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
+use crate::http::parse_json;
+use lilly_importer_core::{
+    AdapterError, CoverData, IssueData, SeriesData, SeriesStatus, SourceDescriptor,
+    SourceReference, WikiAdapter,
+};
 
 const MADDRAXIKON_BASE: &str = "https://de.maddraxikon.com";
 const SOURCE_DESCRIPTOR: SourceDescriptor = SourceDescriptor {
@@ -26,6 +29,7 @@ const MAX_CONSECUTIVE_MISSING: u32 = BATCH_SIZE;
 
 pub struct MaddraxAdapter {
     client: Client,
+    request_base_url: String,
     pub(crate) delay: Duration,
     cycle_names: tokio::sync::RwLock<std::collections::HashMap<u32, String>>,
 }
@@ -38,19 +42,40 @@ impl MaddraxAdapter {
     /// Returns `AdapterError::Other` if the HTTP client cannot be built.
     pub fn new() -> Result<Self, AdapterError> {
         Ok(Self {
-            client: Client::builder()
-                .user_agent("LILLY-Importer/0.9 (Heftroman-Collection-Manager)")
-                .timeout(Duration::from_secs(30))
-                .build()?,
+            client: Self::build_client(Duration::from_secs(30))?,
+            request_base_url: MADDRAXIKON_BASE.to_string(),
             delay: Duration::from_millis(DEFAULT_DELAY_MS),
             cycle_names: tokio::sync::RwLock::new(std::collections::HashMap::new()),
         })
+    }
+
+    fn build_client(timeout: Duration) -> Result<Client, AdapterError> {
+        Ok(Client::builder()
+            .user_agent("LILLY-Importer/0.9 (Heftroman-Collection-Manager)")
+            .timeout(timeout)
+            .build()?)
     }
 
     #[must_use]
     pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
+    }
+
+    /// Override only the HTTP request origin, primarily for deterministic tests.
+    /// Returned provenance always remains bound to the authoritative descriptor.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_request_base_url(mut self, request_base_url: impl Into<String>) -> Self {
+        self.request_base_url = request_base_url.into().trim_end_matches('/').to_string();
+        self
+    }
+
+    /// Override the request timeout for deterministic transport tests.
+    #[doc(hidden)]
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Result<Self, AdapterError> {
+        self.client = Self::build_client(timeout)?;
+        Ok(self)
     }
 
     async fn rate_limit(&self) {
@@ -64,12 +89,13 @@ impl MaddraxAdapter {
         let titles_param = titles.join("|");
 
         let url = format!(
-            "{MADDRAXIKON_BASE}/api.php?action=query&titles={}&redirects=1&format=json",
+            "{}/api.php?action=query&titles={}&redirects=1&format=json",
+            self.request_base_url,
             urlencoding::encode(&titles_param)
         );
 
-        let response = self.client.get(&url).send().await?;
-        let json: serde_json::Value = response.json().await?;
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        let json = parse_json(response).await?;
 
         let mut found = Vec::new();
 
@@ -97,10 +123,11 @@ impl MaddraxAdapter {
         self.rate_limit().await;
 
         let url = format!(
-            "{MADDRAXIKON_BASE}/api.php?action=parse&page=Zyklen&prop=wikitext&format=json"
+            "{}/api.php?action=parse&page=Zyklen&prop=wikitext&format=json",
+            self.request_base_url
         );
-        let response = self.client.get(&url).send().await?;
-        let json: serde_json::Value = response.json().await?;
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        let json = parse_json(response).await?;
 
         let wikitext = json["parse"]["wikitext"]["*"].as_str().unwrap_or("");
 
@@ -225,8 +252,8 @@ impl WikiAdapter for MaddraxAdapter {
         SOURCE_DESCRIPTOR
     }
 
-    fn reference_records(&self) -> Vec<crate::adapter::ReferenceRecord> {
-        use crate::adapter::ReferenceRecord;
+    fn reference_records(&self) -> Vec<lilly_importer_core::ReferenceRecord> {
+        use lilly_importer_core::ReferenceRecord;
         vec![
             ReferenceRecord {
                 issue_number: 1,
@@ -319,12 +346,13 @@ impl WikiAdapter for MaddraxAdapter {
         self.rate_limit().await;
 
         let url = format!(
-            "{MADDRAXIKON_BASE}/api.php?action=parse&page={}&prop=wikitext&redirects=1&format=json",
+            "{}/api.php?action=parse&page={}&prop=wikitext&redirects=1&format=json",
+            self.request_base_url,
             urlencoding::encode(&format!("Quelle:MX{issue_number}"))
         );
 
-        let response = self.client.get(&url).send().await?;
-        let json: serde_json::Value = response.json().await?;
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        let json = parse_json(response).await?;
 
         if json.get("error").is_some() {
             return Err(AdapterError::NotFound(format!(
@@ -356,12 +384,13 @@ impl WikiAdapter for MaddraxAdapter {
         self.rate_limit().await;
 
         let url = format!(
-            "{MADDRAXIKON_BASE}/api.php?action=parse&page={}&prop=text&redirects=1&format=json",
+            "{}/api.php?action=parse&page={}&prop=text&redirects=1&format=json",
+            self.request_base_url,
             urlencoding::encode(&format!("Quelle:MX{issue_number}"))
         );
 
-        let response = self.client.get(&url).send().await?;
-        let json: serde_json::Value = response.json().await?;
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        let json = parse_json(response).await?;
 
         let html = json["parse"]["text"]["*"]
             .as_str()
@@ -558,7 +587,6 @@ fn parse_german_date(s: &str) -> Option<chrono::NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
 
     #[test]
     fn test_adapter_name() {
@@ -598,40 +626,50 @@ mod tests {
 
     #[test]
     fn reference_issues_map_to_expected_metadata_and_provenance() {
-        let references = [
-            (
-                1,
-                "Der Gott aus dem Eis",
-                "Jo Zybell",
-                NaiveDate::from_ymd_opt(2000, 2, 8).unwrap(),
-                include_str!("../../tests/fixtures/maddrax/mx0001.wiki"),
-            ),
+        let adapter = MaddraxAdapter::new().unwrap();
+        let fixtures = [
+            (1, include_str!("../../tests/fixtures/maddrax/mx0001.wiki")),
             (
                 409,
-                "Falsche Götter",
-                "Jana Paradigi",
-                NaiveDate::from_ymd_opt(2015, 9, 22).unwrap(),
                 include_str!("../../tests/fixtures/maddrax/mx0409.wiki"),
             ),
             (
                 555,
-                "Das Echo des Wandlers",
-                "Lucy Guth",
-                NaiveDate::from_ymd_opt(2021, 4, 27).unwrap(),
                 include_str!("../../tests/fixtures/maddrax/mx0555.wiki"),
             ),
         ];
+        let references = adapter.reference_records();
+        assert_eq!(references.len(), fixtures.len());
 
-        for (number, title, author, date, fixture) in references {
-            let issue = map_issue_details(number, title, fixture, None);
-            let issue =
-                crate::adapter::normalize_and_validate_issue(SOURCE_DESCRIPTOR, number, issue)
-                    .unwrap();
-            assert_eq!(issue.title, title);
-            assert_eq!(issue.authors, vec![author]);
-            assert_eq!(issue.published_at, Some(date));
+        for reference in references {
+            let fixture = fixtures
+                .iter()
+                .find_map(|(number, fixture)| {
+                    (*number == reference.issue_number).then_some(*fixture)
+                })
+                .expect("every pinned record must have a local fixture");
+            let issue = map_issue_details(reference.issue_number, reference.title, fixture, None);
+            let issue = lilly_importer_core::normalize_and_validate_issue(
+                SOURCE_DESCRIPTOR,
+                reference.issue_number,
+                issue,
+            )
+            .unwrap();
+            assert_eq!(issue.title, reference.title);
+            assert_eq!(
+                issue.authors,
+                reference
+                    .authors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(issue.published_at, Some(reference.published_at));
             assert_eq!(issue.source.source_key, "maddraxikon");
-            assert_eq!(issue.source.source_record_id, format!("Quelle:MX{number}"));
+            assert_eq!(
+                issue.source.source_record_id,
+                format!("Quelle:MX{}", reference.issue_number)
+            );
         }
     }
 

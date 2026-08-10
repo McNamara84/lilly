@@ -9,6 +9,7 @@ const REVIEW_RESULT_COLUMNS: &str = "id, job_id, issue_id, issue_number, outcome
     stage, message, source_key, source_record_id, source_url, title, authors_json, \
     cover_artists_json, published_at, part_number, part_total, cycle, cover_status, \
     cover_reason, cover_local_path, processed_at";
+const SEED_BATCH_SIZE: usize = 1_000;
 
 #[derive(Debug, sqlx::FromRow)]
 struct ReviewItemRow {
@@ -106,18 +107,21 @@ pub async fn seed_import_results(
     issue_numbers: &[u32],
 ) -> Result<(), sqlx::Error> {
     let mut transaction = pool.begin().await?;
-    for issue_number in issue_numbers {
-        sqlx::query(
+    for batch in issue_numbers.chunks(SEED_BATCH_SIZE) {
+        let mut query = QueryBuilder::<MySql>::new(
             "INSERT INTO import_job_results \
-             (job_id, issue_number, source_key, authors_json, cover_artists_json) \
-             VALUES (?, ?, ?, '[]', '[]') \
-             ON DUPLICATE KEY UPDATE source_key = VALUES(source_key)",
-        )
-        .bind(job_id)
-        .bind(issue_number)
-        .bind(source_key)
-        .execute(&mut *transaction)
-        .await?;
+             (job_id, issue_number, source_key, authors_json, cover_artists_json) ",
+        );
+        query.push_values(batch, |mut values, issue_number| {
+            values
+                .push_bind(job_id)
+                .push_bind(*issue_number)
+                .push_bind(source_key)
+                .push("'[]'")
+                .push("'[]'");
+        });
+        query.push(" ON DUPLICATE KEY UPDATE source_key = VALUES(source_key)");
+        query.build().execute(&mut *transaction).await?;
     }
     transaction.commit().await
 }
@@ -381,6 +385,86 @@ mod tests {
             parse_string_list(r#"["Jane Doe"]"#),
             vec!["Jane Doe".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn result_seeding_batches_large_sources_and_remains_idempotent() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role) VALUES (?, 'Batch Tester', 'admin')",
+        )
+        .bind(format!("batch-review-{suffix}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let series_id: u32 = sqlx::query(
+            "INSERT INTO series (name, slug, source_key, source_record_id, source_url) \
+             VALUES (?, ?, 'batch-test', ?, 'https://example.test/batch')",
+        )
+        .bind(format!("Batch Test {suffix}"))
+        .bind(format!("batch-test-{suffix}"))
+        .bind(format!("Batch:{suffix}"))
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let job_id: u32 = sqlx::query(
+            "INSERT INTO import_jobs \
+             (series_id, adapter_name, source_key, trigger_type, started_by) \
+             VALUES (?, 'batch-test', 'batch-test', 'manual', ?)",
+        )
+        .bind(series_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let numbers = (1..=2_500).collect::<Vec<_>>();
+
+        seed_import_results(&pool, job_id, "batch-test", &numbers)
+            .await
+            .unwrap();
+        seed_import_results(&pool, job_id, "batch-test", &numbers)
+            .await
+            .unwrap();
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM import_job_results WHERE job_id = ?")
+                .bind(job_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 2_500);
+
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

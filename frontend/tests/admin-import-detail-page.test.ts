@@ -842,7 +842,8 @@ describe('Import Detail Page', () => {
 		vi.mocked(fetchImportJob).mockResolvedValue(runningJob);
 		vi.mocked(cancelImport).mockResolvedValue({
 			...runningJob,
-			cancel_requested_at: '2026-08-09T10:00:00Z'
+			cancel_requested_at: '2026-08-09T10:00:00Z',
+			cancel_requested_by: 7
 		});
 		const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 		render(ImportDetailPage);
@@ -854,6 +855,22 @@ describe('Import Detail Page', () => {
 		await waitFor(() => {
 			expect(screen.getByTestId('cancel-import-button')).toHaveTextContent('Abbruch angefordert');
 		});
+		expect(screen.getByTestId('cancel-audit')).toHaveTextContent('von Admin #7');
+	});
+
+	it('keeps the cancellation timestamp visible when the requesting admin was deleted', async () => {
+		vi.mocked(fetchImportJob).mockResolvedValue({
+			...runningJob,
+			cancel_requested_at: '2026-08-09T10:00:00Z',
+			cancel_requested_by: null
+		});
+
+		render(ImportDetailPage);
+
+		await waitFor(() => expect(screen.getByTestId('cancel-audit')).toBeInTheDocument());
+		expect(screen.getByTestId('cancel-audit')).toHaveTextContent('Abbruch angefordert am');
+		expect(screen.getByTestId('cancel-audit')).not.toHaveTextContent('von Admin');
+		expect(screen.getByTestId('cancel-import-button')).toBeDisabled();
 	});
 
 	it.each([
