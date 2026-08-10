@@ -6,7 +6,7 @@ use sqlx::MySqlPool;
 const IMPORT_JOB_COLUMNS: &str = "id, series_id, adapter_name, source_key, trigger_type, scheduled_for, status, \
      total_issues, imported_issues, created_issues, updated_issues, unchanged_issues, \
      skipped_issues, failed_issues, error_message, started_by, started_at, completed_at, \
-     created_at, updated_at, cancel_requested_at, retry_of_job_id";
+     created_at, updated_at, cancel_requested_at, cancel_requested_by, retry_of_job_id";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ImportProgress {
@@ -170,13 +170,15 @@ pub async fn fail_import_job(
 pub async fn request_import_cancellation(
     pool: &MySqlPool,
     job_id: u32,
+    requested_by: u32,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
-        "UPDATE import_jobs SET cancel_requested_at = CURRENT_TIMESTAMP, \
+        "UPDATE import_jobs SET cancel_requested_at = CURRENT_TIMESTAMP, cancel_requested_by = ?, \
          completed_at = IF(status = 'pending', CURRENT_TIMESTAMP, completed_at), \
          status = IF(status = 'pending', 'cancelled', status) \
          WHERE id = ? AND status IN ('pending', 'running') AND cancel_requested_at IS NULL",
     )
+    .bind(requested_by)
     .bind(job_id)
     .execute(pool)
     .await?;
@@ -391,6 +393,16 @@ mod tests {
         .last_insert_id()
         .try_into()
         .expect("user fixture ID must fit u32");
+        let other_user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role) VALUES (?, 'Other Import Tester', 'admin')",
+        )
+        .bind(format!("other-import-job-{suffix}@example.test"))
+        .execute(&pool)
+        .await
+        .expect("second user fixture must be inserted")
+        .last_insert_id()
+        .try_into()
+        .expect("second user fixture ID must fit u32");
         let series_id: u32 = sqlx::query(
             "INSERT INTO series (name, slug, source_key, source_record_id, source_url) \
              VALUES (?, ?, 'test-wiki', ?, 'https://example.test/series')",
@@ -462,7 +474,9 @@ mod tests {
             "completed_with_errors"
         );
         assert!(
-            !request_import_cancellation(&pool, first_job).await.unwrap(),
+            !request_import_cancellation(&pool, first_job, user_id)
+                .await
+                .unwrap(),
             "a terminal job must reject the conditional cancellation update"
         );
 
@@ -482,7 +496,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert!(
-            request_import_cancellation(&pool, pending_job)
+            request_import_cancellation(&pool, pending_job, user_id)
                 .await
                 .unwrap()
         );
@@ -492,6 +506,36 @@ mod tests {
             .unwrap();
         assert_eq!(pending_job.status, "cancelled");
         assert!(pending_job.completed_at.is_some());
+        assert_eq!(pending_job.cancel_requested_by, Some(user_id));
+
+        let trigger_job = create_import_job_if_idle(
+            &pool,
+            &NewImportJob {
+                series_id,
+                adapter_name: "test-adapter",
+                source_key: "test-wiki",
+                started_by: Some(user_id),
+                trigger_type: "manual",
+                scheduled_for: None,
+                retry_of_job_id: Some(first_job),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        sqlx::query("UPDATE import_jobs SET cancel_requested_by = ? WHERE id = ?")
+            .bind(user_id)
+            .bind(trigger_job)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let trigger_job = find_import_job_by_id(&pool, trigger_job)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(trigger_job.cancel_requested_at.is_some());
+        assert_eq!(trigger_job.cancel_requested_by, Some(user_id));
+        cancel_import_job(&pool, trigger_job.id).await.unwrap();
 
         let running_job = create_import_job_if_idle(
             &pool,
@@ -510,15 +554,24 @@ mod tests {
         .unwrap();
         assert!(mark_import_running(&pool, running_job).await.unwrap());
         assert!(
-            request_import_cancellation(&pool, running_job)
+            request_import_cancellation(&pool, running_job, user_id)
                 .await
                 .unwrap()
         );
         assert!(
-            !request_import_cancellation(&pool, running_job)
+            !request_import_cancellation(&pool, running_job, other_user_id)
                 .await
                 .unwrap(),
             "a duplicate request must not report a second persisted update"
+        );
+        assert_eq!(
+            find_import_job_by_id(&pool, running_job)
+                .await
+                .unwrap()
+                .unwrap()
+                .cancel_requested_by,
+            Some(user_id),
+            "the first accepted cancellation actor must remain immutable"
         );
         assert!(is_cancel_requested(&pool, running_job).await.unwrap());
         cancel_import_job(&pool, running_job).await.unwrap();
@@ -572,6 +625,11 @@ mod tests {
             .execute(&pool)
             .await
             .expect("series fixture must be deleted");
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(other_user_id)
+            .execute(&pool)
+            .await
+            .expect("second user fixture must be deleted");
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(user_id)
             .execute(&pool)

@@ -55,6 +55,7 @@ export interface ImportJob {
 	created_at?: string;
 	updated_at?: string;
 	cancel_requested_at?: string | null;
+	cancel_requested_by?: number | null;
 	retry_of_job_id?: number | null;
 }
 

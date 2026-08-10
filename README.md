@@ -171,6 +171,8 @@ The PWA is **offline-capable**: core collection management features remain avail
 lilly/
 ├── frontend/              # SvelteKit PWA (Svelte 5, Skeleton UI, Tailwind CSS v4)
 ├── backend/               # Rust / Axum REST API
+├── importer-core/         # Source-independent adapter contract and validation
+├── importer-adapters/     # Built-in source parsers and deterministic fixtures
 ├── importer/              # Wiki data importer CLI (placeholder)
 ├── docs/                  # Planning documents (German)
 ├── docker-compose.yml     # Full stack orchestration
@@ -199,6 +201,21 @@ cd backend
 cargo run            # Start API server on http://localhost:8080
 ```
 
+The bootstrap account configured through `ADMIN_EMAIL` must already exist. Its address is
+trimmed, lowercased and validated; a real promotion is written atomically with a retained
+role-change audit event. Additional existing users can be promoted without supplying or
+handling their password:
+
+```bash
+cd backend
+cargo run -- admin promote --email user@example.org
+```
+
+The command is idempotent. Its exit codes are 0 for a promotion, 4 when the account already
+is an admin, 2 for invalid input, 3 for an unknown account and 1 for database failures.
+Existing access tokens keep their embedded role until expiry;
+refreshing a session loads the current role from MariaDB and issues an updated access token.
+
 ### Automatic wiki imports
 
 The backend can synchronize the MVP series through the same import service used by the admin UI. Scheduled imports are disabled by default so that the initial full imports can be reviewed before automation is enabled.
@@ -212,9 +229,9 @@ IMPORT_SCHEDULED_ADAPTERS=maddrax,john-sinclair
 
 With these settings, Maddrax and the regular first edition of John Sinclair are fully compared with their authoritative wiki every Saturday at 06:10 local German time. Each source issue is classified as created, updated, unchanged, skipped or failed; existing local covers are not downloaded again, while missing local covers are recovered even when the bibliographic metadata is unchanged. The IANA timezone keeps the local execution time stable across daylight-saving changes. After a restart, the backend reserves at most the latest missed weekly slot; `(adapter, scheduled_for)` is unique, so repeated starts cannot create the same scheduled job twice. Scheduler state and the next run are visible to administrators on the import page.
 
-The start request returns a persistent job with HTTP 202 before wiki access begins. Administrators can cancel active jobs; jobs interrupted by a backend restart remain visible and can be retried as linked, idempotent full scans. The detail page polls MariaDB-backed progress every three seconds and exposes record-level error context.
+The start request returns a persistent job with HTTP 202 before wiki access begins. Administrators can cancel active jobs; the first cancelling administrator and timestamp are stored atomically with the job. Jobs interrupted by a backend restart remain visible and can be retried as linked, idempotent full scans. The detail page polls MariaDB-backed progress every three seconds and exposes record-level error context.
 
-For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run both initial imports manually, review their complete job-specific result lists and pinned reference samples, acknowledge non-blocking warnings where appropriate, and publish each series from that import review. Activation and later deactivation are audited with the acting administrator; blocking or incomplete results cannot be published. Run an unchanged second synchronization before enabling the scheduler. See [Import sources and mapping contract](docs/import-sources.md) for source identities, mappings and recovery behavior.
+For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run both initial imports manually, review their complete job-specific result lists and pinned reference samples, acknowledge non-blocking warnings where appropriate, and publish each series from that import review. Activation and later deactivation are audited with the acting administrator; blocking or incomplete results cannot be published. Run an unchanged second synchronization before enabling the scheduler. See [Import sources and mapping contract](docs/import-sources.md) for source identities, mappings and recovery behavior. The source-independent contract is isolated from built-in implementations; see [Adding an import adapter](docs/adding-import-adapter.md) for the required offline contract and persistence tests.
 
 ---
 

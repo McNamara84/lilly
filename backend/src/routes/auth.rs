@@ -16,7 +16,7 @@ use crate::db::{refresh_tokens, users};
 use crate::error::AppError;
 use crate::models::user::{
     LoginRequest, LoginResponse, MeResponse, MessageResponse, RegisterRequest, RegisterResponse,
-    ResendVerificationRequest, VerifyQuery,
+    ResendVerificationRequest, VerifyQuery, normalize_email,
 };
 
 pub fn router() -> Router<AppState> {
@@ -75,8 +75,9 @@ fn clear_cookie(name: &str, path: &str) -> Cookie<'static> {
 
 async fn register(
     State(state): State<AppState>,
-    Json(payload): Json<RegisterRequest>,
+    Json(mut payload): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<RegisterResponse>), AppError> {
+    payload.email = normalize_email(&payload.email).map_err(AppError::BadRequest)?;
     payload
         .validate()
         .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
@@ -204,8 +205,9 @@ async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQ
 
 async fn resend_verification(
     State(state): State<AppState>,
-    Json(payload): Json<ResendVerificationRequest>,
+    Json(mut payload): Json<ResendVerificationRequest>,
 ) -> Result<Json<MessageResponse>, AppError> {
+    payload.email = normalize_email(&payload.email).map_err(AppError::BadRequest)?;
     payload
         .validate()
         .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
@@ -246,8 +248,9 @@ async fn resend_verification(
 async fn login(
     State(state): State<AppState>,
     jar: CookieJar,
-    Json(payload): Json<LoginRequest>,
+    Json(mut payload): Json<LoginRequest>,
 ) -> Result<(CookieJar, Json<LoginResponse>), AppError> {
+    payload.email = normalize_email(&payload.email).map_err(AppError::BadRequest)?;
     payload
         .validate()
         .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
@@ -455,7 +458,20 @@ async fn me(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use axum::body::Body;
+    use axum::http::{Request, header};
+    use lilly_importer_core::AdapterRegistry;
+    use sqlx::mysql::MySqlPoolOptions;
+    use tower::ServiceExt;
+
     use super::*;
+    use crate::routes::AppStateInner;
+    use crate::services::admin_roles::{PromotionResult, RoleChangeMethod};
+    use crate::services::email::EmailService;
+    use crate::services::import_scheduler::ImportSchedulerConfig;
 
     #[test]
     fn test_generate_random_token_length() {
@@ -526,5 +542,143 @@ mod tests {
         assert_eq!(cookie.path(), Some("/api"));
         assert!(cookie.http_only().unwrap_or(false));
         assert_eq!(cookie.max_age(), Some(time::Duration::ZERO));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn refresh_uses_the_current_database_role_after_promotion() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let email = format!("refresh-role-{suffix}@example.test");
+        let user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role, email_verified) \
+             VALUES (?, 'Refresh Role Tester', 'user', TRUE)",
+        )
+        .bind(&email)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let old_access = jwt::create_token(
+            user_id,
+            "Refresh Role Tester",
+            "user",
+            "refresh-role-secret",
+            900,
+        )
+        .unwrap();
+        let raw_refresh = format!("refresh-token-{suffix}");
+        refresh_tokens::store_refresh_token(
+            &pool,
+            user_id,
+            &hash_token(&raw_refresh),
+            Utc::now().naive_utc() + chrono::Duration::hours(1),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            crate::services::admin_roles::promote_user_to_admin(
+                &pool,
+                &email,
+                RoleChangeMethod::Cli,
+            )
+            .await
+            .unwrap(),
+            PromotionResult::Promoted { user_id }
+        );
+        let role_change_event_id: (u32,) =
+            sqlx::query_as("SELECT id FROM role_change_events WHERE target_user_id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        let state = AppState {
+            inner: Arc::new(AppStateInner {
+                pool: pool.clone(),
+                jwt_secret: "refresh-role-secret".to_string(),
+                jwt_access_expiry: 900,
+                jwt_refresh_expiry: 2_592_000,
+                email_service: EmailService::Log {
+                    from: "test@example.test".to_string(),
+                },
+                app_base_url: "http://localhost".to_string(),
+                cookie_secure: false,
+                adapter_registry: AdapterRegistry::new(),
+                media_path: PathBuf::from("/tmp/lilly-refresh-role-test"),
+                media_url_prefix: "/media".to_string(),
+                import_scheduler_config: ImportSchedulerConfig {
+                    enabled: false,
+                    schedule: "0 10 6 * * Sat *".to_string(),
+                    timezone: "Europe/Berlin".to_string(),
+                    adapters: Vec::new(),
+                },
+            }),
+        };
+        let response = Router::new()
+            .merge(router())
+            .with_state(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/refresh")
+                    .header("cookie", format!("refresh_token={raw_refresh}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let access_cookie = response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .find(|value| value.starts_with("access_token="))
+            .unwrap();
+        let access_token = access_cookie
+            .trim_start_matches("access_token=")
+            .split(';')
+            .next()
+            .unwrap();
+        assert_eq!(
+            jwt::validate_token(&old_access, "refresh-role-secret")
+                .unwrap()
+                .role,
+            "user",
+            "an already-issued access token keeps its role until expiry"
+        );
+        assert_eq!(
+            jwt::validate_token(access_token, "refresh-role-secret")
+                .unwrap()
+                .role,
+            "admin",
+            "refresh must load the current role from the database"
+        );
+
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM role_change_events WHERE id = ?")
+            .bind(role_change_event_id.0)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }

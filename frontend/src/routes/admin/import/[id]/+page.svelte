@@ -333,6 +333,12 @@
 				>
 			{/if}
 		</div>
+		{#if job.cancel_requested_at}
+			<p class="mt-3 text-sm" style="color: var(--text-secondary);" data-testid="cancel-audit">
+				Abbruch angefordert am {formatDate(job.cancel_requested_at)}{#if job.cancel_requested_by}
+					von Admin #{job.cancel_requested_by}{/if}
+			</p>
+		{/if}
 	</section>
 
 	{#if jobErrors.length > 0}

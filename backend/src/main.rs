@@ -6,13 +6,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use axum::Router;
-use lilly_importer_core::adapter::AdapterRegistry;
-use lilly_importer_core::adapters::john_sinclair::JohnSinclairAdapter;
-use lilly_importer_core::adapters::maddrax::MaddraxAdapter;
 use sqlx::mysql::MySqlPoolOptions;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
+
+use crate::services::admin_roles::{PromotionResult, RoleChangeMethod};
 
 mod auth;
 mod config;
@@ -22,6 +21,33 @@ mod models;
 mod routes;
 mod services;
 
+#[derive(Debug, PartialEq, Eq)]
+enum StartupCommand {
+    Serve,
+    PromoteAdmin { email: String },
+}
+
+const EXIT_SUCCESS: i32 = 0;
+const EXIT_DATABASE_ERROR: i32 = 1;
+const EXIT_INVALID_INPUT: i32 = 2;
+const EXIT_USER_NOT_FOUND: i32 = 3;
+const EXIT_ALREADY_ADMIN: i32 = 4;
+
+fn parse_startup_command(args: impl IntoIterator<Item = String>) -> Result<StartupCommand, String> {
+    let args = args.into_iter().collect::<Vec<_>>();
+    match args.as_slice() {
+        [] => Ok(StartupCommand::Serve),
+        [admin, promote, email_flag, email]
+            if admin == "admin" && promote == "promote" && email_flag == "--email" =>
+        {
+            Ok(StartupCommand::PromoteAdmin {
+                email: email.clone(),
+            })
+        }
+        _ => Err("Usage: lilly-backend [admin promote --email user@example.org]".to_string()),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -29,6 +55,15 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .init();
+
+    let command = parse_startup_command(std::env::args().skip(1)).unwrap_or_else(|message| {
+        eprintln!("{message}");
+        std::process::exit(EXIT_INVALID_INPUT);
+    });
+    if let StartupCommand::PromoteAdmin { email } = command {
+        let exit_code = run_admin_promotion(&email).await;
+        std::process::exit(exit_code);
+    }
 
     let config = config::AppConfig::from_env();
 
@@ -61,22 +96,19 @@ async fn main() {
         tracing::error!("Failed to seed demo data: {e}");
     }
 
-    // Promote admin user if ADMIN_EMAIL is configured
+    // Promote the configured bootstrap account before serving requests.
     if let Some(ref admin_email) = config.admin_email {
-        db::users::ensure_admin_role(&pool, admin_email).await;
+        bootstrap_admin(&pool, admin_email).await;
     }
 
     let email_service = services::email::EmailService::from_config(&config);
 
-    let mut adapter_registry = AdapterRegistry::new();
-    adapter_registry.register(Box::new(
-        MaddraxAdapter::new().expect("Failed to create Maddrax adapter"),
-    ));
-    adapter_registry.register(Box::new(
-        JohnSinclairAdapter::new().expect("Failed to create John Sinclair adapter"),
-    ));
+    let mut adapter_registry = lilly_importer_adapters::builtin_registry()
+        .expect("Failed to create built-in import adapters");
     if config.e2e.fixture_adapter_enabled {
-        adapter_registry.register(Box::new(services::e2e_import::E2eFixtureAdapter));
+        adapter_registry
+            .register(Box::new(services::e2e_import::E2eFixtureAdapter))
+            .expect("E2E fixture adapter name must be unique");
     }
 
     let import_scheduler_config = services::import_scheduler::ImportSchedulerConfig {
@@ -130,6 +162,93 @@ async fn main() {
     axum::serve(listener, app).await.expect("Server error");
 }
 
+async fn bootstrap_admin(pool: &sqlx::MySqlPool, admin_email: &str) {
+    match services::admin_roles::promote_user_to_admin(
+        pool,
+        admin_email,
+        RoleChangeMethod::AdminEmailBootstrap,
+    )
+    .await
+    .expect("ADMIN_EMAIL bootstrap failed")
+    {
+        PromotionResult::Promoted { user_id } => {
+            tracing::info!(
+                user_id,
+                method = "admin_email_bootstrap",
+                "User promoted to admin"
+            );
+        }
+        PromotionResult::AlreadyAdmin { user_id } => {
+            tracing::info!(
+                user_id,
+                method = "admin_email_bootstrap",
+                "Bootstrap user is already admin"
+            );
+        }
+        PromotionResult::UserNotFound => {
+            tracing::warn!(
+                method = "admin_email_bootstrap",
+                "ADMIN_EMAIL does not match a registered account; restart after registration or use the admin CLI"
+            );
+        }
+    }
+}
+
+async fn run_admin_promotion(email: &str) -> i32 {
+    let Ok(database_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("DATABASE_URL must be set");
+        return EXIT_DATABASE_ERROR;
+    };
+    let pool = match MySqlPoolOptions::new()
+        .max_connections(2)
+        .connect(&database_url)
+        .await
+    {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!("Failed to connect to database: {error}");
+            return EXIT_DATABASE_ERROR;
+        }
+    };
+    if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
+        eprintln!("Failed to run migrations: {error}");
+        return EXIT_DATABASE_ERROR;
+    }
+
+    match services::admin_roles::promote_user_to_admin(&pool, email, RoleChangeMethod::Cli).await {
+        Ok(result) => {
+            match result {
+                PromotionResult::Promoted { user_id } => {
+                    println!("Promoted user {user_id} to admin");
+                }
+                PromotionResult::AlreadyAdmin { user_id } => {
+                    println!("User {user_id} is already an admin");
+                }
+                PromotionResult::UserNotFound => {
+                    eprintln!("No registered user matches the supplied email address");
+                }
+            }
+            promotion_result_exit_code(result)
+        }
+        Err(services::admin_roles::AdminRoleError::InvalidEmail(message)) => {
+            eprintln!("{message}");
+            EXIT_INVALID_INPUT
+        }
+        Err(services::admin_roles::AdminRoleError::Database(error)) => {
+            eprintln!("Admin promotion failed: {error}");
+            EXIT_DATABASE_ERROR
+        }
+    }
+}
+
+const fn promotion_result_exit_code(result: PromotionResult) -> i32 {
+    match result {
+        PromotionResult::Promoted { .. } => EXIT_SUCCESS,
+        PromotionResult::AlreadyAdmin { .. } => EXIT_ALREADY_ADMIN,
+        PromotionResult::UserNotFound => EXIT_USER_NOT_FOUND,
+    }
+}
+
 fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list([
@@ -150,4 +269,80 @@ fn cors_layer() -> CorsLayer {
             http::header::AUTHORIZATION,
         ]))
         .allow_credentials(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_command_defaults_to_the_server() {
+        assert_eq!(
+            parse_startup_command(Vec::new()).unwrap(),
+            StartupCommand::Serve
+        );
+    }
+
+    #[test]
+    fn startup_command_parses_admin_promotion_without_a_password() {
+        assert_eq!(
+            parse_startup_command([
+                "admin".to_string(),
+                "promote".to_string(),
+                "--email".to_string(),
+                "user@example.org".to_string(),
+            ])
+            .unwrap(),
+            StartupCommand::PromoteAdmin {
+                email: "user@example.org".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn startup_command_rejects_unknown_or_incomplete_arguments() {
+        for arguments in [
+            vec!["admin".to_string()],
+            vec!["admin".to_string(), "promote".to_string()],
+            vec![
+                "admin".to_string(),
+                "promote".to_string(),
+                "--password".to_string(),
+                "secret".to_string(),
+            ],
+        ] {
+            assert!(parse_startup_command(arguments).is_err());
+        }
+    }
+
+    #[test]
+    fn admin_cli_outcomes_have_distinct_exit_codes() {
+        let codes = [
+            EXIT_SUCCESS,
+            EXIT_DATABASE_ERROR,
+            EXIT_INVALID_INPUT,
+            EXIT_USER_NOT_FOUND,
+            EXIT_ALREADY_ADMIN,
+        ];
+        assert_eq!(
+            codes
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            codes.len()
+        );
+        assert_eq!(
+            promotion_result_exit_code(PromotionResult::Promoted { user_id: 1 }),
+            EXIT_SUCCESS
+        );
+        assert_eq!(
+            promotion_result_exit_code(PromotionResult::AlreadyAdmin { user_id: 1 }),
+            EXIT_ALREADY_ADMIN
+        );
+        assert_eq!(
+            promotion_result_exit_code(PromotionResult::UserNotFound),
+            EXIT_USER_NOT_FOUND
+        );
+    }
 }

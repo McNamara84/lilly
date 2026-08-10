@@ -3,7 +3,7 @@ use std::io::Cursor;
 use image::{ImageFormat, ImageReader, Limits};
 use reqwest::Client;
 
-use crate::{AdapterError, CoverData};
+use lilly_importer_core::{AdapterError, CoverData};
 
 pub(crate) const MAX_COVER_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 const MAX_COVER_IMAGE_DIMENSION: u32 = 10_000;

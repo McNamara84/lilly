@@ -38,6 +38,7 @@ axum-extra = { version = "0.12.6", features = ["cookie"] }
 hex = "0.4.3"
 time = "0.3.55"
 lilly-importer-core = { path = "../importer-core" }
+lilly-importer-adapters = { path = "../importer-adapters" }
 
 [dev-dependencies]
 tower = { version = "0.5.2", features = ["util"] }

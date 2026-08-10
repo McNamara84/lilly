@@ -7,9 +7,12 @@ use chrono::NaiveDate;
 use chrono::Utc;
 use reqwest::Client;
 
-use crate::adapter::{AdapterError, SourceDescriptor, WikiAdapter};
 use crate::cover_image::download_cover_image;
-use crate::types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
+use crate::http::parse_json;
+use lilly_importer_core::{
+    AdapterError, CoverData, IssueData, SeriesData, SeriesStatus, SourceDescriptor,
+    SourceReference, WikiAdapter,
+};
 
 const BASE_URL: &str = "https://www.gruselroman-wiki.de";
 const OVERVIEW_PAGE: &str = "JS_Romanhefte";
@@ -38,6 +41,7 @@ struct IssueSummary {
 
 pub struct JohnSinclairAdapter {
     client: Client,
+    request_base_url: String,
     pub(crate) delay: Duration,
     #[cfg(test)]
     today_override: Option<NaiveDate>,
@@ -52,10 +56,8 @@ impl JohnSinclairAdapter {
     /// Returns an error if the HTTP client cannot be constructed.
     pub fn new() -> Result<Self, AdapterError> {
         Ok(Self {
-            client: Client::builder()
-                .user_agent("LILLY-Importer/0.1 (Heftroman-Collection-Manager)")
-                .timeout(Duration::from_secs(30))
-                .build()?,
+            client: Self::build_client(Duration::from_secs(30))?,
+            request_base_url: BASE_URL.to_string(),
             delay: Duration::from_millis(DEFAULT_DELAY_MS),
             #[cfg(test)]
             today_override: None,
@@ -63,10 +65,33 @@ impl JohnSinclairAdapter {
         })
     }
 
+    fn build_client(timeout: Duration) -> Result<Client, AdapterError> {
+        Ok(Client::builder()
+            .user_agent("LILLY-Importer/0.1 (Heftroman-Collection-Manager)")
+            .timeout(timeout)
+            .build()?)
+    }
+
     #[must_use]
     pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
+    }
+
+    /// Override only the HTTP request origin, primarily for deterministic tests.
+    /// Returned provenance always remains bound to the authoritative descriptor.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_request_base_url(mut self, request_base_url: impl Into<String>) -> Self {
+        self.request_base_url = request_base_url.into().trim_end_matches('/').to_string();
+        self
+    }
+
+    /// Override the request timeout for deterministic transport tests.
+    #[doc(hidden)]
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Result<Self, AdapterError> {
+        self.client = Self::build_client(timeout)?;
+        Ok(self)
     }
 
     #[cfg(test)]
@@ -92,11 +117,12 @@ impl JohnSinclairAdapter {
     async fn fetch_page_wikitext(&self, page: &str) -> Result<String, AdapterError> {
         self.rate_limit().await;
         let url = format!(
-            "{BASE_URL}/api.php?action=parse&page={}&prop=wikitext&format=json",
+            "{}/api.php?action=parse&page={}&prop=wikitext&format=json",
+            self.request_base_url,
             urlencoding::encode(page)
         );
         let response = self.client.get(url).send().await?.error_for_status()?;
-        let json: serde_json::Value = response.json().await?;
+        let json = parse_json(response).await?;
         if let Some(error) = json.get("error") {
             return Err(AdapterError::NotFound(error.to_string()));
         }
@@ -231,8 +257,8 @@ impl WikiAdapter for JohnSinclairAdapter {
         SOURCE_DESCRIPTOR
     }
 
-    fn reference_records(&self) -> Vec<crate::adapter::ReferenceRecord> {
-        use crate::adapter::ReferenceRecord;
+    fn reference_records(&self) -> Vec<lilly_importer_core::ReferenceRecord> {
+        use lilly_importer_core::ReferenceRecord;
         vec![
             ReferenceRecord {
                 issue_number: 1,
@@ -311,11 +337,12 @@ impl WikiAdapter for JohnSinclairAdapter {
 
         self.rate_limit().await;
         let url = format!(
-            "{BASE_URL}/api.php?action=query&generator=images&titles={}&gimlimit=max&prop=imageinfo&iiprop=url&format=json",
+            "{}/api.php?action=query&generator=images&titles={}&gimlimit=max&prop=imageinfo&iiprop=url&format=json",
+            self.request_base_url,
             urlencoding::encode(&page_title)
         );
         let response = self.client.get(url).send().await?.error_for_status()?;
-        let json: serde_json::Value = response.json().await?;
+        let json = parse_json(response).await?;
         let Some(image_url) = extract_cover_url(&json, issue_number) else {
             return Ok(None);
         };
@@ -672,49 +699,59 @@ mod tests {
         const REFERENCE_OVERVIEW: &str =
             include_str!("../../tests/fixtures/john_sinclair/reference-overview.wiki");
         let summaries = JohnSinclairAdapter::parse_overview(REFERENCE_OVERVIEW).unwrap();
-        let references = [
+        let fixtures = [
             (
                 1,
-                "Im Nachtclub der Vampire",
-                "Jason Dark",
-                NaiveDate::from_ymd_opt(1978, 1, 17).unwrap(),
                 include_str!("../../tests/fixtures/john_sinclair/js0001.wiki"),
             ),
             (
                 1000,
-                "Das Schwert des Salomo",
-                "Jason Dark",
-                NaiveDate::from_ymd_opt(1997, 9, 1).unwrap(),
                 include_str!("../../tests/fixtures/john_sinclair/js1000.wiki"),
             ),
             (
                 2303,
-                "Die Hure Babylon",
-                "Ian Rolf Hill",
-                NaiveDate::from_ymd_opt(2022, 8, 30).unwrap(),
                 include_str!("../../tests/fixtures/john_sinclair/js2303.wiki"),
             ),
         ];
+        let adapter = JohnSinclairAdapter::new().unwrap();
+        let references = adapter.reference_records();
+        assert_eq!(references.len(), fixtures.len());
 
-        for (number, title, author, date, fixture) in references {
+        for reference in references {
+            let fixture = fixtures
+                .iter()
+                .find_map(|(number, fixture)| {
+                    (*number == reference.issue_number).then_some(*fixture)
+                })
+                .expect("every pinned record must have a local fixture");
             let summary = summaries
                 .iter()
-                .find(|summary| summary.issue_number == number)
+                .find(|summary| summary.issue_number == reference.issue_number)
                 .unwrap()
                 .clone();
             let issue = map_issue_details(summary, fixture);
-            let issue =
-                crate::adapter::normalize_and_validate_issue(SOURCE_DESCRIPTOR, number, issue)
-                    .unwrap();
-            assert_eq!(issue.title, title);
-            assert_eq!(issue.authors, vec![author]);
-            assert_eq!(issue.published_at, Some(date));
+            let issue = lilly_importer_core::normalize_and_validate_issue(
+                SOURCE_DESCRIPTOR,
+                reference.issue_number,
+                issue,
+            )
+            .unwrap();
+            assert_eq!(issue.title, reference.title);
+            assert_eq!(
+                issue.authors,
+                reference
+                    .authors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(issue.published_at, Some(reference.published_at));
             assert_eq!(issue.source.source_key, "gruselroman-wiki");
             assert!(
                 issue
                     .source
                     .source_record_id
-                    .starts_with(&format!("JS {number:04}"))
+                    .starts_with(&format!("JS {:04}", reference.issue_number))
             );
         }
     }

@@ -361,8 +361,8 @@ fn conflict(code: &str, message: &str) -> AppError {
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
+    use lilly_importer_adapters::adapters::maddrax::MaddraxAdapter;
     use lilly_importer_core::AdapterRegistry;
-    use lilly_importer_core::adapters::maddrax::MaddraxAdapter;
     use sqlx::mysql::MySqlPoolOptions;
 
     use super::*;
@@ -566,7 +566,7 @@ mod tests {
         );
 
         let mut registry = AdapterRegistry::new();
-        registry.register(Box::new(adapter));
+        registry.register(Box::new(adapter)).unwrap();
         let state = AppStateInner {
             pool: pool.clone(),
             jwt_secret: "test-secret".to_string(),

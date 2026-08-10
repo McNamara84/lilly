@@ -38,39 +38,59 @@ pub enum AdapterError {
     #[error("Rate limited")]
     RateLimited,
 
+    #[error("Adapter '{0}' is already registered")]
+    DuplicateAdapter(String),
+
     #[error("{0}")]
     Other(String),
 }
 
 #[async_trait]
 pub trait WikiAdapter: Send + Sync {
-    /// Unique identifier for this adapter (e.g., "maddrax")
+    /// Return the stable, configuration-facing adapter identifier.
+    ///
+    /// The value must be unique within an [`AdapterRegistry`] and must not
+    /// change between releases without an explicit data migration.
     fn name(&self) -> &str;
 
-    /// Human-readable display name (e.g., "Maddrax – Die dunkle Zukunft der Erde")
+    /// Return the human-readable series/source label used by administration UIs.
     fn display_name(&self) -> &str;
 
-    /// Version of this adapter
+    /// Return the adapter contract version recorded with operational evidence.
     fn version(&self) -> &str;
 
-    /// Stable source and target-series identity used before any network access.
+    /// Return the stable source and target-series identity before network access.
+    ///
+    /// Every returned series and issue record must use this source key and the
+    /// declared HTTPS host. Generic validation enforces that invariant.
     fn source_descriptor(&self) -> SourceDescriptor;
 
-    /// Stable records that must match before an import can be published.
+    /// Return pinned source records that must match before publication.
     fn reference_records(&self) -> Vec<ReferenceRecord> {
         Vec::new()
     }
 
-    /// Fetch series metadata (name, publisher, genre, etc.)
+    /// Fetch source-independent series metadata and complete provenance.
+    ///
+    /// Repeated calls against unchanged source data must be idempotent.
     async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError>;
 
-    /// Fetch the list of all available issue numbers
+    /// Discover every published issue number available from this source.
+    ///
+    /// The returned list must contain positive, unique numbers. Orchestration
+    /// performs a second validation before any persistence occurs.
     async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError>;
 
-    /// Fetch details for a single issue
+    /// Fetch and map one issue with mandatory title, author, publication date,
+    /// and complete provenance. Malformed source data returns
+    /// [`AdapterError::Parse`] instead of a partial record.
     async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError>;
 
-    /// Download cover image, returns raw bytes + content type
+    /// Fetch an optional, sanitized reference cover.
+    ///
+    /// `Ok(None)` means the source has no permitted cover; transport or invalid
+    /// image failures must be returned explicitly and are handled as warnings by
+    /// orchestration without discarding valid bibliographic metadata.
     async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError>;
 }
 
@@ -86,9 +106,13 @@ impl AdapterRegistry {
         }
     }
 
-    pub fn register(&mut self, adapter: Box<dyn WikiAdapter>) {
+    pub fn register(&mut self, adapter: Box<dyn WikiAdapter>) -> Result<(), AdapterError> {
         let name = adapter.name().to_string();
+        if self.adapters.contains_key(&name) {
+            return Err(AdapterError::DuplicateAdapter(name));
+        }
         self.adapters.insert(name, adapter);
+        Ok(())
     }
 
     #[must_use]
@@ -99,7 +123,8 @@ impl AdapterRegistry {
     /// Returns a list of (name, `display_name`, version) for all registered adapters
     #[must_use]
     pub fn list(&self) -> Vec<(&str, &str, &str, SourceDescriptor)> {
-        self.adapters
+        let mut adapters = self
+            .adapters
             .values()
             .map(|a| {
                 (
@@ -109,7 +134,9 @@ impl AdapterRegistry {
                     a.source_descriptor(),
                 )
             })
-            .collect()
+            .collect::<Vec<_>>();
+        adapters.sort_unstable_by(|left, right| left.0.cmp(right.0));
+        adapters
     }
 }
 
@@ -296,14 +323,54 @@ mod tests {
                 series_url: "https://example.test/wiki/Mock_Series",
             }
         }
+        fn reference_records(&self) -> Vec<ReferenceRecord> {
+            vec![ReferenceRecord {
+                issue_number: 1,
+                title: "Test issue",
+                authors: &["Test Author"],
+                published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap(),
+            }]
+        }
         async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
-            Err(AdapterError::Other("not implemented".to_string()))
+            Ok(SeriesData {
+                name: "Mock Series".to_string(),
+                slug: "mock".to_string(),
+                publisher: None,
+                genre: None,
+                frequency: None,
+                total_issues: Some(3),
+                status: crate::SeriesStatus::Running,
+                source: SourceReference {
+                    source_key: "mock-wiki".to_string(),
+                    source_record_id: "Mock_Series".to_string(),
+                    source_url: "https://example.test/wiki/Mock_Series".to_string(),
+                },
+            })
         }
         async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError> {
             Ok(vec![1, 2, 3])
         }
-        async fn fetch_issue_details(&self, _issue_number: u32) -> Result<IssueData, AdapterError> {
-            Err(AdapterError::Other("not implemented".to_string()))
+        async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError> {
+            if issue_number != 1 {
+                return Err(AdapterError::NotFound(format!("Issue {issue_number}")));
+            }
+            Ok(IssueData {
+                issue_number,
+                title: "Test issue".to_string(),
+                authors: vec!["Test Author".to_string()],
+                published_at: chrono::NaiveDate::from_ymd_opt(2026, 1, 2),
+                part_number: None,
+                part_total: None,
+                cycle: None,
+                cover_artists: Vec::new(),
+                keywords: Vec::new(),
+                notes: Vec::new(),
+                source: SourceReference {
+                    source_key: "mock-wiki".to_string(),
+                    source_record_id: "Issue_1".to_string(),
+                    source_url: "https://example.test/wiki/Issue_1".to_string(),
+                },
+            })
         }
         async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
             Ok(None)
@@ -319,7 +386,7 @@ mod tests {
     #[test]
     fn test_registry_register_and_get() {
         let mut registry = AdapterRegistry::new();
-        registry.register(Box::new(MockAdapter));
+        registry.register(Box::new(MockAdapter)).unwrap();
 
         let adapter = registry.get("mock");
         assert!(adapter.is_some());
@@ -335,7 +402,7 @@ mod tests {
     #[test]
     fn test_registry_list() {
         let mut registry = AdapterRegistry::new();
-        registry.register(Box::new(MockAdapter));
+        registry.register(Box::new(MockAdapter)).unwrap();
 
         let list = registry.list();
         assert_eq!(list.len(), 1);
@@ -344,6 +411,19 @@ mod tests {
         assert_eq!(display, "Mock Adapter");
         assert_eq!(version, "1.0");
         assert_eq!(source.source_key, "mock-wiki");
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_names_without_replacing_the_original() {
+        let mut registry = AdapterRegistry::new();
+        registry.register(Box::new(MockAdapter)).unwrap();
+
+        assert!(matches!(
+            registry.register(Box::new(MockAdapter)),
+            Err(AdapterError::DuplicateAdapter(name)) if name == "mock"
+        ));
+        assert_eq!(registry.list().len(), 1);
+        assert_eq!(registry.get("mock").unwrap().version(), "1.0");
     }
 
     #[test]
@@ -370,6 +450,11 @@ mod tests {
         let adapter = MockAdapter;
         let cover = adapter.fetch_cover(1).await.unwrap();
         assert!(cover.is_none());
+    }
+
+    #[tokio::test]
+    async fn minimal_adapter_passes_the_shared_contract() {
+        crate::verify_adapter_contract(&MockAdapter).await.unwrap();
     }
 
     fn valid_issue() -> IssueData {

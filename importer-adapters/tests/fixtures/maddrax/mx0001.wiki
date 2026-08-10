@@ -1,3 +1,4 @@
+<!-- Deterministic local test fixture; never fetched live. -->
 {{Roman Zyklus 01
 |Nummer = 1
 |Titel = Der Gott aus dem Eis

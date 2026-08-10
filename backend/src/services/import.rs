@@ -1136,7 +1136,7 @@ mod tests {
 
     use async_trait::async_trait;
     use lilly_importer_core::{
-        AdapterRegistry, CoverData, SeriesData, SeriesStatus, SourceReference,
+        AdapterRegistry, CoverData, ReferenceRecord, SeriesData, SeriesStatus, SourceReference,
     };
     use sqlx::mysql::MySqlPoolOptions;
     use tokio::sync::Notify;
@@ -1165,6 +1165,109 @@ mod tests {
         series_record_id: "Series:Synchronization",
         series_url: "https://example.test/series/synchronization",
     };
+
+    const MADDRAX_REFERENCE_DESCRIPTOR: SourceDescriptor = SourceDescriptor {
+        source_key: "reference-maddrax-test",
+        display_name: "Maddrax Reference Persistence Test",
+        allowed_host: "example.test",
+        series_name: "Maddrax Reference Persistence Test",
+        series_slug: "maddrax-reference-persistence-test",
+        series_record_id: "Series:MaddraxReferencePersistence",
+        series_url: "https://example.test/series/maddrax-reference-persistence",
+    };
+
+    const JOHN_REFERENCE_DESCRIPTOR: SourceDescriptor = SourceDescriptor {
+        source_key: "reference-john-sinclair-test",
+        display_name: "John Sinclair Reference Persistence Test",
+        allowed_host: "example.test",
+        series_name: "John Sinclair Reference Persistence Test",
+        series_slug: "john-sinclair-reference-persistence-test",
+        series_record_id: "Series:JohnSinclairReferencePersistence",
+        series_url: "https://example.test/series/john-sinclair-reference-persistence",
+    };
+
+    struct ReferenceSnapshotAdapter {
+        name: &'static str,
+        descriptor: SourceDescriptor,
+        references: Vec<ReferenceRecord>,
+    }
+
+    #[async_trait]
+    impl WikiAdapter for ReferenceSnapshotAdapter {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn display_name(&self) -> &'static str {
+            self.descriptor.display_name
+        }
+
+        fn version(&self) -> &'static str {
+            "reference-snapshot-v1"
+        }
+
+        fn source_descriptor(&self) -> SourceDescriptor {
+            self.descriptor
+        }
+
+        fn reference_records(&self) -> Vec<ReferenceRecord> {
+            self.references.clone()
+        }
+
+        async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
+            Ok(SeriesData {
+                name: self.descriptor.series_name.to_string(),
+                slug: self.descriptor.series_slug.to_string(),
+                publisher: Some("Reference Fixture Publisher".to_string()),
+                genre: Some("Reference Fixture Genre".to_string()),
+                frequency: None,
+                total_issues: Some(self.references.len().try_into().unwrap()),
+                status: SeriesStatus::Running,
+                source: SourceReference {
+                    source_key: self.descriptor.source_key.to_string(),
+                    source_record_id: self.descriptor.series_record_id.to_string(),
+                    source_url: self.descriptor.series_url.to_string(),
+                },
+            })
+        }
+
+        async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError> {
+            Ok(self
+                .references
+                .iter()
+                .map(|reference| reference.issue_number)
+                .collect())
+        }
+
+        async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError> {
+            let reference = self
+                .references
+                .iter()
+                .find(|reference| reference.issue_number == issue_number)
+                .ok_or_else(|| AdapterError::NotFound(format!("issue {issue_number}")))?;
+            Ok(IssueData {
+                issue_number,
+                title: reference.title.to_string(),
+                authors: reference.authors.iter().map(ToString::to_string).collect(),
+                published_at: Some(reference.published_at),
+                part_number: None,
+                part_total: None,
+                cycle: None,
+                cover_artists: Vec::new(),
+                keywords: Vec::new(),
+                notes: Vec::new(),
+                source: SourceReference {
+                    source_key: self.descriptor.source_key.to_string(),
+                    source_record_id: format!("Issue:{issue_number}"),
+                    source_url: format!("https://example.test/issues/{issue_number}"),
+                },
+            })
+        }
+
+        async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+            Ok(None)
+        }
+    }
 
     struct BlockingAdapter {
         entered_fetch: Arc<Notify>,
@@ -1547,10 +1650,12 @@ mod tests {
         let entered_fetch = Arc::new(Notify::new());
         let release_fetch = Arc::new(Notify::new());
         let mut adapter_registry = AdapterRegistry::new();
-        adapter_registry.register(Box::new(BlockingAdapter {
-            entered_fetch: entered_fetch.clone(),
-            release_fetch: release_fetch.clone(),
-        }));
+        adapter_registry
+            .register(Box::new(BlockingAdapter {
+                entered_fetch: entered_fetch.clone(),
+                release_fetch: release_fetch.clone(),
+            }))
+            .unwrap();
         let state = test_state(
             pool.clone(),
             adapter_registry,
@@ -1569,7 +1674,7 @@ mod tests {
             .expect("background worker must enter the adapter fetch");
 
         assert!(
-            import_jobs::request_import_cancellation(&pool, job.id)
+            import_jobs::request_import_cancellation(&pool, job.id, user_id)
                 .await
                 .unwrap()
         );
@@ -1600,6 +1705,188 @@ mod tests {
             .execute(&pool)
             .await
             .expect("series fixture must be deleted");
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .expect("user fixture must be deleted");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn built_in_reference_records_round_trip_through_persistence_idempotently() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(8)
+            .connect(&database_url)
+            .await
+            .expect("test database must be reachable");
+        crate::db::migrate_test_database(&pool)
+            .await
+            .expect("test migrations must succeed");
+
+        for descriptor in [MADDRAX_REFERENCE_DESCRIPTOR, JOHN_REFERENCE_DESCRIPTOR] {
+            sqlx::query("DELETE FROM series WHERE source_key = ? AND source_record_id = ?")
+                .bind(descriptor.source_key)
+                .bind(descriptor.series_record_id)
+                .execute(&pool)
+                .await
+                .expect("old reference persistence fixture must be removable");
+        }
+
+        let built_ins = lilly_importer_adapters::builtin_registry()
+            .expect("built-in adapter registry must be constructible");
+        let maddrax_references = built_ins
+            .get("maddrax")
+            .expect("Maddrax adapter must be registered")
+            .reference_records();
+        let john_references = built_ins
+            .get("john-sinclair")
+            .expect("John Sinclair adapter must be registered")
+            .reference_records();
+        assert_eq!(maddrax_references.len(), 3);
+        assert_eq!(john_references.len(), 3);
+
+        let expectations = vec![
+            (
+                "reference-maddrax",
+                MADDRAX_REFERENCE_DESCRIPTOR,
+                maddrax_references.clone(),
+            ),
+            (
+                "reference-john-sinclair",
+                JOHN_REFERENCE_DESCRIPTOR,
+                john_references.clone(),
+            ),
+        ];
+        let mut adapter_registry = AdapterRegistry::new();
+        adapter_registry
+            .register(Box::new(ReferenceSnapshotAdapter {
+                name: "reference-maddrax",
+                descriptor: MADDRAX_REFERENCE_DESCRIPTOR,
+                references: maddrax_references,
+            }))
+            .unwrap();
+        adapter_registry
+            .register(Box::new(ReferenceSnapshotAdapter {
+                name: "reference-john-sinclair",
+                descriptor: JOHN_REFERENCE_DESCRIPTOR,
+                references: john_references,
+            }))
+            .unwrap();
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        let user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role) VALUES (?, 'Reference Tester', 'admin')",
+        )
+        .bind(format!("reference-import-{suffix}@example.test"))
+        .execute(&pool)
+        .await
+        .expect("user fixture must be inserted")
+        .last_insert_id()
+        .try_into()
+        .expect("user fixture ID must fit u32");
+        let state = test_state(
+            pool.clone(),
+            adapter_registry,
+            "/tmp/lilly-reference-persistence-test",
+        );
+
+        for (adapter_name, descriptor, references) in expectations {
+            let first = start_import(
+                state.clone(),
+                adapter_name,
+                ImportTrigger::Manual { user_id },
+            )
+            .await
+            .expect("reference import must start");
+            let first = wait_for_terminal_job(&pool, first.id).await;
+            assert_eq!(first.status, "completed_with_errors");
+            assert_eq!(first.created_issues, 3);
+            assert_eq!(first.updated_issues, 0);
+            assert_eq!(first.unchanged_issues, 0);
+            assert_eq!(first.skipped_issues, 0);
+            assert_eq!(first.failed_issues, 0);
+            let cover_findings = import_jobs::find_import_errors(&pool, first.id, 1, 50)
+                .await
+                .expect("non-blocking cover findings must be queryable");
+            assert_eq!(cover_findings.len(), 3);
+            assert!(cover_findings.iter().all(|finding| {
+                finding.stage == "cover"
+                    && finding.severity == "warning"
+                    && finding.code == "missing_at_source"
+            }));
+
+            let issue_rows = issues::find_all_issues_by_series(&pool, first.series_id)
+                .await
+                .expect("persisted reference issues must be queryable");
+            let responses = issues::build_issue_responses(&pool, &issue_rows)
+                .await
+                .expect("reference issue relations must be queryable");
+            assert_eq!(responses.len(), references.len());
+            for reference in references {
+                let response = responses
+                    .iter()
+                    .find(|issue| issue.issue_number == reference.issue_number)
+                    .expect("every reference record must be persisted");
+                let mut expected_authors = reference
+                    .authors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>();
+                expected_authors.sort();
+                assert_eq!(response.title, reference.title);
+                assert_eq!(response.authors, expected_authors);
+                assert_eq!(response.published_at, Some(reference.published_at));
+                assert_eq!(response.source_key.as_deref(), Some(descriptor.source_key));
+                assert_eq!(
+                    response.source_record_id.as_deref(),
+                    Some(format!("Issue:{}", reference.issue_number).as_str())
+                );
+                assert_eq!(
+                    response.source_wiki_url.as_deref(),
+                    Some(
+                        format!("https://example.test/issues/{}", reference.issue_number).as_str()
+                    )
+                );
+            }
+
+            let second = start_import(
+                state.clone(),
+                adapter_name,
+                ImportTrigger::Manual { user_id },
+            )
+            .await
+            .expect("idempotence reference import must start");
+            let second = wait_for_terminal_job(&pool, second.id).await;
+            assert_eq!(second.status, "completed_with_errors");
+            assert_eq!(second.created_issues, 0);
+            assert_eq!(second.updated_issues, 0);
+            assert_eq!(second.unchanged_issues, 3);
+            assert_eq!(second.skipped_issues, 0);
+            assert_eq!(second.failed_issues, 0);
+            assert_eq!(
+                issues::count_issues_by_series(&pool, second.series_id)
+                    .await
+                    .unwrap(),
+                3
+            );
+        }
+
+        for descriptor in [MADDRAX_REFERENCE_DESCRIPTOR, JOHN_REFERENCE_DESCRIPTOR] {
+            sqlx::query("DELETE FROM series WHERE source_key = ? AND source_record_id = ?")
+                .bind(descriptor.source_key)
+                .bind(descriptor.series_record_id)
+                .execute(&pool)
+                .await
+                .expect("reference persistence fixture must be deleted");
+        }
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(user_id)
             .execute(&pool)
@@ -1671,9 +1958,11 @@ mod tests {
             covers: BTreeMap::new(),
         }));
         let mut adapter_registry = AdapterRegistry::new();
-        adapter_registry.register(Box::new(SyncAdapter {
-            scenario: scenario.clone(),
-        }));
+        adapter_registry
+            .register(Box::new(SyncAdapter {
+                scenario: scenario.clone(),
+            }))
+            .unwrap();
         let state = test_state(
             pool.clone(),
             adapter_registry,

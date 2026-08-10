@@ -371,9 +371,9 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "cookie"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
+checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
 dependencies = [
  "percent-encoding",
  "time",
@@ -1544,6 +1544,7 @@ dependencies = [
  "http",
  "jsonwebtoken",
  "lettre",
+ "lilly-importer-adapters",
  "lilly-importer-core",
  "rand 0.10.2",
  "rand_core 0.6.4",
@@ -1571,23 +1572,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilly-importer-adapters"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "image",
+ "lilly-importer-core",
+ "regex",
+ "reqwest",
+ "scraper",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
 name = "lilly-importer-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "chrono-tz",
- "image",
- "regex",
  "reqwest",
- "scraper",
  "serde",
- "serde_json",
  "thiserror",
  "tokio",
  "tracing",
- "urlencoding",
 ]
 
 [[package]]
@@ -3448,9 +3461,9 @@ dependencies = [
 
 [[package]]
 name = "web_atoms"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "075474b12bcb3d2e3d4546580e9de478eeeead668a1761e2a8860c836b7ef297"
+checksum = "ba8b815c1b593dc0baf78dd0f4fc8fdb2de53198fb1163738093e9a311c33fb3"
 dependencies = [
  "phf 0.13.1",
  "phf_codegen",

@@ -184,6 +184,7 @@ struct ImportJobWithSlug {
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
     cancel_requested_at: Option<chrono::NaiveDateTime>,
+    cancel_requested_by: Option<u32>,
     retry_of_job_id: Option<u32>,
 }
 
@@ -217,7 +218,7 @@ async fn get_import_job(
 }
 
 async fn cancel_import(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(id): Path<u32>,
 ) -> Result<(StatusCode, Json<ImportJobResponse>), AppError> {
@@ -237,7 +238,7 @@ async fn cancel_import(
         )));
     }
     let cancellation_persisted =
-        import_jobs::request_import_cancellation(&state.inner.pool, id).await?;
+        import_jobs::request_import_cancellation(&state.inner.pool, id, admin.0.user_id).await?;
     let job = import_jobs::find_import_job_by_id(&state.inner.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Import job {id} not found")))?;
@@ -516,7 +517,7 @@ async fn import_history(
          j.scheduled_for, j.status, j.total_issues, j.imported_issues, j.failed_issues, \
          j.created_issues, j.updated_issues, j.unchanged_issues, j.skipped_issues, \
          j.error_message, j.started_by, j.started_at, j.completed_at, j.created_at, j.updated_at, \
-         j.cancel_requested_at, j.retry_of_job_id \
+         j.cancel_requested_at, j.cancel_requested_by, j.retry_of_job_id \
          FROM import_jobs j \
          JOIN series s ON s.id = j.series_id \
          ORDER BY j.created_at DESC",
@@ -549,6 +550,7 @@ async fn import_history(
             created_at: r.created_at,
             updated_at: r.updated_at,
             cancel_requested_at: r.cancel_requested_at,
+            cancel_requested_by: r.cancel_requested_by,
             retry_of_job_id: r.retry_of_job_id,
         })
         .collect();
@@ -564,7 +566,124 @@ async fn resolve_series_slug(pool: &sqlx::MySqlPool, series_id: u32) -> Result<S
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Method, Request};
+    use lilly_importer_core::AdapterRegistry;
+    use sqlx::mysql::MySqlPoolOptions;
+    use tower::ServiceExt;
+
     use super::*;
+    use crate::auth::jwt;
+    use crate::routes::AppStateInner;
+    use crate::services::email::EmailService;
+
+    const TEST_JWT_SECRET: &str = "admin-route-test-secret";
+
+    fn test_state() -> AppState {
+        let pool = MySqlPoolOptions::new()
+            .connect_lazy("mysql://test:test@127.0.0.1:9/lilly")
+            .unwrap();
+        AppState {
+            inner: Arc::new(AppStateInner {
+                pool,
+                jwt_secret: TEST_JWT_SECRET.to_string(),
+                jwt_access_expiry: 900,
+                jwt_refresh_expiry: 2_592_000,
+                email_service: EmailService::Log {
+                    from: "test@example.test".to_string(),
+                },
+                app_base_url: "http://localhost".to_string(),
+                cookie_secure: false,
+                adapter_registry: AdapterRegistry::new(),
+                media_path: PathBuf::from("/tmp/lilly-admin-route-test"),
+                media_url_prefix: "/media".to_string(),
+                import_scheduler_config: crate::services::import_scheduler::ImportSchedulerConfig {
+                    enabled: false,
+                    schedule: "0 10 6 * * Sat *".to_string(),
+                    timezone: "Europe/Berlin".to_string(),
+                    adapters: Vec::new(),
+                },
+            }),
+        }
+    }
+
+    fn protected_routes() -> Vec<(Method, &'static str)> {
+        vec![
+            (Method::GET, "/api/v1/admin/series"),
+            (Method::POST, "/api/v1/admin/series/test/activate"),
+            (Method::POST, "/api/v1/admin/series/test/deactivate"),
+            (Method::GET, "/api/v1/admin/adapters"),
+            (Method::POST, "/api/v1/admin/import"),
+            (Method::GET, "/api/v1/admin/import/schedule"),
+            (Method::GET, "/api/v1/admin/import/history"),
+            (Method::GET, "/api/v1/admin/import/1"),
+            (Method::POST, "/api/v1/admin/import/1/cancel"),
+            (Method::POST, "/api/v1/admin/import/1/retry"),
+            (Method::GET, "/api/v1/admin/import/1/errors"),
+            (Method::GET, "/api/v1/admin/import/1/review/summary"),
+            (Method::GET, "/api/v1/admin/import/1/review/items"),
+            (Method::POST, "/api/v1/admin/import/1/activate"),
+            (Method::GET, "/api/v1/admin/import/1/series-issues"),
+        ]
+    }
+
+    fn request(method: Method, uri: &str, role: Option<&str>) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(role) = role {
+            let token = jwt::create_token(7, "Route Tester", role, TEST_JWT_SECRET, 3_600)
+                .expect("test JWT must be created");
+            builder = builder.header("cookie", format!("access_token={token}"));
+        }
+        builder.body(Body::from("{}")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn every_admin_route_rejects_anonymous_and_regular_users_before_the_handler() {
+        for (method, uri) in protected_routes() {
+            let app = Router::new().merge(router()).with_state(test_state());
+            let anonymous = app
+                .clone()
+                .oneshot(request(method.clone(), uri, None))
+                .await
+                .unwrap();
+            assert_eq!(
+                anonymous.status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {uri}"
+            );
+
+            let user = app
+                .oneshot(request(method.clone(), uri, Some("user")))
+                .await
+                .unwrap();
+            assert_eq!(user.status(), StatusCode::FORBIDDEN, "{method} {uri}");
+            let body = to_bytes(user.into_body(), 4_096).await.unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(json["code"], "ADMIN_REQUIRED", "{method} {uri}");
+            assert_eq!(json["error"], "Admin access required", "{method} {uri}");
+            assert_eq!(json.as_object().unwrap().len(), 2, "{method} {uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn administrator_reaches_a_protected_handler() {
+        let app = Router::new().merge(router()).with_state(test_state());
+        let response = app
+            .oneshot(request(
+                Method::GET,
+                "/api/v1/admin/adapters",
+                Some("admin"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 
     #[test]
     fn test_adapter_info_serialization() {

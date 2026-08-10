@@ -19,7 +19,7 @@ impl fmt::Display for SeriesStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeriesData {
     pub name: String,
     pub slug: String,
@@ -53,7 +53,7 @@ pub struct SourceReference {
     pub source_url: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CoverData {
     pub bytes: Vec<u8>,
     pub content_type: String,
