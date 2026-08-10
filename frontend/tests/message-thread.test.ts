@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import MessageThread from '../src/lib/components/messages/MessageThread.svelte';
 
@@ -86,5 +86,106 @@ describe('MessageThread', () => {
 		);
 		expect(screen.getByLabelText('Nachricht')).toHaveValue('Bitte melden');
 		sendFailure.unmount();
+	});
+
+	it('uses the fallback message for an untyped initial load error', async () => {
+		mocks.fetchMessages.mockRejectedValueOnce('offline');
+		const view = render(MessageThread, { threadId: 7 });
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Nachrichten konnten nicht geladen werden.'
+			)
+		);
+		view.unmount();
+	});
+
+	it('ignores an empty form submission', async () => {
+		mocks.fetchMessages.mockResolvedValue({ data: [], next_before_id: null });
+		const view = render(MessageThread, { threadId: 7 });
+		await waitFor(() => expect(screen.getByText(/Noch keine Nachrichten/)).toBeInTheDocument());
+
+		await fireEvent.submit(document.querySelector('form') as HTMLFormElement);
+
+		expect(mocks.sendMessage).not.toHaveBeenCalled();
+		view.unmount();
+	});
+
+	it('does not mark outgoing-only histories and shows both delivery states', async () => {
+		mocks.fetchMessages.mockResolvedValue({
+			data: [
+				outgoing,
+				{ ...outgoing, id: 3, content: 'Schon gelesen', read_at: '2026-08-10T09:00:00Z' }
+			],
+			next_before_id: null
+		});
+		const view = render(MessageThread, { threadId: 7 });
+
+		await waitFor(() => expect(screen.getByText('Schon gelesen')).toBeInTheDocument());
+		expect(screen.getByText(/Gesendet/)).toBeInTheDocument();
+		expect(screen.getByText(/Gelesen/)).toBeInTheDocument();
+		expect(mocks.markThreadRead).not.toHaveBeenCalled();
+		view.unmount();
+	});
+
+	it('does not append a message already returned by the server', async () => {
+		mocks.fetchMessages.mockResolvedValue({ data: [outgoing], next_before_id: null });
+		mocks.sendMessage.mockResolvedValue(outgoing);
+		const view = render(MessageThread, { threadId: 7 });
+		const user = userEvent.setup();
+		await waitFor(() => expect(screen.getAllByText('Gern!')).toHaveLength(1));
+
+		await user.type(screen.getByLabelText('Nachricht'), 'Erneut senden');
+		await user.click(screen.getByRole('button', { name: 'Senden' }));
+
+		await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledWith(7, 'Erneut senden'));
+		expect(screen.getAllByText('Gern!')).toHaveLength(1);
+		view.unmount();
+	});
+
+	it('silently polls while visible and skips polling in a hidden document', async () => {
+		vi.useFakeTimers();
+		let hidden = false;
+		const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+		mocks.fetchMessages.mockResolvedValue({ data: [], next_before_id: null });
+		const view = render(MessageThread, { threadId: 7 });
+
+		try {
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(mocks.fetchMessages).toHaveBeenCalledTimes(1);
+
+			mocks.fetchMessages.mockRejectedValueOnce(new Error('Temporärer Pollingfehler'));
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(10_000);
+			});
+			expect(mocks.fetchMessages).toHaveBeenCalledTimes(2);
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+			hidden = true;
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(10_000);
+			});
+			expect(mocks.fetchMessages).toHaveBeenCalledTimes(2);
+		} finally {
+			view.unmount();
+			hiddenSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it('shows the typed send error', async () => {
+		mocks.fetchMessages.mockResolvedValue({ data: [], next_before_id: null });
+		mocks.sendMessage.mockRejectedValueOnce(new Error('Versand gesperrt'));
+		const view = render(MessageThread, { threadId: 7 });
+		const user = userEvent.setup();
+		await waitFor(() => expect(screen.getByText(/Noch keine Nachrichten/)).toBeInTheDocument());
+
+		await user.type(screen.getByLabelText('Nachricht'), 'Hallo');
+		await user.click(screen.getByRole('button', { name: 'Senden' }));
+
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Versand gesperrt'));
+		view.unmount();
 	});
 });

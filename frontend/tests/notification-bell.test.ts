@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { act, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import NotificationBell from '../src/lib/components/notifications/NotificationBell.svelte';
 
@@ -67,15 +67,39 @@ describe('NotificationBell', () => {
 	});
 
 	it('marks every notification read', async () => {
+		mocks.fetchNotifications.mockResolvedValue({
+			data: [
+				messageNotification,
+				{ ...messageNotification, id: 5, read_at: '2026-08-10T09:00:00Z' }
+			],
+			page: 1,
+			per_page: 10,
+			total: 2
+		});
 		const view = render(NotificationBell);
 		const user = userEvent.setup();
 		await waitFor(() => expect(screen.getByTestId('notification-count')).toBeInTheDocument());
 		await user.click(screen.getByRole('button', { name: /Benachrichtigungen/ }));
-		await screen.findByText('Neue Nachricht');
+		await screen.findAllByText('Neue Nachricht');
 		await user.click(screen.getByRole('button', { name: 'Alle gelesen' }));
 
 		await waitFor(() => expect(mocks.markAllNotificationsRead).toHaveBeenCalledOnce());
 		expect(screen.queryByTestId('notification-count')).not.toBeInTheDocument();
+		view.unmount();
+	});
+
+	it('closes an open popover without loading it again', async () => {
+		const view = render(NotificationBell);
+		const user = userEvent.setup();
+		await waitFor(() => expect(screen.getByTestId('notification-count')).toBeInTheDocument());
+
+		const bell = screen.getByRole('button', { name: /Benachrichtigungen/ });
+		await user.click(bell);
+		await screen.findByTestId('notification-popover');
+		await user.click(bell);
+
+		expect(screen.queryByTestId('notification-popover')).not.toBeInTheDocument();
+		expect(mocks.fetchNotifications).toHaveBeenCalledTimes(1);
 		view.unmount();
 	});
 
@@ -88,6 +112,21 @@ describe('NotificationBell', () => {
 		await user.click(screen.getByRole('button', { name: /Benachrichtigungen/ }));
 		await waitFor(() =>
 			expect(screen.getByRole('alert')).toHaveTextContent('Dienst nicht erreichbar')
+		);
+		view.unmount();
+	});
+
+	it('uses the fallback message for an untyped popover error', async () => {
+		mocks.fetchNotifications.mockRejectedValueOnce('offline');
+		const view = render(NotificationBell);
+		const user = userEvent.setup();
+		await waitFor(() => expect(screen.getByTestId('notification-count')).toBeInTheDocument());
+
+		await user.click(screen.getByRole('button', { name: /Benachrichtigungen/ }));
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Benachrichtigungen konnten nicht geladen werden.'
+			)
 		);
 		view.unmount();
 	});
@@ -140,6 +179,76 @@ describe('NotificationBell', () => {
 		await user.click(screen.getByRole('button', { name: 'Benachrichtigungen' }));
 		await waitFor(() => expect(screen.getByText('Keine Benachrichtigungen.')).toBeInTheDocument());
 		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		view.unmount();
+	});
+
+	it('refreshes on a visible interval and on focus, but not while hidden', async () => {
+		vi.useFakeTimers();
+		let hidden = false;
+		const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+		const view = render(NotificationBell);
+
+		try {
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(mocks.fetchUnreadNotificationCount).toHaveBeenCalledTimes(1);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(30_000);
+			});
+			expect(mocks.fetchUnreadNotificationCount).toHaveBeenCalledTimes(2);
+
+			hidden = true;
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(30_000);
+			});
+			expect(mocks.fetchUnreadNotificationCount).toHaveBeenCalledTimes(2);
+
+			await act(async () => {
+				window.dispatchEvent(new Event('focus'));
+				await Promise.resolve();
+			});
+			expect(mocks.fetchUnreadNotificationCount).toHaveBeenCalledTimes(3);
+		} finally {
+			view.unmount();
+			hiddenSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it('renders every notification kind label', async () => {
+		const kinds = [
+			'trade_match',
+			'trade_match_updated',
+			'trade_proposed',
+			'trade_accepted',
+			'trade_cancelled',
+			'trade_message'
+		] as const;
+		mocks.fetchNotifications.mockResolvedValue({
+			data: kinds.map((kind, index) => ({
+				...messageNotification,
+				id: index + 10,
+				kind,
+				read_at: '2026-08-10T09:00:00Z'
+			})),
+			page: 1,
+			per_page: 10,
+			total: kinds.length
+		});
+		const view = render(NotificationBell);
+		const user = userEvent.setup();
+		await waitFor(() => expect(screen.getByTestId('notification-count')).toBeInTheDocument());
+
+		await user.click(screen.getByRole('button', { name: /Benachrichtigungen/ }));
+
+		expect(await screen.findByText('Neuer Tausch-Match')).toBeInTheDocument();
+		expect(screen.getByText('Tausch-Match aktualisiert')).toBeInTheDocument();
+		expect(screen.getByText('Neuer Tauschvorschlag')).toBeInTheDocument();
+		expect(screen.getByText('Tauschvorschlag angenommen')).toBeInTheDocument();
+		expect(screen.getByText('Tausch abgebrochen')).toBeInTheDocument();
+		expect(screen.getByText('Neue Nachricht')).toBeInTheDocument();
 		view.unmount();
 	});
 });

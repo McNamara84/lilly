@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { act, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import TradesPage from '../src/routes/trades/+page.svelte';
 import OffersPage from '../src/routes/trades/offers/+page.svelte';
 import WantedPage from '../src/routes/trades/wanted/+page.svelte';
+import TradeMatchCard from '../src/lib/components/trade/TradeMatchCard.svelte';
+import TradeSummaryCard from '../src/lib/components/trade/TradeSummaryCard.svelte';
 
 const mocks = vi.hoisted(() => ({
 	getAuthState: vi.fn(),
@@ -175,7 +177,11 @@ describe('Trades hub', () => {
 	});
 
 	it('moves a newly created proposal into the active-trades tab', async () => {
-		mocks.fetchOpenTrades.mockResolvedValue(page([]));
+		mocks.fetchOpenTrades.mockResolvedValue(
+			page([
+				{ ...trade, id: 99, match_id: 99, partner: { ...partner, display_name: 'Andere Person' } }
+			])
+		);
 		render(TradesPage);
 		const user = userEvent.setup();
 
@@ -186,7 +192,7 @@ describe('Trades hub', () => {
 
 		await waitFor(() => expect(mocks.createTradeProposal).toHaveBeenCalledWith(5, [10], [20]));
 		expect(screen.getByTestId('active-trades-panel')).toBeInTheDocument();
-		expect(screen.getByTestId('trade-summary-card')).toBeInTheDocument();
+		expect(screen.getAllByTestId('trade-summary-card')).toHaveLength(2);
 	});
 
 	it('validates item selection and reports proposal failures', async () => {
@@ -249,6 +255,148 @@ describe('Trades hub', () => {
 		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: false, user: null });
 		render(TradesPage);
 		await waitFor(() => expect(mocks.goto).toHaveBeenCalledWith('/login'));
+	});
+
+	it('waits for authentication initialization before loading or redirecting', () => {
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: true, user: null });
+		const view = render(TradesPage);
+
+		expect(screen.getByTestId('trades-loading')).toBeInTheDocument();
+		expect(mocks.fetchMatches).not.toHaveBeenCalled();
+		expect(mocks.fetchOpenTrades).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
+		view.unmount();
+	});
+
+	it('shows the loading state, an empty active-trades state and switches back to matches', async () => {
+		let resolveMatches!: (value: {
+			data: (typeof match)[];
+			page: number;
+			per_page: number;
+			total: number;
+		}) => void;
+		let resolveTrades!: (value: {
+			data: (typeof trade)[];
+			page: number;
+			per_page: number;
+			total: number;
+		}) => void;
+		mocks.fetchMatches.mockReturnValue(
+			new Promise((resolve) => {
+				resolveMatches = resolve;
+			})
+		);
+		mocks.fetchOpenTrades.mockReturnValue(
+			new Promise((resolve) => {
+				resolveTrades = resolve;
+			})
+		);
+		const view = render(TradesPage);
+		const user = userEvent.setup();
+
+		expect(screen.getByTestId('trades-loading')).toBeInTheDocument();
+		resolveMatches(page([match]));
+		resolveTrades(page([]));
+		await waitFor(() => expect(screen.getByTestId('matches-panel')).toBeInTheDocument());
+
+		await user.click(screen.getByTestId('active-trades-tab'));
+		expect(screen.getByText('Noch keine offenen Tausche')).toBeInTheDocument();
+		await user.click(screen.getByTestId('matches-tab'));
+		expect(screen.getByTestId('trade-match-card')).toBeInTheDocument();
+		view.unmount();
+	});
+});
+
+describe('Trade cards', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.createTradeProposal.mockResolvedValue(trade);
+	});
+
+	it('renders avatar and both cover sources and proposes without a callback', async () => {
+		const richMatch = {
+			...match,
+			partner: { ...partner, avatar_path: '/avatars/partner.jpg', location: null },
+			my_offers: [
+				{ ...myOffer, cover_local_path: '/covers/local.jpg', cover_url: '/covers/ignored.jpg' }
+			],
+			partner_offers: [
+				{ ...partnerOffer, cover_local_path: null, cover_url: 'https://img.example/remote.jpg' }
+			]
+		};
+		const view = render(TradeMatchCard, { match: richMatch });
+		const user = userEvent.setup();
+
+		expect(document.querySelector('img[src="/avatars/partner.jpg"]')).toBeInTheDocument();
+		expect(document.querySelector('img[src="/covers/local.jpg"]')).toBeInTheDocument();
+		expect(document.querySelector('img[src="https://img.example/remote.jpg"]')).toBeInTheDocument();
+		expect(screen.queryByText('Berlin')).not.toBeInTheDocument();
+
+		await user.click(screen.getByRole('button', { name: 'Tausch vorschlagen' }));
+		await waitFor(() => expect(mocks.createTradeProposal).toHaveBeenCalledWith(5, [10], [20]));
+		view.unmount();
+	});
+
+	it('shows the fallback proposal error', async () => {
+		mocks.createTradeProposal.mockRejectedValueOnce('offline');
+		const view = render(TradeMatchCard, { match });
+		const user = userEvent.setup();
+
+		await user.click(screen.getByRole('button', { name: 'Tausch vorschlagen' }));
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Tauschvorschlag konnte nicht erstellt werden.'
+			)
+		);
+		view.unmount();
+	});
+
+	it('guards invalid and duplicate proposal submissions', async () => {
+		let resolveProposal!: (value: typeof trade) => void;
+		mocks.createTradeProposal.mockReturnValue(
+			new Promise((resolve) => {
+				resolveProposal = resolve;
+			})
+		);
+		const view = render(TradeMatchCard, { match });
+		const user = userEvent.setup();
+		const button = screen.getByRole('button', { name: 'Tausch vorschlagen' });
+		const [offeredCheckbox, requestedCheckbox] = screen.getAllByRole('checkbox');
+		const dispatchClick = () =>
+			button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+		await user.click(offeredCheckbox);
+		dispatchClick();
+		expect(mocks.createTradeProposal).not.toHaveBeenCalled();
+
+		await user.click(offeredCheckbox);
+		await user.click(requestedCheckbox);
+		dispatchClick();
+		expect(mocks.createTradeProposal).not.toHaveBeenCalled();
+
+		await user.click(requestedCheckbox);
+		dispatchClick();
+		expect(mocks.createTradeProposal).toHaveBeenCalledTimes(1);
+		dispatchClick();
+		expect(mocks.createTradeProposal).toHaveBeenCalledTimes(1);
+
+		await act(async () => resolveProposal(trade));
+		view.unmount();
+	});
+
+	it('renders accepted and received proposal labels', () => {
+		const accepted = render(TradeSummaryCard, {
+			trade: { ...trade, status: 'accepted' as const }
+		});
+		expect(screen.getByText('Aktiv')).toBeInTheDocument();
+		accepted.unmount();
+
+		const received = render(TradeSummaryCard, {
+			trade: { ...trade, role: 'responder' as const }
+		});
+		expect(screen.getByText('Vorschlag erhalten')).toBeInTheDocument();
+		received.unmount();
 	});
 });
 
@@ -317,5 +465,97 @@ describe('Trade list management pages', () => {
 		await waitFor(() =>
 			expect(screen.getByRole('alert')).toHaveTextContent('Wunsch konnte nicht entfernt werden.')
 		);
+	});
+
+	it('shows the loading states while both lists are pending', () => {
+		mocks.fetchTradeOffers.mockReturnValue(new Promise(() => {}));
+		const offersView = render(OffersPage);
+		expect(screen.getByText('Wird geladen …')).toBeInTheDocument();
+		offersView.unmount();
+
+		mocks.fetchWantedEntries.mockReturnValue(new Promise(() => {}));
+		const wantedView = render(WantedPage);
+		expect(screen.getByText('Wird geladen …')).toBeInTheDocument();
+		wantedView.unmount();
+	});
+
+	it('redirects anonymous list visitors without loading data', async () => {
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: false, user: null });
+		const offersView = render(OffersPage);
+		await waitFor(() => expect(mocks.goto).toHaveBeenCalledWith('/login'));
+		expect(mocks.fetchTradeOffers).not.toHaveBeenCalled();
+		offersView.unmount();
+
+		vi.clearAllMocks();
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: false, user: null });
+		const wantedView = render(WantedPage);
+		await waitFor(() => expect(mocks.goto).toHaveBeenCalledWith('/login'));
+		expect(mocks.fetchWantedEntries).not.toHaveBeenCalled();
+		wantedView.unmount();
+	});
+
+	it('waits for authentication initialization on both list pages', () => {
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: true, user: null });
+		const offersView = render(OffersPage);
+		expect(screen.getByText('Wird geladen …')).toBeInTheDocument();
+		expect(mocks.fetchTradeOffers).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
+		offersView.unmount();
+
+		const wantedView = render(WantedPage);
+		expect(screen.getByText('Wird geladen …')).toBeInTheDocument();
+		expect(mocks.fetchWantedEntries).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
+		wantedView.unmount();
+	});
+
+	it('covers the complementary list and mutation error variants', async () => {
+		mocks.fetchTradeOffers.mockRejectedValueOnce('offline');
+		const failedOffers = render(OffersPage);
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Tauschangebote konnten nicht geladen werden.'
+			)
+		);
+		failedOffers.unmount();
+
+		mocks.fetchTradeOffers.mockResolvedValue(page([offer]));
+		mocks.updateCollectionEntry.mockRejectedValueOnce('offline');
+		const offerMutation = render(OffersPage);
+		const offerUser = userEvent.setup();
+		await waitFor(() => expect(screen.getByTestId('offer-card')).toBeInTheDocument());
+		await offerUser.click(screen.getByRole('button', { name: 'Nicht mehr tauschbar' }));
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Angebot konnte nicht entfernt werden.')
+		);
+		offerMutation.unmount();
+
+		mocks.fetchWantedEntries.mockRejectedValueOnce('offline');
+		const failedWanted = render(WantedPage);
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Wunschliste konnte nicht geladen werden.'
+			)
+		);
+		failedWanted.unmount();
+
+		mocks.fetchWantedEntries.mockResolvedValue(page([wanted]));
+		mocks.deleteWantedEntry.mockRejectedValueOnce(new Error('Noch reserviert'));
+		const wantedMutation = render(WantedPage);
+		const wantedUser = userEvent.setup();
+		await waitFor(() => expect(screen.getByTestId('wanted-card')).toBeInTheDocument());
+		await wantedUser.click(screen.getByRole('button', { name: 'Entfernen' }));
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Noch reserviert'));
+		wantedMutation.unmount();
+	});
+
+	it('shows a typed offer-list error', async () => {
+		mocks.fetchTradeOffers.mockRejectedValueOnce(new Error('Angebotsliste gesperrt'));
+		const view = render(OffersPage);
+
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Angebotsliste gesperrt')
+		);
+		view.unmount();
 	});
 });

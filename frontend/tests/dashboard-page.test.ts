@@ -422,6 +422,30 @@ describe('Dashboard Page', () => {
 		expect(mockFetchMatches).toHaveBeenCalledWith({ per_page: 3 });
 	});
 
+	it('keeps the dashboard usable when trade suggestions cannot be loaded', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchMatches.mockRejectedValueOnce(new Error('Matching offline'));
+
+		render(DashboardPage);
+
+		await waitFor(() =>
+			expect(screen.getByTestId('trade-suggestions')).toHaveTextContent(
+				'Noch keine Tausch-Vorschläge verfügbar.'
+			)
+		);
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
+
 	it('redirects unauthenticated users to login', async () => {
 		const { goto } = await import('$app/navigation');
 		mockGetAuthState.mockReturnValue({

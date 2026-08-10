@@ -68,7 +68,43 @@ describe('Messages API', () => {
 		mockFetch.mockResolvedValueOnce(response({ error: 'Kein Zugriff' }, 403));
 		await expect(fetchMessages(9)).rejects.toThrow('Kein Zugriff');
 
+		mockFetch.mockResolvedValueOnce(response({ error: 403 }, 403));
+		await expect(fetchMessageThreads()).rejects.toThrow('Ein Fehler ist aufgetreten.');
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/messages', {
+			credentials: 'same-origin',
+			signal: undefined
+		});
+
 		mockFetch.mockResolvedValueOnce({ ok: false, json: vi.fn().mockRejectedValue('invalid') });
 		await expect(markThreadRead(9, 1)).rejects.toThrow('Ein Fehler ist aufgetreten.');
+	});
+
+	it('omits undefined query parameters and creates a client message id by default', async () => {
+		const emptyThreads = { data: [], page: 1, per_page: 20, total: 0 };
+		mockFetch.mockResolvedValueOnce(response(emptyThreads));
+		await expect(fetchMessageThreads({ page: undefined, per_page: undefined })).resolves.toEqual(
+			emptyThreads
+		);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/messages', {
+			credentials: 'same-origin',
+			signal: undefined
+		});
+
+		const emptyMessages = { data: [], next_before_id: null };
+		mockFetch.mockResolvedValueOnce(response(emptyMessages));
+		await expect(fetchMessages(7, { before_id: undefined, limit: undefined })).resolves.toEqual(
+			emptyMessages
+		);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/messages/7', {
+			credentials: 'same-origin',
+			signal: undefined
+		});
+
+		mockFetch.mockResolvedValueOnce(response({ id: 5, content: 'Automatisch' }));
+		await sendMessage(7, 'Automatisch');
+		const request = mockFetch.mock.calls.at(-1)?.[1] as RequestInit;
+		const body = JSON.parse(String(request.body)) as { client_message_id: string; content: string };
+		expect(body.client_message_id).toMatch(/^[0-9a-f-]{36}$/i);
+		expect(body.content).toBe('Automatisch');
 	});
 });

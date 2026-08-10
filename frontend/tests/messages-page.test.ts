@@ -85,4 +85,47 @@ describe('Messages page', () => {
 		await waitFor(() => expect(mocks.goto).toHaveBeenCalledWith('/login'));
 		expect(mocks.fetchMessageThreads).not.toHaveBeenCalled();
 	});
+
+	it('waits for authentication initialization before loading or redirecting', () => {
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: true, user: null });
+		const view = render(MessagesPage);
+
+		expect(screen.getByText('Nachrichten werden geladen …')).toBeInTheDocument();
+		expect(mocks.fetchMessageThreads).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
+		view.unmount();
+	});
+
+	it('shows the loading state while the inbox request is pending', () => {
+		mocks.fetchMessageThreads.mockReturnValue(new Promise(() => {}));
+		const view = render(MessagesPage);
+
+		expect(screen.getByText('Nachrichten werden geladen …')).toBeInTheDocument();
+		view.unmount();
+	});
+
+	it('renders threads without messages or unread entries', async () => {
+		mocks.fetchMessageThreads.mockResolvedValue({
+			data: [{ ...thread, last_message: null, last_message_at: null, unread_count: 0 }],
+			page: 1,
+			per_page: 100,
+			total: 1
+		});
+		const view = render(MessagesPage);
+
+		await waitFor(() => expect(screen.getByText('Noch keine Nachricht')).toBeInTheDocument());
+		expect(screen.queryByText('0')).not.toBeInTheDocument();
+		expect(
+			screen.getByText(new Date(thread.updated_at).toLocaleDateString('de-DE'))
+		).toBeInTheDocument();
+		view.unmount();
+	});
+
+	it('shows a typed inbox error', async () => {
+		mocks.fetchMessageThreads.mockRejectedValueOnce(new Error('Postfach gesperrt'));
+		const view = render(MessagesPage);
+
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Postfach gesperrt'));
+		view.unmount();
+	});
 });

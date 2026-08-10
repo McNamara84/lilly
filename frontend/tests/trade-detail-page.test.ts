@@ -171,4 +171,91 @@ describe('Trade detail page', () => {
 			expect(screen.getByRole('alert')).toHaveTextContent('Ungültige Tausch-ID.')
 		);
 	});
+
+	it('redirects anonymous users and rejects zero as an id', async () => {
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: false, user: null });
+		const anonymous = render(TradeDetailPage);
+		await waitFor(() => expect(mocks.goto).toHaveBeenCalledWith('/login'));
+		expect(mocks.fetchTrade).not.toHaveBeenCalled();
+		anonymous.unmount();
+
+		mocks.getAuthState.mockReturnValue(authState());
+		mockPage.set({ params: { id: '0' } });
+		const invalid = render(TradeDetailPage);
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Ungültige Tausch-ID.')
+		);
+		expect(mocks.fetchTrade).not.toHaveBeenCalled();
+		invalid.unmount();
+	});
+
+	it('waits for authentication initialization before loading or redirecting', () => {
+		mocks.getAuthState.mockReturnValue({ isAuthenticated: false, isLoading: true, user: null });
+		const view = render(TradeDetailPage);
+
+		expect(screen.getByText('Tausch wird geladen …')).toBeInTheDocument();
+		expect(mocks.fetchTrade).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
+		view.unmount();
+	});
+
+	it('shows its loading state and a typed load failure', async () => {
+		mocks.fetchTrade.mockReturnValueOnce(new Promise(() => {}));
+		const pending = render(TradeDetailPage);
+		expect(screen.getByText('Tausch wird geladen …')).toBeInTheDocument();
+		pending.unmount();
+
+		mocks.fetchTrade.mockRejectedValueOnce(new Error('Tausch nicht verfügbar'));
+		const failed = render(TradeDetailPage);
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Tausch nicht verfügbar')
+		);
+		failed.unmount();
+	});
+
+	it('uses fallback action errors for accept and cancel', async () => {
+		mocks.acceptTrade.mockRejectedValueOnce('offline');
+		const acceptFailure = render(TradeDetailPage);
+		const acceptUser = userEvent.setup();
+		await acceptUser.click(await screen.findByRole('button', { name: 'Tausch annehmen' }));
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Tausch konnte nicht angenommen werden.')
+		);
+		acceptFailure.unmount();
+
+		mocks.cancelTrade.mockRejectedValueOnce('offline');
+		const cancelFailure = render(TradeDetailPage);
+		const cancelUser = userEvent.setup();
+		await cancelUser.click(await screen.findByRole('button', { name: 'Tausch abbrechen' }));
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Tausch konnte nicht abgebrochen werden.')
+		);
+		cancelFailure.unmount();
+	});
+
+	it('shows a typed cancel error', async () => {
+		mocks.cancelTrade.mockRejectedValueOnce(new Error('Abbruch gesperrt'));
+		const view = render(TradeDetailPage);
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole('button', { name: 'Tausch abbrechen' }));
+
+		await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Abbruch gesperrt'));
+		view.unmount();
+	});
+
+	it('hides responder-only actions from initiators and closed trades', async () => {
+		mocks.fetchTrade.mockResolvedValueOnce({ ...proposedTrade, role: 'initiator' });
+		const initiator = render(TradeDetailPage);
+		await waitFor(() => expect(screen.getByText('Vorgeschlagen')).toBeInTheDocument());
+		expect(screen.queryByRole('button', { name: 'Tausch annehmen' })).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Tausch abbrechen' })).toBeInTheDocument();
+		initiator.unmount();
+
+		mocks.fetchTrade.mockResolvedValueOnce({ ...proposedTrade, status: 'completed' });
+		const completed = render(TradeDetailPage);
+		await waitFor(() => expect(screen.getByText('Abgeschlossen')).toBeInTheDocument());
+		expect(screen.queryByRole('button', { name: 'Tausch annehmen' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Tausch abbrechen' })).not.toBeInTheDocument();
+		completed.unmount();
+	});
 });

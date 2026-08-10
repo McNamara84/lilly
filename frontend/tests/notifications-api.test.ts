@@ -54,7 +54,37 @@ describe('Notifications API', () => {
 		mockFetch.mockResolvedValueOnce(response({ error: 'Nicht angemeldet' }, 401));
 		await expect(fetchUnreadNotificationCount()).rejects.toThrow('Nicht angemeldet');
 
+		mockFetch.mockResolvedValueOnce(response({ error: null }, 500));
+		await expect(fetchNotifications()).rejects.toThrow('Ein Fehler ist aufgetreten.');
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/notifications', {
+			credentials: 'same-origin',
+			signal: undefined
+		});
+
+		mockFetch.mockResolvedValueOnce(response({ error: 'Nicht gefunden' }, 404));
+		await expect(markNotificationRead(99)).rejects.toThrow('Nicht gefunden');
+
 		mockFetch.mockResolvedValueOnce({ ok: false, json: vi.fn().mockRejectedValue('bad') });
 		await expect(markAllNotificationsRead()).rejects.toThrow('Ein Fehler ist aufgetreten.');
+	});
+
+	it('omits undefined list filters and forwards the count abort signal', async () => {
+		const page = { data: [], page: 1, per_page: 20, total: 0 };
+		mockFetch.mockResolvedValueOnce(response(page));
+		await expect(
+			fetchNotifications({ page: undefined, per_page: undefined, unread_only: undefined })
+		).resolves.toEqual(page);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/notifications', {
+			credentials: 'same-origin',
+			signal: undefined
+		});
+
+		const controller = new AbortController();
+		mockFetch.mockResolvedValueOnce(response({ unread_count: 0 }));
+		await expect(fetchUnreadNotificationCount(controller.signal)).resolves.toBe(0);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/notifications/unread-count', {
+			credentials: 'same-origin',
+			signal: controller.signal
+		});
 	});
 });
