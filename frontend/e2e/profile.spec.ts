@@ -1,5 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 interface OwnProfile {
 	id: number;
@@ -16,14 +17,6 @@ interface CollectionEntry {
 	condition_grade: string | null;
 	status: 'owned' | 'duplicate' | 'wanted';
 	notes: string | null;
-}
-
-async function loginAsDemo(page: Page) {
-	await page.goto('/login');
-	await page.getByTestId('email-input').fill('demo@lilly.app');
-	await page.getByTestId('password-input').fill('demo1234');
-	await page.getByTestId('submit-button').click();
-	await expect(page).toHaveURL('/', { timeout: 15000 });
 }
 
 async function ownProfile(page: Page): Promise<OwnProfile> {
@@ -43,13 +36,9 @@ async function setVisibility(page: Page, profilePublic: boolean, collectionPubli
 }
 
 test.describe('Profile Visibility and Public Notes', () => {
-	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
-	});
-
 	test('profile settings expose independent toggles and the note warning', async ({
 		page,
-		request
+		anonymousRequest
 	}) => {
 		const snapshot = await ownProfile(page);
 		try {
@@ -73,10 +62,12 @@ test.describe('Profile Visibility and Public Notes', () => {
 				page.getByRole('link', { name: 'Öffentliche Sammlung ansehen' })
 			).toHaveAttribute('href', `/users/${saved.id}/collection`);
 
-			// The global request fixture has no browser login cookies: this verifies
+			// The anonymous request fixture has no browser login cookies: this verifies
 			// that a direct public-collection URL really is unauthenticated.
-			expect((await request.get(`/api/v1/users/${saved.id}/profile`)).status()).toBe(404);
-			expect((await request.get(`/api/v1/users/${saved.id}/collection`)).status()).toBe(200);
+			expect((await anonymousRequest.get(`/api/v1/users/${saved.id}/profile`)).status()).toBe(404);
+			expect((await anonymousRequest.get(`/api/v1/users/${saved.id}/collection`)).status()).toBe(
+				200
+			);
 		} finally {
 			await setVisibility(page, snapshot.profile_public, snapshot.collection_public);
 		}
@@ -84,7 +75,7 @@ test.describe('Profile Visibility and Public Notes', () => {
 
 	test('all four profile and collection visibility combinations follow the API matrix', async ({
 		page,
-		request
+		anonymousRequest
 	}) => {
 		const snapshot = await ownProfile(page);
 		const combinations = [
@@ -98,11 +89,13 @@ test.describe('Profile Visibility and Public Notes', () => {
 			for (const visibility of combinations) {
 				await setVisibility(page, visibility.profile, visibility.collection);
 
-				const profileResponse = await request.get(`/api/v1/users/${snapshot.id}/profile`);
-				const collectionResponse = await request.get(
+				const profileResponse = await anonymousRequest.get(`/api/v1/users/${snapshot.id}/profile`);
+				const collectionResponse = await anonymousRequest.get(
 					`/api/v1/users/${snapshot.id}/collection?page=1&per_page=100`
 				);
-				const statsResponse = await request.get(`/api/v1/users/${snapshot.id}/collection/stats`);
+				const statsResponse = await anonymousRequest.get(
+					`/api/v1/users/${snapshot.id}/collection/stats`
+				);
 
 				expect(profileResponse.status()).toBe(visibility.profile ? 200 : 404);
 				expect(collectionResponse.status()).toBe(visibility.collection ? 200 : 404);
@@ -133,7 +126,7 @@ test.describe('Profile Visibility and Public Notes', () => {
 
 	test('unicode notes can be changed, published and removed by clearing them', async ({
 		page,
-		request
+		anonymousRequest
 	}) => {
 		const profileSnapshot = await ownProfile(page);
 		const collectionResponse = await page.request.get('/api/v1/me/collection?per_page=100');
@@ -151,7 +144,7 @@ test.describe('Profile Visibility and Public Notes', () => {
 			expect(updateResponse.ok()).toBe(true);
 			expect((await updateResponse.json()).notes).toBe(note);
 
-			const publicResponse = await request.get(
+			const publicResponse = await anonymousRequest.get(
 				`/api/v1/users/${profileSnapshot.id}/collection?page=1&per_page=100`
 			);
 			expect(publicResponse.ok()).toBe(true);

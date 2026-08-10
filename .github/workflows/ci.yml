@@ -113,38 +113,6 @@ jobs:
 
   e2e:
     name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: [frontend-build, backend-test]
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - name: Copy .env
-        run: |
-          cp .env.example .env
-          echo 'ENABLE_DEMO_SEED=true' >> .env
-      - name: Start services
-        run: docker compose up -d --build --wait
-        timeout-minutes: 10
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm install --global npm@12.0.2
-      - name: Install Playwright
-        working-directory: frontend
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
-      - name: Run E2E tests
-        working-directory: frontend
-        run: npx playwright test --project=chromium
-      - name: Upload test results
-        uses: actions/upload-artifact@v7.0.1
-        if: always()
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 7
-      - name: Stop services
-        if: always()
-        run: docker compose down
+    uses: ./.github/workflows/playwright-e2e.yml
+    with:
+      browser: chromium

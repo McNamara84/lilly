@@ -1,0 +1,85 @@
+name: Playwright E2E
+
+on:
+  workflow_call:
+    inputs:
+      browser:
+        description: Playwright browser project to execute
+        required: true
+        type: string
+      write_cache:
+        description: Publish refreshed Docker build caches
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  e2e:
+    name: E2E (${{ inputs.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Prepare E2E environment
+        run: cp .env.example .env
+
+      - uses: docker/setup-buildx-action@v4.1.0
+
+      - name: Build E2E images in parallel
+        if: ${{ !inputs.write_cache }}
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          files: docker-bake.e2e.hcl
+          targets: e2e
+          load: true
+
+      - name: Build E2E images in parallel and refresh caches
+        if: ${{ inputs.write_cache }}
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          files: docker-bake.e2e.hcl
+          targets: e2e
+          load: true
+          set: |
+            backend.cache-to=type=gha,mode=max,scope=e2e-backend
+            frontend.cache-to=type=gha,mode=max,scope=e2e-frontend
+
+      - name: Start services
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --no-build --wait
+        timeout-minutes: 5
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm install --global npm@12.0.2
+
+      - name: Install frontend dependencies and Playwright browser
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps "${{ inputs.browser }}"
+
+      - name: Run E2E tests
+        working-directory: frontend
+        run: npx playwright test --project="${{ inputs.browser }}"
+
+      - name: Upload failure diagnostics
+        uses: actions/upload-artifact@v7.0.1
+        if: failure()
+        with:
+          name: playwright-${{ inputs.browser }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml down

@@ -170,6 +170,11 @@ mod tests {
             import_schedule: "0 10 6 * * Sat *".to_string(),
             import_timezone: "Europe/Berlin".to_string(),
             import_scheduled_adapters: vec!["maddrax".to_string(), "john-sinclair".to_string()],
+            e2e: crate::config::E2eConfig {
+                demo_seed_enabled: false,
+                worker_count: 0,
+                fixture_adapter_enabled: false,
+            },
         };
 
         let service = EmailService::from_config(&config);

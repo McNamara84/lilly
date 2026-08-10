@@ -166,3 +166,58 @@ pub async fn seed_demo_user(pool: &MySqlPool) -> Result<u32, anyhow::Error> {
     tracing::info!("Demo user seeded: demo@lilly.app");
     Ok(user_id)
 }
+
+#[must_use]
+pub fn e2e_worker_email(index: u16) -> String {
+    format!("e2e-worker-{index}@lilly.app")
+}
+
+pub async fn seed_e2e_worker_users(
+    pool: &MySqlPool,
+    count: u16,
+) -> Result<Vec<u32>, anyhow::Error> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let password_hash = crate::auth::password::hash_password("e2e-worker-password")
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let mut user_ids = Vec::with_capacity(usize::from(count));
+
+    for index in 0..count {
+        let email = e2e_worker_email(index);
+        let display_name = format!("E2E Worker {index}");
+        sqlx::query(
+            "INSERT INTO users (email, password_hash, display_name, role, email_verified) \
+             VALUES (?, ?, ?, 'admin', TRUE) \
+             ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), \
+             display_name = VALUES(display_name), role = 'admin', email_verified = TRUE, \
+             profile_public = FALSE, collection_public = FALSE",
+        )
+        .bind(&email)
+        .bind(&password_hash)
+        .bind(&display_name)
+        .execute(pool)
+        .await?;
+
+        let (user_id,): (u32,) = sqlx::query_as("SELECT id FROM users WHERE email = ?")
+            .bind(&email)
+            .fetch_one(pool)
+            .await?;
+        user_ids.push(user_id);
+    }
+
+    tracing::info!(count, "E2E worker users seeded");
+    Ok(user_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::e2e_worker_email;
+
+    #[test]
+    fn test_e2e_worker_email_is_deterministic() {
+        assert_eq!(e2e_worker_email(0), "e2e-worker-0@lilly.app");
+        assert_eq!(e2e_worker_email(12), "e2e-worker-12@lilly.app");
+    }
+}

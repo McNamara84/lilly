@@ -1,14 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-
-/** Shared login helper. */
-async function loginAsDemo(page: Page) {
-	await page.goto('/login');
-	await page.getByTestId('email-input').fill('demo@lilly.app');
-	await page.getByTestId('password-input').fill('demo1234');
-	await page.getByTestId('submit-button').click();
-	await expect(page).toHaveURL('/', { timeout: 15000 });
-}
+import { expect, test } from './fixtures';
 
 // ---------------------------------------------------------------------------
 // Collection page accessibility
@@ -16,7 +7,6 @@ async function loginAsDemo(page: Page) {
 
 test.describe('Collection Page Accessibility', () => {
 	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
 		await page.goto('/collection');
 	});
 
@@ -86,7 +76,6 @@ test.describe('Collection Page Accessibility', () => {
 
 test.describe('Add to Collection Page Accessibility', () => {
 	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
 		await page.goto('/collection/add');
 	});
 
@@ -178,7 +167,6 @@ test.describe('Add to Collection Page Accessibility', () => {
 
 test.describe('Detail Sheet Accessibility', () => {
 	test.beforeEach(async ({ page }) => {
-		await loginAsDemo(page);
 		await page.goto('/collection');
 	});
 

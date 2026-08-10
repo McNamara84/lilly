@@ -55,10 +55,8 @@ async fn main() {
     }
 
     // Seed deterministic demo data only if explicitly enabled (dev/test only)
-    if std::env::var("ENABLE_DEMO_SEED")
-        .unwrap_or_default()
-        .eq_ignore_ascii_case("true")
-        && let Err(e) = db::demo::seed_demo_data(&pool).await
+    if config.e2e.demo_seed_enabled
+        && let Err(e) = db::demo::seed_demo_data(&pool, config.e2e.worker_count).await
     {
         tracing::error!("Failed to seed demo data: {e}");
     }
@@ -77,6 +75,9 @@ async fn main() {
     adapter_registry.register(Box::new(
         JohnSinclairAdapter::new().expect("Failed to create John Sinclair adapter"),
     ));
+    if config.e2e.fixture_adapter_enabled {
+        adapter_registry.register(Box::new(services::e2e_import::E2eFixtureAdapter));
+    }
 
     let import_scheduler_config = services::import_scheduler::ImportSchedulerConfig {
         enabled: config.import_scheduler_enabled,
