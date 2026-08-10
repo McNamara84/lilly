@@ -41,20 +41,20 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 
 ### 2.1 Übersicht
 
-| Komponente | Technologie | Details |
-|---|---|---|
-| **Frontend** | Svelte 5 / SvelteKit | Kompiliert zu minimalem JS, Runes-Reaktivität, SSR + CSR, integrierte PWA-Unterstützung via Vite-Plugin |
-| **UI-Framework** | Skeleton UI + Tailwind CSS | Svelte-native Komponentenbibliothek, Tailwind für Utility-First-Styling, Dark/Light Mode |
-| **Backend / API** | Rust + Axum | Async HTTP-Framework auf Basis von Tokio, Tower-Middleware, modularer Router |
-| **Datenbank** | MariaDB 12.3 LTS | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität |
-| **DB-Zugriff** | SQLx | Compile-time verified SQL-Queries, async, kein ORM-Overhead, Migrations-System |
-| **Authentifizierung** | Eigenbau: JWT + argon2id | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub |
-| **API-Spezifikation** | OpenAPI 3.1 / Swagger | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool |
-| **Dateispeicher** | Lokales Dateisystem | Strukturiertes Verzeichnis, Caddy Static Serving, automatische Bildkompression |
-| **Reverse Proxy** | Caddy v2 | Automatisches HTTPS via Let's Encrypt, minimale Konfiguration, HTTP/2 + HTTP/3 |
-| **Containerisierung** | Docker + Docker Compose | Multi-Container-Setup, isolierte Services, einfaches Deployment |
-| **Wiki-Importer** | Rust (reqwest + scraper) | CLI-Tool und Cronjob-fähig, MediaWiki-API + HTML-Parsing, modulare Adapter |
-| **i18n** | Paraglide.js (SvelteKit) | Typsichere Übersetzungen, Tree-Shaking, initiale Sprache Deutsch |
+| Komponente            | Technologie                | Details                                                                                                 |
+| --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Frontend**          | Svelte 5 / SvelteKit       | Kompiliert zu minimalem JS, Runes-Reaktivität, SSR + CSR, integrierte PWA-Unterstützung via Vite-Plugin |
+| **UI-Framework**      | Skeleton UI + Tailwind CSS | Svelte-native Komponentenbibliothek, Tailwind für Utility-First-Styling, Dark/Light Mode                |
+| **Backend / API**     | Rust + Axum                | Async HTTP-Framework auf Basis von Tokio, Tower-Middleware, modularer Router                            |
+| **Datenbank**         | MariaDB 12.3 LTS           | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität                      |
+| **DB-Zugriff**        | SQLx                       | Compile-time verified SQL-Queries, async, kein ORM-Overhead, Migrations-System                          |
+| **Authentifizierung** | Eigenbau: JWT + argon2id   | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub               |
+| **API-Spezifikation** | OpenAPI 3.1 / Swagger      | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool                                              |
+| **Dateispeicher**     | Lokales Dateisystem        | Strukturiertes Verzeichnis, Caddy Static Serving, automatische Bildkompression                          |
+| **Reverse Proxy**     | Caddy v2                   | Automatisches HTTPS via Let's Encrypt, minimale Konfiguration, HTTP/2 + HTTP/3                          |
+| **Containerisierung** | Docker + Docker Compose    | Multi-Container-Setup, isolierte Services, einfaches Deployment                                         |
+| **Wiki-Importer**     | Rust (reqwest + scraper)   | CLI-Tool und Cronjob-fähig, MediaWiki-API + HTML-Parsing, modulare Adapter                              |
+| **i18n**              | Paraglide.js (SvelteKit)   | Typsichere Übersetzungen, Tree-Shaking, initiale Sprache Deutsch                                        |
 
 ### 2.2 Begründung der Kernentscheidungen
 
@@ -107,13 +107,13 @@ Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Enc
 
 Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 
-| Container | Image | Port (intern) | Aufgabe |
-|---|---|---|---|
-| `caddy` | `caddy:2.11.4-alpine` | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, Static File Serving für /media |
-| `frontend` | `node:26.7.0-alpine` + Build | 3000 (intern) | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages |
-| `backend` | `rust:1.97.1-trixie` + `debian:trixie-slim` | 8080 (intern) | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung |
-| `db` | `mariadb:12.3.2` | 3306 (intern) | Persistente Datenhaltung, Volltextindex |
-| `importer` | Rust CLI (eigener Build) | – | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB |
+| Container  | Image                                       | Port (intern)    | Aufgabe                                                              |
+| ---------- | ------------------------------------------- | ---------------- | -------------------------------------------------------------------- |
+| `caddy`    | `caddy:2.11.4-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, Static File Serving für /media    |
+| `frontend` | `node:26.7.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages       |
+| `backend`  | `rust:1.97.1-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung |
+| `db`       | `mariadb:12.3.2`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                              |
+| `importer` | Rust CLI (eigener Build)                    | –                | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB       |
 
 ### 3.3 Request-Flow
 
@@ -133,109 +133,109 @@ Das folgende Schema definiert die Kernentitäten und ihre Beziehungen. Alle Tabe
 
 ### 4.1 Tabelle: `series`
 
-| Spalte | Typ | Constraint | Beschreibung |
-|---|---|---|---|
-| `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
-| `name` | VARCHAR(255) | NOT NULL, UQ | Serienname (z. B. „Maddrax – Die dunkle Zukunft der Erde") |
-| `slug` | VARCHAR(255) | NOT NULL, UQ | URL-freundlicher Bezeichner (z. B. „maddrax") |
-| `publisher` | VARCHAR(255) | NULL | Verlag |
-| `genre` | VARCHAR(100) | NULL | Genre (Science-Fiction, Horror, Western etc.) |
-| `frequency` | VARCHAR(50) | NULL | Erscheinungsrhythmus (wöchentlich, 14-tägig etc.) |
-| `total_issues` | INT UNSIGNED | NULL | Aktuelle Gesamtzahl Hefte (NULL bei laufenden Serien) |
-| `status` | ENUM | NOT NULL | 'running' \| 'completed' \| 'cancelled' |
-| `active` | BOOLEAN | NOT NULL, DEF 0 | Ob die Serie für normale Nutzer sichtbar ist. Importierte Serien starten als inaktiv und müssen von einem Admin nach Prüfung aktiviert werden. |
-| `source_key` | VARCHAR(64) | NULL, UQ mit Quell-ID | Stabile Quellenart, z. B. `maddraxikon` |
-| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart | Stabile ID des Serienrecords in der Quelle |
-| `source_url` | VARCHAR(500) | NULL | URL der Datenquelle (Wiki) |
-| `created_at` | TIMESTAMP | NOT NULL | Erstellungszeitpunkt |
-| `updated_at` | TIMESTAMP | NOT NULL | Letzter Sync-Zeitpunkt |
+| Spalte             | Typ          | Constraint              | Beschreibung                                                                                                                                   |
+| ------------------ | ------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | INT UNSIGNED | PK, AUTO_INC            | Primärschlüssel                                                                                                                                |
+| `name`             | VARCHAR(255) | NOT NULL, UQ            | Serienname (z. B. „Maddrax – Die dunkle Zukunft der Erde")                                                                                     |
+| `slug`             | VARCHAR(255) | NOT NULL, UQ            | URL-freundlicher Bezeichner (z. B. „maddrax")                                                                                                  |
+| `publisher`        | VARCHAR(255) | NULL                    | Verlag                                                                                                                                         |
+| `genre`            | VARCHAR(100) | NULL                    | Genre (Science-Fiction, Horror, Western etc.)                                                                                                  |
+| `frequency`        | VARCHAR(50)  | NULL                    | Erscheinungsrhythmus (wöchentlich, 14-tägig etc.)                                                                                              |
+| `total_issues`     | INT UNSIGNED | NULL                    | Aktuelle Gesamtzahl Hefte (NULL bei laufenden Serien)                                                                                          |
+| `status`           | ENUM         | NOT NULL                | 'running' \| 'completed' \| 'cancelled'                                                                                                        |
+| `active`           | BOOLEAN      | NOT NULL, DEF 0         | Ob die Serie für normale Nutzer sichtbar ist. Importierte Serien starten als inaktiv und müssen von einem Admin nach Prüfung aktiviert werden. |
+| `source_key`       | VARCHAR(64)  | NULL, UQ mit Quell-ID   | Stabile Quellenart, z. B. `maddraxikon`                                                                                                        |
+| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart | Stabile ID des Serienrecords in der Quelle                                                                                                     |
+| `source_url`       | VARCHAR(500) | NULL                    | URL der Datenquelle (Wiki)                                                                                                                     |
+| `created_at`       | TIMESTAMP    | NOT NULL                | Erstellungszeitpunkt                                                                                                                           |
+| `updated_at`       | TIMESTAMP    | NOT NULL                | Letzter Sync-Zeitpunkt                                                                                                                         |
 
 ### 4.2 Tabelle: `issues`
 
-| Spalte | Typ | Constraint | Beschreibung |
-|---|---|---|---|
-| `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
-| `series_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf series.id |
-| `issue_number` | INT UNSIGNED | NOT NULL | Heftnummer innerhalb der Serie |
-| `title` | VARCHAR(500) | NOT NULL | Titel des Heftes |
-| `author` | VARCHAR(500) | NULL | Autor(en), kommasepariert |
-| `published_at` | DATE | NULL | Ersterscheinungsdatum |
-| `cycle` | VARCHAR(255) | NULL | Zyklus / Handlungsabschnitt |
-| `cover_url` | VARCHAR(500) | NULL | URL zum Cover-Bild in der Wiki-Quelle |
-| `cover_local_path` | VARCHAR(500) | NULL | Relativer Pfad zum lokal gespeicherten Cover im /media-Volume |
-| `source_key` | VARCHAR(64) | NULL, UQ mit Quell-ID, paarweise gesetzt | Stabile Quellenart |
-| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart, paarweise gesetzt | Stabile ID des Hefts in der Quelle |
-| `source_wiki_url` | VARCHAR(500) | NULL | Link zum Wiki-Eintrag des Heftes |
-| `created_at` | TIMESTAMP | NOT NULL | Import-Zeitpunkt |
+| Spalte             | Typ          | Constraint                                 | Beschreibung                                                  |
+| ------------------ | ------------ | ------------------------------------------ | ------------------------------------------------------------- |
+| `id`               | INT UNSIGNED | PK, AUTO_INC                               | Primärschlüssel                                               |
+| `series_id`        | INT UNSIGNED | FK, NOT NULL                               | Fremdschlüssel auf series.id                                  |
+| `issue_number`     | INT UNSIGNED | NOT NULL                                   | Heftnummer innerhalb der Serie                                |
+| `title`            | VARCHAR(500) | NOT NULL                                   | Titel des Heftes                                              |
+| `author`           | VARCHAR(500) | NULL                                       | Autor(en), kommasepariert                                     |
+| `published_at`     | DATE         | NULL                                       | Ersterscheinungsdatum                                         |
+| `cycle`            | VARCHAR(255) | NULL                                       | Zyklus / Handlungsabschnitt                                   |
+| `cover_url`        | VARCHAR(500) | NULL                                       | URL zum Cover-Bild in der Wiki-Quelle                         |
+| `cover_local_path` | VARCHAR(500) | NULL                                       | Relativer Pfad zum lokal gespeicherten Cover im /media-Volume |
+| `source_key`       | VARCHAR(64)  | NULL, UQ mit Quell-ID, paarweise gesetzt   | Stabile Quellenart                                            |
+| `source_record_id` | VARCHAR(255) | NULL, UQ mit Quellenart, paarweise gesetzt | Stabile ID des Hefts in der Quelle                            |
+| `source_wiki_url`  | VARCHAR(500) | NULL                                       | Link zum Wiki-Eintrag des Heftes                              |
+| `created_at`       | TIMESTAMP    | NOT NULL                                   | Import-Zeitpunkt                                              |
 
-*Unique Indizes: `(series_id, issue_number)` verhindert doppelte Hefteinträge pro Serie;
+_Unique Indizes: `(series_id, issue_number)` verhindert doppelte Hefteinträge pro Serie;
 `(source_key, source_record_id)` verhindert doppelte Quellenidentitäten. Eine Check-Constraint
-erlaubt für die beiden Provenienzfelder nur gemeinsam `NULL` oder gemeinsam gesetzte Werte.*
+erlaubt für die beiden Provenienzfelder nur gemeinsam `NULL` oder gemeinsam gesetzte Werte._
 
 ### 4.3 Tabelle: `users`
 
-| Spalte | Typ | Constraint | Beschreibung |
-|---|---|---|---|
-| `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
-| `email` | VARCHAR(255) | NOT NULL, UQ | E-Mail-Adresse (verschlüsselt gespeichert) |
-| `password_hash` | VARCHAR(255) | NULL | argon2id-Hash (NULL bei reinem OAuth-Login) |
-| `display_name` | VARCHAR(100) | NOT NULL | Anzeigename / Sammlername |
-| `role` | ENUM | NOT NULL, DEF 'user' | 'user' \| 'admin' — Benutzerrolle. Admins können Imports starten und Serien verwalten. |
-| `avatar_path` | VARCHAR(500) | NULL | Pfad zum Avatar-Bild |
-| `location` | VARCHAR(255) | NULL | Standort (freiwillig, für Tausch-Nähe) |
-| `profile_public` | BOOLEAN | NOT NULL, DEF 0 | Profil öffentlich sichtbar? |
-| `collection_public` | BOOLEAN | NOT NULL, DEF 0 | Sammlung einschließlich persönlicher Heftnotizen öffentlich sichtbar? |
-| `oauth_provider` | VARCHAR(50) | NULL | 'google' \| 'github' \| NULL |
-| `oauth_id` | VARCHAR(255) | NULL | Externe OAuth-ID |
-| `created_at` | TIMESTAMP | NOT NULL | Registrierungszeitpunkt |
+| Spalte              | Typ          | Constraint           | Beschreibung                                                                           |
+| ------------------- | ------------ | -------------------- | -------------------------------------------------------------------------------------- |
+| `id`                | INT UNSIGNED | PK, AUTO_INC         | Primärschlüssel                                                                        |
+| `email`             | VARCHAR(255) | NOT NULL, UQ         | E-Mail-Adresse (verschlüsselt gespeichert)                                             |
+| `password_hash`     | VARCHAR(255) | NULL                 | argon2id-Hash (NULL bei reinem OAuth-Login)                                            |
+| `display_name`      | VARCHAR(100) | NOT NULL             | Anzeigename / Sammlername                                                              |
+| `role`              | ENUM         | NOT NULL, DEF 'user' | 'user' \| 'admin' — Benutzerrolle. Admins können Imports starten und Serien verwalten. |
+| `avatar_path`       | VARCHAR(500) | NULL                 | Pfad zum Avatar-Bild                                                                   |
+| `location`          | VARCHAR(255) | NULL                 | Standort (freiwillig, für Tausch-Nähe)                                                 |
+| `profile_public`    | BOOLEAN      | NOT NULL, DEF 0      | Profil öffentlich sichtbar?                                                            |
+| `collection_public` | BOOLEAN      | NOT NULL, DEF 0      | Sammlung einschließlich persönlicher Heftnotizen öffentlich sichtbar?                  |
+| `oauth_provider`    | VARCHAR(50)  | NULL                 | 'google' \| 'github' \| NULL                                                           |
+| `oauth_id`          | VARCHAR(255) | NULL                 | Externe OAuth-ID                                                                       |
+| `created_at`        | TIMESTAMP    | NOT NULL             | Registrierungszeitpunkt                                                                |
 
 ### 4.4 Tabelle: `collection_entries`
 
-| Spalte | Typ | Constraint | Beschreibung |
-|---|---|---|---|
-| `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
-| `user_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf users.id (ON DELETE CASCADE) |
-| `issue_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf issues.id |
-| `copy_number` | TINYINT UNSIGNED | NOT NULL, DEF 1 | Exemplarnummer (1 = Erstexemplar, 2+ = weitere Auflagen/Kopien, vgl. SV-009) |
-| `condition_grade` | ENUM | NULL | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4'; nur bei `wanted` optional, bei `owned` und `duplicate` durch die Domänenvalidierung verpflichtend |
-| `status` | ENUM | NOT NULL | 'owned' \| 'duplicate' \| 'wanted' |
-| `notes` | TEXT | NULL | Persönliche Notizen |
-| `created_at` | TIMESTAMP | NOT NULL | Zeitpunkt der Erfassung |
-| `updated_at` | TIMESTAMP | NOT NULL | Letzte Änderung |
+| Spalte            | Typ              | Constraint      | Beschreibung                                                                                                                            |
+| ----------------- | ---------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | INT UNSIGNED     | PK, AUTO_INC    | Primärschlüssel                                                                                                                         |
+| `user_id`         | INT UNSIGNED     | FK, NOT NULL    | Fremdschlüssel auf users.id (ON DELETE CASCADE)                                                                                         |
+| `issue_id`        | INT UNSIGNED     | FK, NOT NULL    | Fremdschlüssel auf issues.id                                                                                                            |
+| `copy_number`     | TINYINT UNSIGNED | NOT NULL, DEF 1 | Exemplarnummer (1 = Erstexemplar, 2+ = weitere Auflagen/Kopien, vgl. SV-009)                                                            |
+| `condition_grade` | ENUM             | NULL            | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4'; nur bei `wanted` optional, bei `owned` und `duplicate` durch die Domänenvalidierung verpflichtend |
+| `status`          | ENUM             | NOT NULL        | 'owned' \| 'duplicate' \| 'wanted'                                                                                                      |
+| `notes`           | TEXT             | NULL            | Persönliche Notizen                                                                                                                     |
+| `created_at`      | TIMESTAMP        | NOT NULL        | Zeitpunkt der Erfassung                                                                                                                 |
+| `updated_at`      | TIMESTAMP        | NOT NULL        | Letzte Änderung                                                                                                                         |
 
-*Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe Heft mehrfach erfassen (verschiedene Auflagen/Kopien gemäß SV-009), aber jede Kopie ist eindeutig identifiziert. Der zusätzliche Index `(status, issue_id, user_id)` beschleunigt Angebots-, Wunsch- und spätere Matching-Abfragen.*
+_Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe Heft mehrfach erfassen (verschiedene Auflagen/Kopien gemäß SV-009), aber jede Kopie ist eindeutig identifiziert. Der zusätzliche Index `(status, issue_id, user_id)` beschleunigt Angebots-, Wunsch- und spätere Matching-Abfragen._
 
 ### 4.5 Tabelle: `collection_photos`
 
-| Spalte | Typ | Constraint | Beschreibung |
-|---|---|---|---|
-| `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
-| `entry_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf collection_entries.id (ON DELETE CASCADE) |
-| `file_path` | VARCHAR(500) | NOT NULL | Relativer Pfad im /media-Volume |
-| `sort_order` | TINYINT | NOT NULL, DEF 0 | Sortierreihenfolge der Fotos |
-| `created_at` | TIMESTAMP | NOT NULL | Upload-Zeitpunkt |
+| Spalte       | Typ          | Constraint      | Beschreibung                                                 |
+| ------------ | ------------ | --------------- | ------------------------------------------------------------ |
+| `id`         | INT UNSIGNED | PK, AUTO_INC    | Primärschlüssel                                              |
+| `entry_id`   | INT UNSIGNED | FK, NOT NULL    | Fremdschlüssel auf collection_entries.id (ON DELETE CASCADE) |
+| `file_path`  | VARCHAR(500) | NOT NULL        | Relativer Pfad im /media-Volume                              |
+| `sort_order` | TINYINT      | NOT NULL, DEF 0 | Sortierreihenfolge der Fotos                                 |
+| `created_at` | TIMESTAMP    | NOT NULL        | Upload-Zeitpunkt                                             |
 
 ### 4.6 Tabelle: `import_jobs`
 
-| Spalte | Typ | Constraint | Beschreibung |
-|---|---|---|---|
-| `id` | INT UNSIGNED | PK, AUTO_INC | Primärschlüssel |
-| `series_id` | INT UNSIGNED | FK, NOT NULL | Fremdschlüssel auf series.id (ON DELETE CASCADE) |
-| `adapter_name` | VARCHAR(100) | NOT NULL | Name des verwendeten Import-Adapters (z. B. „maddrax") |
-| `source_key` | VARCHAR(64) | NULL | Snapshot der verwendeten Quellenart |
-| `status` | ENUM | NOT NULL, DEF 'pending' | `pending` \| `running` \| `completed` \| `completed_with_errors` \| `failed` \| `cancelled` \| `interrupted` |
-| `total_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Anzahl der im Vollscan gemeldeten Quellhefte |
-| `imported_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Legacy-Aggregat aus `created + updated + unchanged` |
-| `created_issues` / `updated_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Neu angelegte und fachlich geänderte Hefte |
-| `unchanged_issues` / `skipped_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Unveränderte und bewusst übersprungene Hefte |
-| `failed_issues` | INT UNSIGNED | NOT NULL, DEF 0 | Recordbezogen fehlgeschlagene Hefte |
-| `error_message` | TEXT | NULL | Kompakte Fehlerzusammenfassung |
-| `cancel_requested_at` | DATETIME | NULL | Persistenter kooperativer Abbruchwunsch |
-| `cancel_requested_by` | INT UNSIGNED | FK, NULL | Erster Admin, der den Abbruch angefordert hat; `ON DELETE SET NULL` |
-| `retry_of_job_id` | INT UNSIGNED | FK, NULL | Verknüpfung zum Ursprungslauf |
-| `started_by` | INT UNSIGNED | FK, NULL | Admin bei manuellen Läufen; NULL beim Scheduler |
-| `started_at` / `completed_at` | DATETIME | NULL | Laufzeitgrenzen |
-| `created_at` / `updated_at` | DATETIME | NOT NULL | Anlage und letzter persistierter Fortschritt |
+| Spalte                                | Typ          | Constraint              | Beschreibung                                                                                                 |
+| ------------------------------------- | ------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `id`                                  | INT UNSIGNED | PK, AUTO_INC            | Primärschlüssel                                                                                              |
+| `series_id`                           | INT UNSIGNED | FK, NOT NULL            | Fremdschlüssel auf series.id (ON DELETE CASCADE)                                                             |
+| `adapter_name`                        | VARCHAR(100) | NOT NULL                | Name des verwendeten Import-Adapters (z. B. „maddrax")                                                       |
+| `source_key`                          | VARCHAR(64)  | NULL                    | Snapshot der verwendeten Quellenart                                                                          |
+| `status`                              | ENUM         | NOT NULL, DEF 'pending' | `pending` \| `running` \| `completed` \| `completed_with_errors` \| `failed` \| `cancelled` \| `interrupted` |
+| `total_issues`                        | INT UNSIGNED | NOT NULL, DEF 0         | Anzahl der im Vollscan gemeldeten Quellhefte                                                                 |
+| `imported_issues`                     | INT UNSIGNED | NOT NULL, DEF 0         | Legacy-Aggregat aus `created + updated + unchanged`                                                          |
+| `created_issues` / `updated_issues`   | INT UNSIGNED | NOT NULL, DEF 0         | Neu angelegte und fachlich geänderte Hefte                                                                   |
+| `unchanged_issues` / `skipped_issues` | INT UNSIGNED | NOT NULL, DEF 0         | Unveränderte und bewusst übersprungene Hefte                                                                 |
+| `failed_issues`                       | INT UNSIGNED | NOT NULL, DEF 0         | Recordbezogen fehlgeschlagene Hefte                                                                          |
+| `error_message`                       | TEXT         | NULL                    | Kompakte Fehlerzusammenfassung                                                                               |
+| `cancel_requested_at`                 | DATETIME     | NULL                    | Persistenter kooperativer Abbruchwunsch                                                                      |
+| `cancel_requested_by`                 | INT UNSIGNED | FK, NULL                | Erster Admin, der den Abbruch angefordert hat; `ON DELETE SET NULL`                                          |
+| `retry_of_job_id`                     | INT UNSIGNED | FK, NULL                | Verknüpfung zum Ursprungslauf                                                                                |
+| `started_by`                          | INT UNSIGNED | FK, NULL                | Admin bei manuellen Läufen; NULL beim Scheduler                                                              |
+| `started_at` / `completed_at`         | DATETIME     | NULL                    | Laufzeitgrenzen                                                                                              |
+| `created_at` / `updated_at`           | DATETIME     | NOT NULL                | Anlage und letzter persistierter Fortschritt                                                                 |
 
 Recordbezogene Fehler liegen zusätzlich in `import_job_errors` mit Job, Quelle, optionaler Heftnummer und Quell-ID, Verarbeitungsstufe und Meldung. Verwaiste aktive Jobs werden nach einem Neustart als `interrupted` sichtbar; sie werden nicht still fortgesetzt.
 
@@ -248,15 +248,19 @@ entsteht nur bei einer echten Rollenänderung und bleibt nach einer Accountlösc
 Die verbleibenden Tabellen folgen demselben Muster. Hier eine kompakte Übersicht der Kernfelder:
 
 **trades**
+
 - `id`, `initiator_id` (FK users), `responder_id` (FK users), `status` ENUM('proposed', 'accepted', 'completed', 'cancelled'), `created_at`, `updated_at`
 
 **trade_items**
+
 - `id`, `trade_id` (FK trades), `entry_id` (FK collection_entries), `direction` ENUM('offered', 'requested')
 
 **messages**
+
 - `id`, `sender_id` (FK users), `recipient_id` (FK users), `trade_id` (FK trades, NULL), `content` TEXT, `is_read` BOOLEAN, `created_at`
 
 **comments**
+
 - `id`, `user_id` (FK users), `issue_id` (FK issues), `text` TEXT, `rating` TINYINT (1–5), `created_at`, `updated_at`
 
 ---
@@ -267,65 +271,73 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 
 ### 5.1 Endpunkt-Übersicht
 
-| Methode | Pfad | Auth | Beschreibung |
-|---|---|---|---|
-| **POST** | `/api/v1/auth/register` | Nein | Registrierung (E-Mail/Passwort) |
-| **POST** | `/api/v1/auth/login` | Nein | Login → Access + Refresh Token |
-| **POST** | `/api/v1/auth/oauth/{provider}` | Nein | OAuth-Login (Google/GitHub) |
-| **POST** | `/api/v1/auth/refresh` | Refresh | Token-Erneuerung |
-| **GET** | `/api/v1/auth/me` | Ja | Aktueller Nutzer (inkl. Rolle) |
-| **POST** | `/api/v1/auth/logout` | Ja | Logout (Cookies löschen) |
-| **GET** | `/api/v1/auth/verify` | Nein | E-Mail-Verifizierung per Token |
-| **POST** | `/api/v1/auth/resend-verification` | Nein | Verifizierungs-E-Mail erneut senden |
-| **GET** | `/api/v1/series` | Nein | Alle **aktiven** Serien auflisten |
-| **GET** | `/api/v1/series/{slug}/issues` | Nein | Alle Hefte einer aktiven Serie (paginiert) |
-| **GET** | `/api/v1/issues/{id}` | Nein | Heft-Details + Community-Kommentare |
-| **GET** | `/api/v1/me/collection` | Ja | Eigene Sammlung (Filter, Paginierung) |
-| **POST** | `/api/v1/me/collection` | Ja | Heft zur Sammlung hinzufügen |
-| **PATCH** | `/api/v1/me/collection/{id}` | Ja | Eintrag ändern (Zustand, Status, Notizen) |
-| **DELETE** | `/api/v1/me/collection/{id}` | Ja | Eintrag entfernen |
-| **POST** | `/api/v1/me/collection/{id}/photos` | Ja | Foto hochladen (multipart/form-data) |
-| **GET** | `/api/v1/me/trade-offers` | Ja | Eigene aktive Tauschangebote aus Einträgen mit Status `duplicate` (Filter, Paginierung) |
-| **GET** | `/api/v1/me/wanted` | Ja | Eigene aktive Wunschliste (Filter, Paginierung) |
-| **GET** | `/api/v1/me/wanted/candidates` | Ja | Nicht vorhandene Hefte einer aktiven Serie samt Wunschstatus |
-| **POST** | `/api/v1/me/wanted/bulk` | Ja | Bis zu 100 Hefte idempotent zur Wunschliste hinzufügen |
-| **DELETE** | `/api/v1/me/wanted/{entry_id}` | Ja | Eigenen Wunschlisteneintrag entfernen |
-| **GET** | `/api/v1/me/trades` | Ja | Eigene Tauschvorgänge |
-| **GET** | `/api/v1/me/matches` | Ja | Potenzielle Tauschpartner (Matching) |
-| **POST** | `/api/v1/trades` | Ja | Tausch vorschlagen |
-| **PATCH** | `/api/v1/trades/{id}` | Ja | Tausch-Status ändern |
-| **GET** | `/api/v1/me/messages` | Ja | Nachrichten-Übersicht |
-| **POST** | `/api/v1/messages` | Ja | Nachricht senden |
-| **GET** | `/api/v1/me/collection/stats` | Ja | Sammlungsstatistiken (Gesamt, pro Serie, Doppelte, Gesuchte) |
-| **GET** | `/api/v1/me/activity` | Ja | Letzte Aktivitäten des Nutzers (Timeline) |
-| **GET** | `/api/v1/me/profile` | Ja | Eigenes Profil + Sichtbarkeitseinstellungen |
-| **PATCH** | `/api/v1/me/profile/visibility` | Ja | Profil- und Sammlungssichtbarkeit ändern |
-| **GET** | `/api/v1/users/{user_id}/profile` | Nein | Öffentliches Profil (wenn freigegeben) |
-| **GET** | `/api/v1/users/{user_id}/collection` | Nein | Öffentliche Sammlung einschließlich Notizen (wenn freigegeben) |
-| **GET** | `/api/v1/users/{user_id}/collection/stats` | Nein | Öffentliche Sammlungsstatistiken (wenn freigegeben) |
-| **GET** | `/api/v1/users` | Nein | Öffentliche Sammler-Liste (sortier-/filterbar) |
-| **GET** | `/api/v1/issues/most-wanted` | Nein | Meistgesuchte Hefte plattformweit |
+| Methode      | Pfad                                              | Auth    | Beschreibung                                                                            |
+| ------------ | ------------------------------------------------- | ------- | --------------------------------------------------------------------------------------- |
+| **POST**     | `/api/v1/auth/register`                           | Nein    | Registrierung (E-Mail/Passwort)                                                         |
+| **POST**     | `/api/v1/auth/login`                              | Nein    | Login → Access + Refresh Token                                                          |
+| **POST**     | `/api/v1/auth/oauth/{provider}`                   | Nein    | OAuth-Login (Google/GitHub)                                                             |
+| **POST**     | `/api/v1/auth/refresh`                            | Refresh | Token-Erneuerung                                                                        |
+| **GET**      | `/api/v1/auth/me`                                 | Ja      | Aktueller Nutzer (inkl. Rolle)                                                          |
+| **POST**     | `/api/v1/auth/logout`                             | Ja      | Logout (Cookies löschen)                                                                |
+| **GET**      | `/api/v1/auth/verify`                             | Nein    | E-Mail-Verifizierung per Token                                                          |
+| **POST**     | `/api/v1/auth/resend-verification`                | Nein    | Verifizierungs-E-Mail erneut senden                                                     |
+| **GET**      | `/api/v1/series`                                  | Nein    | Alle **aktiven** Serien auflisten                                                       |
+| **GET**      | `/api/v1/series/{slug}/issues`                    | Nein    | Alle Hefte einer aktiven Serie (paginiert)                                              |
+| **GET**      | `/api/v1/issues/{id}`                             | Nein    | Heft-Details + Community-Kommentare                                                     |
+| **GET**      | `/api/v1/me/collection`                           | Ja      | Eigene Sammlung (Filter, Paginierung)                                                   |
+| **POST**     | `/api/v1/me/collection`                           | Ja      | Heft zur Sammlung hinzufügen                                                            |
+| **PATCH**    | `/api/v1/me/collection/{id}`                      | Ja      | Eintrag ändern (Zustand, Status, Notizen)                                               |
+| **DELETE**   | `/api/v1/me/collection/{id}`                      | Ja      | Eintrag entfernen                                                                       |
+| **POST**     | `/api/v1/me/collection/{id}/photos`               | Ja      | Foto hochladen (multipart/form-data)                                                    |
+| **GET**      | `/api/v1/me/trade-offers`                         | Ja      | Eigene aktive Tauschangebote aus Einträgen mit Status `duplicate` (Filter, Paginierung) |
+| **GET**      | `/api/v1/me/wanted`                               | Ja      | Eigene aktive Wunschliste (Filter, Paginierung)                                         |
+| **GET**      | `/api/v1/me/wanted/candidates`                    | Ja      | Nicht vorhandene Hefte einer aktiven Serie samt Wunschstatus                            |
+| **POST**     | `/api/v1/me/wanted/bulk`                          | Ja      | Bis zu 100 Hefte idempotent zur Wunschliste hinzufügen                                  |
+| **DELETE**   | `/api/v1/me/wanted/{entry_id}`                    | Ja      | Eigenen Wunschlisteneintrag entfernen                                                   |
+| **GET**      | `/api/v1/me/matches`                              | Ja      | Aktive wechselseitige Matches (paginiert)                                               |
+| **GET**      | `/api/v1/me/matches/{match_id}`                   | Ja      | Eigenes Match mit datenschutzsicherer Partner- und Itemprojektion                       |
+| **POST**     | `/api/v1/me/matches/{match_id}/proposals`         | Ja      | Aus ausgewählten Match-Items einen Tausch und Thread erzeugen                           |
+| **GET**      | `/api/v1/me/trades`                               | Ja      | Eigene vorgeschlagene und angenommene Tausche                                           |
+| **GET**      | `/api/v1/me/trades/{trade_id}`                    | Ja      | Tausch-Snapshot einschließlich Thread-ID                                                |
+| **POST**     | `/api/v1/me/trades/{trade_id}/accept`             | Ja      | Vorschlag als Empfänger annehmen                                                        |
+| **POST**     | `/api/v1/me/trades/{trade_id}/cancel`             | Ja      | Offenen Tausch als Teilnehmer abbrechen                                                 |
+| **GET**      | `/api/v1/me/messages`                             | Ja      | Thread-Inbox mit Vorschau und Ungelesen-Zähler                                          |
+| **GET/POST** | `/api/v1/me/messages/{thread_id}`                 | Ja      | Nachrichten lesen oder idempotent senden                                                |
+| **PATCH**    | `/api/v1/me/messages/{thread_id}/read`            | Ja      | Empfangene Nachrichten bis zu einer ID gelesen markieren                                |
+| **GET**      | `/api/v1/me/notifications`                        | Ja      | Eigene Benachrichtigungen, optional nur ungelesene                                      |
+| **GET**      | `/api/v1/me/notifications/unread-count`           | Ja      | Anzahl ungelesener Benachrichtigungen                                                   |
+| **PATCH**    | `/api/v1/me/notifications/{notification_id}/read` | Ja      | Einzelne Benachrichtigung gelesen markieren                                             |
+| **POST**     | `/api/v1/me/notifications/read-all`               | Ja      | Alle eigenen Benachrichtigungen gelesen markieren                                       |
+| **GET**      | `/api/v1/me/collection/stats`                     | Ja      | Sammlungsstatistiken (Gesamt, pro Serie, Doppelte, Gesuchte)                            |
+| **GET**      | `/api/v1/me/activity`                             | Ja      | Letzte Aktivitäten des Nutzers (Timeline)                                               |
+| **GET**      | `/api/v1/me/profile`                              | Ja      | Eigenes Profil + Sichtbarkeitseinstellungen                                             |
+| **PATCH**    | `/api/v1/me/profile/visibility`                   | Ja      | Profil- und Sammlungssichtbarkeit ändern                                                |
+| **GET**      | `/api/v1/users/{user_id}/profile`                 | Nein    | Öffentliches Profil (wenn freigegeben)                                                  |
+| **GET**      | `/api/v1/users/{user_id}/collection`              | Nein    | Öffentliche Sammlung einschließlich Notizen (wenn freigegeben)                          |
+| **GET**      | `/api/v1/users/{user_id}/collection/stats`        | Nein    | Öffentliche Sammlungsstatistiken (wenn freigegeben)                                     |
+| **GET**      | `/api/v1/users`                                   | Nein    | Öffentliche Sammler-Liste (sortier-/filterbar)                                          |
+| **GET**      | `/api/v1/issues/most-wanted`                      | Nein    | Meistgesuchte Hefte plattformweit                                                       |
 
 #### 5.1.1 Admin-Endpunkte
 
 Alle Admin-Endpunkte erfordern einen authentifizierten Nutzer mit der Rolle `admin`. Bei fehlendem Admin-Recht wird HTTP 403 (Forbidden) zurückgegeben.
 
-| Methode | Pfad | Auth | Beschreibung |
-|---|---|---|---|
-| **GET** | `/api/v1/admin/series` | Admin | Alle Serien (inkl. inaktive) auflisten |
-| **POST** | `/api/v1/admin/series/{slug}/activate` | Admin | Kompatibilitätsroute; verweigert eine ungeprüfte Aktivierung mit `review_required` |
-| **POST** | `/api/v1/admin/series/{slug}/deactivate` | Admin | Serie ausblenden und append-only Auditereignis schreiben |
-| **GET** | `/api/v1/admin/adapters` | Admin | Verfügbare Import-Adapter einschließlich Quellenart auflisten |
-| **POST** | `/api/v1/admin/import` | Admin | Vollscan anlegen (`{ "adapter": "maddrax" }`) → HTTP 202 mit Job |
-| **GET** | `/api/v1/admin/import/{id}` | Admin | Import-Job-Status & Fortschritt abfragen |
-| **POST** | `/api/v1/admin/import/{id}/cancel` | Admin | Persistenten Abbruch für einen aktiven Job anfordern |
-| **POST** | `/api/v1/admin/import/{id}/retry` | Admin | Verknüpften neuen Vollscan für einen fehlgeschlagenen oder abgebrochenen Job anlegen |
-| **GET** | `/api/v1/admin/import/{id}/errors` | Admin | Persistierte Fehlerkontexte paginiert lesen |
-| **GET** | `/api/v1/admin/import/{id}/review/summary` | Admin | Laufbezogene Ergebnis-, Risiko-, Referenz- und Freigabeauswertung lesen |
-| **GET** | `/api/v1/admin/import/{id}/review/items` | Admin | Persistierte Ergebnisse des konkreten Laufs paginiert suchen und filtern |
-| **POST** | `/api/v1/admin/import/{id}/activate` | Admin | Geprüften, aktuellen und vollständigen Lauf atomar freigeben; Warnungen müssen quittiert werden |
-| **GET** | `/api/v1/admin/import/{id}/series-issues` | Admin | Aktuellen Serienbestand paginiert lesen (Legacy-/Diagnoseendpunkt, nicht freigaberelevant) |
-| **GET** | `/api/v1/admin/import/history` | Admin | Import-Historie aller Jobs |
+| Methode  | Pfad                                       | Auth  | Beschreibung                                                                                    |
+| -------- | ------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------- |
+| **GET**  | `/api/v1/admin/series`                     | Admin | Alle Serien (inkl. inaktive) auflisten                                                          |
+| **POST** | `/api/v1/admin/series/{slug}/activate`     | Admin | Kompatibilitätsroute; verweigert eine ungeprüfte Aktivierung mit `review_required`              |
+| **POST** | `/api/v1/admin/series/{slug}/deactivate`   | Admin | Serie ausblenden und append-only Auditereignis schreiben                                        |
+| **GET**  | `/api/v1/admin/adapters`                   | Admin | Verfügbare Import-Adapter einschließlich Quellenart auflisten                                   |
+| **POST** | `/api/v1/admin/import`                     | Admin | Vollscan anlegen (`{ "adapter": "maddrax" }`) → HTTP 202 mit Job                                |
+| **GET**  | `/api/v1/admin/import/{id}`                | Admin | Import-Job-Status & Fortschritt abfragen                                                        |
+| **POST** | `/api/v1/admin/import/{id}/cancel`         | Admin | Persistenten Abbruch für einen aktiven Job anfordern                                            |
+| **POST** | `/api/v1/admin/import/{id}/retry`          | Admin | Verknüpften neuen Vollscan für einen fehlgeschlagenen oder abgebrochenen Job anlegen            |
+| **GET**  | `/api/v1/admin/import/{id}/errors`         | Admin | Persistierte Fehlerkontexte paginiert lesen                                                     |
+| **GET**  | `/api/v1/admin/import/{id}/review/summary` | Admin | Laufbezogene Ergebnis-, Risiko-, Referenz- und Freigabeauswertung lesen                         |
+| **GET**  | `/api/v1/admin/import/{id}/review/items`   | Admin | Persistierte Ergebnisse des konkreten Laufs paginiert suchen und filtern                        |
+| **POST** | `/api/v1/admin/import/{id}/activate`       | Admin | Geprüften, aktuellen und vollständigen Lauf atomar freigeben; Warnungen müssen quittiert werden |
+| **GET**  | `/api/v1/admin/import/{id}/series-issues`  | Admin | Aktuellen Serienbestand paginiert lesen (Legacy-/Diagnoseendpunkt, nicht freigaberelevant)      |
+| **GET**  | `/api/v1/admin/import/history`             | Admin | Import-Historie aller Jobs                                                                      |
 
 Veröffentlichungsereignisse bleiben als append-only Historie erhalten: Serien mit vorhandenen Auditereignissen können nicht gelöscht werden. Wird ein Benutzerkonto gelöscht, wird lediglich der Akteursbezug des Ereignisses entfernt; die historische Freigabeentscheidung selbst bleibt bestehen.
 
@@ -552,4 +564,4 @@ lilly/
 
 ---
 
-*Ende des Architektur- und Designdokuments*
+_Ende des Architektur- und Designdokuments_

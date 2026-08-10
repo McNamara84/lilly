@@ -6,6 +6,7 @@ import DashboardPage from '../src/routes/+page.svelte';
 const mockGetAuthState = vi.fn();
 const mockPerformLogout = vi.fn();
 const mockFetchCollectionStats = vi.fn();
+const mockFetchMatches = vi.fn();
 
 vi.mock('$lib/stores/auth.svelte', () => ({
 	getAuthState: () => mockGetAuthState(),
@@ -14,6 +15,10 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 
 vi.mock('$lib/api/collection', () => ({
 	fetchCollectionStats: () => mockFetchCollectionStats()
+}));
+
+vi.mock('$lib/api/trades', () => ({
+	fetchMatches: (...args: unknown[]) => mockFetchMatches(...args)
 }));
 
 vi.mock('$app/navigation', () => ({
@@ -36,6 +41,7 @@ describe('Dashboard Page', () => {
 			overall_progress_percent: 0,
 			series_stats: []
 		});
+		mockFetchMatches.mockResolvedValue({ data: [], page: 1, per_page: 3, total: 0 });
 	});
 
 	it('renders welcome header with user display name', () => {
@@ -361,7 +367,7 @@ describe('Dashboard Page', () => {
 		expect(screen.getByText('Hefte hinzufügen')).toBeInTheDocument();
 	});
 
-	it('renders trade and activity placeholders', () => {
+	it('renders trade suggestions and activity placeholder', () => {
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,
 			user: {
@@ -376,8 +382,68 @@ describe('Dashboard Page', () => {
 
 		render(DashboardPage);
 
-		expect(screen.getByTestId('trade-placeholder')).toBeInTheDocument();
+		expect(screen.getByTestId('trade-suggestions')).toHaveTextContent(
+			'Noch keine Tausch-Vorschläge verfügbar.'
+		);
 		expect(screen.getByTestId('activity-placeholder')).toBeInTheDocument();
+	});
+
+	it('renders the three best trade suggestions', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchMatches.mockResolvedValue({
+			data: [
+				{
+					id: 1,
+					partner: { id: 2, display_name: 'Mira', avatar_path: null, location: null },
+					my_offers: [{ entry_id: 10 }],
+					partner_offers: [{ entry_id: 20 }, { entry_id: 21 }],
+					match_score: 75
+				}
+			],
+			page: 1,
+			per_page: 3,
+			total: 1
+		});
+
+		render(DashboardPage);
+
+		await waitFor(() => expect(screen.getByText('Mira')).toBeInTheDocument());
+		expect(screen.getByText('1 ↔ 2 Hefte · 75%')).toBeInTheDocument();
+		expect(mockFetchMatches).toHaveBeenCalledWith({ per_page: 3 });
+	});
+
+	it('keeps the dashboard usable when trade suggestions cannot be loaded', async () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Test',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		mockFetchMatches.mockRejectedValueOnce(new Error('Matching offline'));
+
+		render(DashboardPage);
+
+		await waitFor(() =>
+			expect(screen.getByTestId('trade-suggestions')).toHaveTextContent(
+				'Noch keine Tausch-Vorschläge verfügbar.'
+			)
+		);
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 	});
 
 	it('redirects unauthenticated users to login', async () => {

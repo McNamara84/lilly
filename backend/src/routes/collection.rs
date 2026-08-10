@@ -14,6 +14,7 @@ use crate::models::collection::{
     validate_condition_grade, validate_missing_collection_sort, validate_sort_direction,
     validate_status_condition,
 };
+use crate::services::trade_matching;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -178,8 +179,17 @@ async fn add_to_collection(
 
     let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
 
-    let entry_id = collection::add_entry(
-        &state.inner.pool,
+    let mut transaction = state.inner.pool.begin().await?;
+    if matches!(status, "duplicate" | "wanted") {
+        crate::db::trade_matching::lock_reconciliation_users_for_issues(
+            &mut transaction,
+            auth.user_id,
+            &[body.issue_id],
+        )
+        .await?;
+    }
+    let entry_id = collection::add_entry_on_connection(
+        &mut transaction,
         auth.user_id,
         body.issue_id,
         copy_number,
@@ -200,11 +210,20 @@ async fn add_to_collection(
         AppError::from(e)
     })?;
 
-    let row = collection::find_entry_row_by_id_and_user(&state.inner.pool, entry_id, auth.user_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::InternalError(anyhow::anyhow!("Failed to retrieve newly created entry"))
-        })?;
+    let row = collection::find_entry_row_by_id_and_user_on_connection(
+        &mut transaction,
+        entry_id,
+        auth.user_id,
+    )
+    .await?
+    .ok_or_else(|| {
+        AppError::InternalError(anyhow::anyhow!("Failed to retrieve newly created entry"))
+    })?;
+
+    if matches!(status, "duplicate" | "wanted") {
+        crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
+    }
+    transaction.commit().await?;
 
     Ok((
         StatusCode::CREATED,
@@ -250,8 +269,18 @@ async fn update_entry(
         .transpose()
         .map_err(AppError::BadRequest)?;
 
-    collection::update_entry(
-        &state.inner.pool,
+    let mut transaction = state.inner.pool.begin().await?;
+    if body.status.is_some() || body.condition_grade.is_some() {
+        trade_matching::prepare_entry_mutation_in_transaction(
+            &mut transaction,
+            auth.user_id,
+            entry_id,
+        )
+        .await?;
+    }
+
+    collection::update_entry_on_connection(
+        &mut transaction,
         entry_id,
         auth.user_id,
         body.condition_grade.as_deref(),
@@ -260,11 +289,21 @@ async fn update_entry(
     )
     .await?;
 
-    let row = collection::find_entry_row_by_id_and_user(&state.inner.pool, entry_id, auth.user_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::InternalError(anyhow::anyhow!("Failed to retrieve updated entry"))
-        })?;
+    let row = collection::find_entry_row_by_id_and_user_on_connection(
+        &mut transaction,
+        entry_id,
+        auth.user_id,
+    )
+    .await?
+    .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("Failed to retrieve updated entry")))?;
+
+    if body.status.is_some()
+        || (body.condition_grade.is_some()
+            && matches!(existing.status.as_str(), "duplicate" | "wanted"))
+    {
+        crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
+    }
+    transaction.commit().await?;
 
     Ok(Json(CollectionEntryResponse::from(&row)))
 }
@@ -278,13 +317,20 @@ async fn delete_entry(
     auth: AuthUser,
     Path(entry_id): Path<u32>,
 ) -> Result<StatusCode, AppError> {
-    let deleted = collection::delete_entry(&state.inner.pool, entry_id, auth.user_id).await?;
+    let mut transaction = state.inner.pool.begin().await?;
+    trade_matching::prepare_entry_mutation_in_transaction(&mut transaction, auth.user_id, entry_id)
+        .await?;
+    let deleted =
+        collection::delete_entry_on_connection(&mut transaction, entry_id, auth.user_id).await?;
 
     if !deleted {
         return Err(AppError::NotFound(format!(
             "Collection entry {entry_id} not found"
         )));
     }
+
+    crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
+    transaction.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

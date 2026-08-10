@@ -1,6 +1,9 @@
 pub mod collection;
 pub mod import_review;
+pub mod messaging;
+pub mod notifications;
 pub mod profile;
 pub mod series;
+pub mod trade_matching;
 pub mod trades;
 pub mod user;

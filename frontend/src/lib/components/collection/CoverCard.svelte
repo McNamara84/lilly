@@ -84,7 +84,7 @@
 	{:else if entry.status === 'duplicate'}
 		<span
 			class="absolute bottom-1 right-1 px-1 py-0.5 text-[8px] font-bold rounded"
-			style="background-color: var(--color-status-duplicate); color: #fff;"
+			style="background-color: var(--color-status-duplicate); color: #000;"
 		>
 			Doppelt
 		</span>

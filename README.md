@@ -13,9 +13,9 @@
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 ![Caddy](https://img.shields.io/badge/Caddy_v2-1F88C0?logo=caddy&logoColor=white)
 
-LILLY is an open-source web application (PWA) for managing and trading paperback novel collections in German-speaking countries. It is built for collectors of German *Heftromane* (also known as *Groschenromane* or *Groschenhefte* – serialized pulp fiction novellas) and provides a central platform for cataloging, showcasing, and trading issues.
+LILLY is an open-source web application (PWA) for managing and trading paperback novel collections in German-speaking countries. It is built for collectors of German _Heftromane_ (also known as _Groschenromane_ or _Groschenhefte_ – serialized pulp fiction novellas) and provides a central platform for cataloging, showcasing, and trading issues.
 
-> **Status:** Under active development – Login, collection management, private trade offers and wishlists are functional. Matching, messaging, and further features are in progress.
+> **Status:** Under active development – Login, collection management, reciprocal trade matching, proposals, notifications, and trade-scoped messaging are functional. Completing a trade and transferring collection entries follows in issue #34.
 
 ---
 
@@ -48,7 +48,7 @@ docker compose up -d --build
 > Before exposing the service publicly, ensure demo seeding is disabled and remove any demo accounts.
 
 | Field    | Value            |
-|----------|------------------|
+| -------- | ---------------- |
 | Email    | `demo@lilly.app` |
 | Password | `demo1234`       |
 
@@ -60,29 +60,34 @@ independent from live wiki availability.
 
 ## Motivation
 
-While generic book managers and general-purpose collector software exist, there is no specialized solution for the needs of *Heftroman* collectors. They have unique requirements around condition grading, series-based management, and the absence of ISBN numbers. LILLY fills this gap as a community project – no commercial business model, no ads, no commissions.
+While generic book managers and general-purpose collector software exist, there is no specialized solution for the needs of _Heftroman_ collectors. They have unique requirements around condition grading, series-based management, and the absence of ISBN numbers. LILLY fills this gap as a community project – no commercial business model, no ads, no commissions.
 
 ---
 
 ## Features
 
 ### Collection Management
+
 - Add issues from available series to your personal collection
 - Condition grading using the established collector scale (Z0–Z4)
-- Mark issues as *Owned*, *Duplicate/Tradeable*, or *Wanted*
+- Mark issues as _Owned_, _Duplicate/Tradeable_, or _Wanted_
 - Collection progress per series as progress bar and percentage
 - Grid view of all issues in a series with color-coded ownership status
 - Filter and sort by series, issue number, condition, title, and author
 - Import/export collection data (CSV, JSON)
 
 ### Trading System
+
 - Offer duplicate issues for trade
 - Maintain a private wishlist from missing issues, including idempotent bulk selection
 - Keep offers and wishes synchronized automatically with collection status changes
-- Automatic matching and internal messaging are planned next
+- Receive reciprocal matches when both collectors can fulfil each other's wishes
+- Select items, propose or accept a trade, and coordinate it in a private message thread
+- See deduplicated match, proposal, acceptance, cancellation, and message notifications
 - Deliberately **no** buy/sell system – LILLY is a pure trading platform
 
 ### Series Data and Import
+
 - Initial series: **Maddrax – Die dunkle Zukunft der Erde** and **Geisterjäger John Sinclair**
 - Master data (issue number, title, author, publication date) imported from fan wikis ([Maddraxikon](https://de.maddraxikon.com), [Gruselroman-Wiki](https://gruselroman-wiki.de))
 - Complete, idempotent synchronization via the timezone-aware backend scheduler to capture new issues and improved wiki metadata
@@ -90,12 +95,14 @@ While generic book managers and general-purpose collector software exist, there 
 - Modular import system – additional series can be added with new adapters
 
 ### Community
+
 - Public collector profiles with statistics
 - Wishlists and trade lists can be shared publicly
 - Upload your own photos per issue (condition documentation, special features)
 - Comments and ratings on individual issues
 
 ### User Management
+
 - Registration via email/password or OAuth (Google, GitHub)
 - Profile with display name, avatar, and optional location
 - Profile visibility (public/private) configurable
@@ -105,33 +112,33 @@ While generic book managers and general-purpose collector software exist, there 
 
 ## Condition Grading Scale
 
-The following scale is the established standard in the German *Heftroman* collector community:
+The following scale is the established standard in the German _Heftroman_ collector community:
 
-| Grade | Label | Description |
-|-------|-------|-------------|
-| **Z0** | Mint | Freshly printed, no defects, white interior pages |
-| **Z1** | Near Mint | Minimal signs of use, no tears or cover markings |
-| **Z2** | Good | Normal signs of use, small edge tears or a light reading roll |
-| **Z3** | Damaged | Larger tears, strong reading roll, darkened or stained pages |
+| Grade  | Label           | Description                                                                |
+| ------ | --------------- | -------------------------------------------------------------------------- |
+| **Z0** | Mint            | Freshly printed, no defects, white interior pages                          |
+| **Z1** | Near Mint       | Minimal signs of use, no tears or cover markings                           |
+| **Z2** | Good            | Normal signs of use, small edge tears or a light reading roll              |
+| **Z3** | Damaged         | Larger tears, strong reading roll, darkened or stained pages               |
 | **Z4** | Heavily damaged | Torn or marked cover, tattered appearance, possibly loose or missing pages |
 
 ---
 
 ## Tech Stack
 
-| Component | Technology |
-|---|---|
-| **Frontend** | Svelte 5 / SvelteKit (PWA) |
-| **UI** | Skeleton UI + Tailwind CSS (Glassmorphism design) |
-| **Backend** | Rust + Axum |
-| **Database** | MariaDB 12.3 LTS |
-| **DB Access** | SQLx (compile-time verified queries) |
-| **Auth** | JWT + argon2id, OAuth2 (Google, GitHub) |
-| **API** | REST, documented via OpenAPI 3.1 / Swagger |
-| **Reverse Proxy** | Caddy v2 (automatic HTTPS) |
-| **Wiki Importer** | Rust CLI (reqwest + scraper) |
-| **Containerization** | Docker + Docker Compose |
-| **i18n** | Paraglide.js |
+| Component            | Technology                                        |
+| -------------------- | ------------------------------------------------- |
+| **Frontend**         | Svelte 5 / SvelteKit (PWA)                        |
+| **UI**               | Skeleton UI + Tailwind CSS (Glassmorphism design) |
+| **Backend**          | Rust + Axum                                       |
+| **Database**         | MariaDB 12.3 LTS                                  |
+| **DB Access**        | SQLx (compile-time verified queries)              |
+| **Auth**             | JWT + argon2id, OAuth2 (Google, GitHub)           |
+| **API**              | REST, documented via OpenAPI 3.1 / Swagger        |
+| **Reverse Proxy**    | Caddy v2 (automatic HTTPS)                        |
+| **Wiki Importer**    | Rust CLI (reqwest + scraper)                      |
+| **Containerization** | Docker + Docker Compose                           |
+| **i18n**             | Paraglide.js                                      |
 
 ---
 
@@ -314,6 +321,7 @@ GitHub Actions workflows run automatically:
 ## Roadmap
 
 ### Phase 1 – MVP
+
 - Collection management for Maddrax and John Sinclair
 - Data import from Maddraxikon and Gruselroman-Wiki
 - Condition grading (Z0–Z4)
@@ -324,6 +332,7 @@ GitHub Actions workflows run automatically:
 - PWA with offline basics
 
 ### Phase 2 – Expansion
+
 - Additional series (e.g. Perry Rhodan, Professor Zamorra, Ren Dhark)
 - Rating system for trade partners
 - Aggregated community statistics
@@ -331,6 +340,7 @@ GitHub Actions workflows run automatically:
 - English UI
 
 ### Phase 3 – Vision
+
 - Ring trade algorithm (A→B→C→A)
 - Barcode/cover scan for quick cataloging
 - International pulp fiction series
@@ -342,14 +352,15 @@ GitHub Actions workflows run automatically:
 
 Detailed planning documents are located in the [`docs/`](docs/) folder:
 
-| Document | Contents |
-|---|---|
-| [requirements.md](docs/requirements.md) | Requirements catalog with all functional and non-functional requirements |
-| [architecture.md](docs/architecture.md) | Architecture and design document (tech stack, database schema, API design, deployment) |
-| [uxdesign.md](docs/uxdesign.md) | UI/UX concept (design philosophy, components, screens, responsive strategy) |
-| [design-tokens.json](docs/design-tokens.json) | Machine-readable design tokens (colors, typography, spacing, animations) |
-| [components.json](docs/components.json) | Machine-readable component specifications |
-| [screens.json](docs/screens.json) | Machine-readable page structure and routing |
+| Document                                      | Contents                                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [requirements.md](docs/requirements.md)       | Requirements catalog with all functional and non-functional requirements               |
+| [architecture.md](docs/architecture.md)       | Architecture and design document (tech stack, database schema, API design, deployment) |
+| [uxdesign.md](docs/uxdesign.md)               | UI/UX concept (design philosophy, components, screens, responsive strategy)            |
+| [design-tokens.json](docs/design-tokens.json) | Machine-readable design tokens (colors, typography, spacing, animations)               |
+| [components.json](docs/components.json)       | Machine-readable component specifications                                              |
+| [screens.json](docs/screens.json)             | Machine-readable page structure and routing                                            |
+| [trading.md](docs/trading.md)                 | Reciprocal matching, trade workflow, privacy, notifications, and message retention     |
 
 ---
 

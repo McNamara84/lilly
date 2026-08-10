@@ -97,6 +97,17 @@ async fn main() {
         tracing::error!("Failed to seed demo data: {e}");
     }
 
+    let match_stats = db::trade_matching::reconcile_all_matches(&pool)
+        .await
+        .expect("Failed to reconcile trade matches");
+    tracing::info!(
+        created = match_stats.created,
+        updated = match_stats.updated,
+        reactivated = match_stats.reactivated,
+        staled = match_stats.staled,
+        "Trade matches reconciled"
+    );
+
     // Promote the configured bootstrap account before serving requests.
     if let Some(ref admin_email) = config.admin_email {
         bootstrap_admin(&pool, admin_email).await;
@@ -148,6 +159,8 @@ async fn main() {
         .merge(routes::collection::router())
         .merge(routes::profiles::router())
         .merge(routes::trades::router())
+        .merge(routes::messages::router())
+        .merge(routes::notifications::router())
         .merge(routes::admin::router())
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())

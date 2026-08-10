@@ -75,6 +75,79 @@ export interface BulkWantedResult {
 	rejected: WantedRejection[];
 }
 
+export interface TradePartner {
+	id: number;
+	display_name: string;
+	avatar_path: string | null;
+	location: string | null;
+}
+
+export interface MatchIssue {
+	entry_id: number;
+	wanted_entry_id: number;
+	issue_id: number;
+	issue_number: number;
+	title: string;
+	series_id: number;
+	series_name: string;
+	series_slug: string;
+	cover_url: string | null;
+	cover_local_path: string | null;
+	copy_number: number;
+	condition_grade: ConditionGrade;
+}
+
+export interface TradeMatch {
+	id: number;
+	status: 'active' | 'stale';
+	revision: number;
+	changed_at: string;
+	partner: TradePartner;
+	my_offers: MatchIssue[];
+	partner_offers: MatchIssue[];
+	match_score: number;
+	open_trade_id: number | null;
+	open_trade_status: TradeStatus | null;
+}
+
+export type TradeStatus = 'proposed' | 'accepted' | 'cancelled' | 'completed';
+
+export interface TradeItem {
+	entry_id: number | null;
+	wanted_entry_id: number | null;
+	issue_id: number;
+	issue_number: number;
+	title: string;
+	series_id: number;
+	series_name: string;
+	series_slug: string;
+	cover_url: string | null;
+	cover_local_path: string | null;
+	copy_number: number;
+	condition_grade: ConditionGrade;
+}
+
+export interface Trade {
+	id: number;
+	match_id: number;
+	status: TradeStatus;
+	role: 'initiator' | 'responder';
+	partner: TradePartner;
+	my_offers: TradeItem[];
+	partner_offers: TradeItem[];
+	thread_id: number;
+	cancellation_reason: string | null;
+	proposed_at: string;
+	accepted_at: string | null;
+	cancelled_at: string | null;
+	updated_at: string;
+}
+
+export interface PageParams {
+	page?: number;
+	per_page?: number;
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
 	if (!response.ok) {
 		const body = await response.json().catch(() => ({ error: 'An unexpected error occurred' }));
@@ -146,6 +219,71 @@ export async function addWantedBulk(issueIds: number[]): Promise<BulkWantedResul
 export async function deleteWantedEntry(entryId: number): Promise<void> {
 	const response = await fetch(`${API_BASE}/me/wanted/${entryId}`, {
 		method: 'DELETE',
+		credentials: 'same-origin'
+	});
+	if (!response.ok) await handleResponse<never>(response);
+}
+
+export async function fetchMatches(
+	params: PageParams = {},
+	signal?: AbortSignal
+): Promise<PaginatedResponse<TradeMatch>> {
+	const response = await fetch(
+		`${API_BASE}/me/matches${buildQueryString(params)}`,
+		requestInit(signal)
+	);
+	return handleResponse<PaginatedResponse<TradeMatch>>(response);
+}
+
+export async function fetchMatch(matchId: number, signal?: AbortSignal): Promise<TradeMatch> {
+	const response = await fetch(`${API_BASE}/me/matches/${matchId}`, requestInit(signal));
+	return handleResponse<TradeMatch>(response);
+}
+
+export async function createTradeProposal(
+	matchId: number,
+	offeredEntryIds: number[],
+	requestedEntryIds: number[]
+): Promise<Trade> {
+	const response = await fetch(`${API_BASE}/me/matches/${matchId}/proposals`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({
+			offered_entry_ids: offeredEntryIds,
+			requested_entry_ids: requestedEntryIds
+		})
+	});
+	return handleResponse<Trade>(response);
+}
+
+export async function fetchOpenTrades(
+	params: PageParams = {},
+	signal?: AbortSignal
+): Promise<PaginatedResponse<Trade>> {
+	const response = await fetch(
+		`${API_BASE}/me/trades${buildQueryString(params)}`,
+		requestInit(signal)
+	);
+	return handleResponse<PaginatedResponse<Trade>>(response);
+}
+
+export async function fetchTrade(tradeId: number, signal?: AbortSignal): Promise<Trade> {
+	const response = await fetch(`${API_BASE}/me/trades/${tradeId}`, requestInit(signal));
+	return handleResponse<Trade>(response);
+}
+
+export async function acceptTrade(tradeId: number): Promise<Trade> {
+	const response = await fetch(`${API_BASE}/me/trades/${tradeId}/accept`, {
+		method: 'POST',
+		credentials: 'same-origin'
+	});
+	return handleResponse<Trade>(response);
+}
+
+export async function cancelTrade(tradeId: number): Promise<void> {
+	const response = await fetch(`${API_BASE}/me/trades/${tradeId}/cancel`, {
+		method: 'POST',
 		credentials: 'same-origin'
 	});
 	if (!response.ok) await handleResponse<never>(response);

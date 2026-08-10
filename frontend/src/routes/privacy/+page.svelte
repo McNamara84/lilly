@@ -33,6 +33,7 @@
 				<li>Passwort (verschlüsselt gespeichert mit Argon2id)</li>
 				<li>Zeitpunkt der Registrierung und Datenschutz-Einwilligung</li>
 				<li>Sammlungsdaten (Serien, Hefte, Tauschangebote und persönliche Heftnotizen)</li>
+				<li>Tausch-Matches, Tauschvorschläge und zugehörige interne Nachrichten</li>
 			</ul>
 		</section>
 
@@ -45,6 +46,7 @@
 				<li>Bereitstellung und Verwaltung des Benutzerkontos</li>
 				<li>Verwaltung der persönlichen Heftroman-Sammlung</li>
 				<li>Ermöglichung des Tauschs zwischen Nutzern</li>
+				<li>Benachrichtigung und private Abstimmung zu konkreten Tauschvorgängen</li>
 				<li>Versand von E-Mail-Benachrichtigungen (z.B. E-Mail-Verifizierung)</li>
 			</ul>
 		</section>
@@ -78,7 +80,9 @@
 			<p>
 				Ihre Daten werden so lange gespeichert, wie Ihr Benutzerkonto besteht. Nach Löschung des
 				Kontos werden alle personenbezogenen Daten entfernt, sofern keine gesetzlichen
-				Aufbewahrungspflichten bestehen.
+				Aufbewahrungspflichten bestehen. Nachrichten bleiben unabhängig vom Tauschstatus bis zur
+				Löschung eines beteiligten Kontos erhalten; dann wird der gemeinsame Tausch- und
+				Nachrichtenkontext gelöscht.
 			</p>
 		</section>
 

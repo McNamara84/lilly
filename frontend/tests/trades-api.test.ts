@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	acceptTrade,
 	addWantedBulk,
+	cancelTrade,
+	createTradeProposal,
 	deleteWantedEntry,
+	fetchMatch,
+	fetchMatches,
+	fetchOpenTrades,
+	fetchTrade,
 	fetchTradeOffers,
 	fetchWantedCandidates,
 	fetchWantedEntries
@@ -111,5 +118,70 @@ describe('Trades API', () => {
 	it('uses a generic error when the response has no error message', async () => {
 		mockFetch.mockResolvedValue(jsonResponse({ message: 'broken' }, 400));
 		await expect(fetchWantedEntries()).rejects.toThrow('An unexpected error occurred');
+	});
+
+	it('fetches match and trade resources with pagination and abort signals', async () => {
+		const page = { data: [], page: 2, per_page: 10, total: 0 };
+		const controller = new AbortController();
+		mockFetch.mockResolvedValue(jsonResponse(page));
+
+		await expect(fetchMatches({ page: 2, per_page: 10 }, controller.signal)).resolves.toEqual(page);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/matches?page=2&per_page=10', {
+			credentials: 'same-origin',
+			signal: controller.signal
+		});
+
+		await fetchOpenTrades({ per_page: 25 });
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/trades?per_page=25', {
+			credentials: 'same-origin'
+		});
+	});
+
+	it('fetches match and trade details', async () => {
+		const detail = { id: 4 };
+		mockFetch.mockResolvedValue(jsonResponse(detail));
+
+		await expect(fetchMatch(4)).resolves.toEqual(detail);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/matches/4', {
+			credentials: 'same-origin'
+		});
+		await expect(fetchTrade(9)).resolves.toEqual(detail);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/trades/9', {
+			credentials: 'same-origin'
+		});
+	});
+
+	it('creates, accepts and cancels trade proposals', async () => {
+		const created = { id: 9, status: 'proposed' };
+		mockFetch.mockResolvedValue(jsonResponse(created));
+
+		await expect(createTradeProposal(3, [10, 11], [20])).resolves.toEqual(created);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/matches/3/proposals', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'same-origin',
+			body: JSON.stringify({ offered_entry_ids: [10, 11], requested_entry_ids: [20] })
+		});
+
+		await expect(acceptTrade(9)).resolves.toEqual(created);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/trades/9/accept', {
+			method: 'POST',
+			credentials: 'same-origin'
+		});
+
+		mockFetch.mockResolvedValue({ ok: true, status: 204, json: vi.fn() });
+		await expect(cancelTrade(9)).resolves.toBeUndefined();
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/trades/9/cancel', {
+			method: 'POST',
+			credentials: 'same-origin'
+		});
+	});
+
+	it('surfaces proposal and cancellation failures', async () => {
+		mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'Ungültige Auswahl' }, 422));
+		await expect(createTradeProposal(3, [], [])).rejects.toThrow('Ungültige Auswahl');
+
+		mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'Bereits angenommen' }, 409));
+		await expect(cancelTrade(9)).rejects.toThrow('Bereits angenommen');
 	});
 });

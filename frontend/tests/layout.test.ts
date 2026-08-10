@@ -95,6 +95,26 @@ describe('Layout', () => {
 		expect(screen.getByTestId('header-logout-button')).toBeInTheDocument();
 		expect(screen.getByTestId('profile-link')).toHaveAttribute('href', '/profile');
 		expect(screen.getByTestId('trades-link')).toHaveAttribute('href', '/trades');
+		expect(screen.getByTestId('messages-link')).toHaveAttribute('href', '/messages');
+	});
+
+	it('shows the administration link only to administrators', () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			isAdmin: true,
+			user: {
+				id: 1,
+				email: 'admin@test.com',
+				display_name: 'Admin',
+				email_verified: true,
+				role: 'admin' as const
+			},
+			isLoading: false
+		});
+
+		renderLayout();
+
+		expect(screen.getByTestId('admin-link')).toHaveAttribute('href', '/admin');
 	});
 
 	it('toggles theme when theme button is clicked', async () => {

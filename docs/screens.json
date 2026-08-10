@@ -10,7 +10,6 @@
   },
 
   "screens": {
-
     "dashboard": {
       "route": "/",
       "file": "src/routes/+page.svelte",
@@ -34,10 +33,26 @@
           "repeat": { "kind": "fixed", "count": 4 },
           "layout": "Horizontal scroll on mobile, 4-column grid on desktop",
           "instances": [
-            { "label": "Gesamte Hefte", "icon": "Library", "data_source": "GET /api/v1/me/collection/stats" },
-            { "label": "Sammlungsfortschritt",  "icon": "TrendingUp", "data_source": "Percentage across all series" },
-            { "label": "Tauschbar",      "icon": "ArrowLeftRight", "data_source": "Count of status=duplicate" },
-            { "label": "Gesucht",        "icon": "Search", "data_source": "Count of status=wanted" }
+            {
+              "label": "Gesamte Hefte",
+              "icon": "Library",
+              "data_source": "GET /api/v1/me/collection/stats"
+            },
+            {
+              "label": "Sammlungsfortschritt",
+              "icon": "TrendingUp",
+              "data_source": "Percentage across all series"
+            },
+            {
+              "label": "Tauschbar",
+              "icon": "ArrowLeftRight",
+              "data_source": "Count of status=duplicate"
+            },
+            {
+              "label": "Gesucht",
+              "icon": "Search",
+              "data_source": "Count of status=wanted"
+            }
           ]
         },
         {
@@ -84,7 +99,12 @@
           "interactions": {
             "tap_card": "Opens IssueDetailSheet for the tapped issue",
             "long_press": "Enters multi-select mode for batch operations (mobile)",
-            "batch_actions": ["Mark as duplicate", "Mark as wanted", "Change condition", "Remove from collection"]
+            "batch_actions": [
+              "Mark as duplicate",
+              "Mark as wanted",
+              "Change condition",
+              "Remove from collection"
+            ]
           }
         }
       ],
@@ -100,9 +120,9 @@
     "collection_add": {
       "route": "/collection/add",
       "file": "src/routes/collection/add/+page.svelte",
-	  "title": "Serienraster",
+      "title": "Serienraster",
       "auth_required": true,
-	  "description": "Select a series, inspect all four collection states, and open issue details to add or edit entries deliberately.",
+      "description": "Select a series, inspect all four collection states, and open issue details to add or edit entries deliberately.",
       "sections": [
         {
           "id": "series_selector",
@@ -111,7 +131,7 @@
         },
         {
           "id": "number_grid",
-		  "component": "SeriesStatusGrid",
+          "component": "SeriesStatusGrid",
           "description": "After selecting a series: grid of all issue numbers. Color and text/pattern distinguish owned, duplicate, wanted, and missing. Selecting a cell opens the detail sheet.",
           "visual": {
             "cell_size": "48x48px on mobile, 56x56px on desktop",
@@ -196,42 +216,66 @@
     "trades": {
       "route": "/trades",
       "file": "src/routes/trades/+page.svelte",
-      "title": "Tauschlisten",
+      "title": "Tausch",
       "auth_required": true,
-      "description": "Private trade-list hub. Offers and wishes are projections of the user's collection entry statuses and stay synchronized without separate list records.",
+      "description": "Private trade hub for reciprocal matches and proposed or accepted trades. Separate links lead to the offer and wanted-list management pages.",
       "tabs": [
         {
-          "id": "offers",
-          "label": "Tauschbar",
+          "id": "matches",
+          "label": "Vorschläge",
           "icon": "ArrowLeftRight",
-          "component": null,
-          "data_source": "GET /api/v1/me/trade-offers?page={n}",
+          "component": "TradeMatchCard",
+          "data_source": "GET /api/v1/me/matches?page={n}",
           "empty_state": {
             "icon": "ArrowLeftRight",
-            "title": "Noch keine Tauschangebote",
-            "description": "Markiere ein vorhandenes Heft als 'Doppelt', damit es hier erscheint."
+            "title": "Noch keine Tauschvorschläge",
+            "description": "A match appears as soon as two collectors have complementary duplicate and wanted entries."
           },
           "interactions": {
-            "open_issue": "Navigates to the issue detail page.",
-            "deactivate": "Changes the existing collection entry to owned and removes it from the projection."
+            "select_items": "Selects one or more currently matching entries in both directions.",
+            "propose": "POST /api/v1/me/matches/{id}/proposals, then switches to the active-trades view."
           }
         },
         {
-          "id": "wanted",
-          "label": "Wunschliste",
-          "icon": "Search",
-          "component": null,
-          "description": "Private list of collection entries with status wanted.",
-          "data_source": "GET /api/v1/me/wanted?page={n}",
+          "id": "trades",
+          "label": "Aktive Tausche",
+          "icon": "MessageCircle",
+          "component": "TradeSummaryCard",
+          "description": "Proposed and accepted trades of the authenticated user.",
+          "data_source": "GET /api/v1/me/trades?page={n}",
           "interactions": {
-            "mark_owned": "Opens issue details; a condition is required before switching a conditionless wish to owned.",
-            "remove": "Deletes only the authenticated user's wanted entry."
+            "open_trade": "Navigates to /trades/{id}."
           }
         }
       ],
+      "management_routes": ["/trades/offers", "/trades/wanted"]
+    },
+
+    "trade_offers": {
+      "route": "/trades/offers",
+      "file": "src/routes/trades/offers/+page.svelte",
+      "title": "Tauschbare Hefte",
+      "auth_required": true,
+      "description": "Private projection of collection entries with duplicate status.",
+      "data_source": "GET /api/v1/me/trade-offers?page={n}",
+      "interactions": {
+        "deactivate": "PATCH /api/v1/me/collection/{entry_id} changes the entry to owned."
+      }
+    },
+
+    "trade_wanted": {
+      "route": "/trades/wanted",
+      "file": "src/routes/trades/wanted/+page.svelte",
+      "title": "Wunschliste",
+      "auth_required": true,
+      "description": "Private projection of collection entries with wanted status.",
+      "data_source": "GET /api/v1/me/wanted?page={n}",
       "primary_action": {
         "label": "Wünsche hinzufügen",
         "route": "/trades/wanted/add"
+      },
+      "interactions": {
+        "remove": "DELETE /api/v1/me/wanted/{entry_id} removes only the authenticated user's entry."
       }
     },
 
@@ -266,12 +310,12 @@
       "file": "src/routes/trades/[id]/+page.svelte",
       "title": "Tausch-Details",
       "auth_required": true,
-      "description": "Detail view of a single trade. Shows offered/requested items, status timeline, and integrated message thread.",
+      "description": "Detail view of a proposed, accepted, cancelled, or completed trade snapshot with its integrated message thread.",
       "sections": [
         {
           "id": "trade_header",
           "component": null,
-          "description": "Status badge (vorgeschlagen/akzeptiert/abgeschlossen), partner info, created date"
+          "description": "Status badge, privacy-safe partner display name, and proposal timestamp."
         },
         {
           "id": "trade_items",
@@ -284,9 +328,13 @@
           "component": null,
           "description": "Action buttons based on current status and user role (initiator vs responder)",
           "actions": {
-            "proposed_responder": ["Annehmen (primary)", "Ablehnen (destructive)"],
-            "accepted_both": ["Als abgeschlossen markieren (primary)", "Abbrechen (destructive)"],
-            "completed": "Rating prompt for trade partner"
+            "proposed_responder": [
+              "Annehmen (primary)",
+              "Abbrechen (destructive)"
+            ],
+            "proposed_initiator": ["Abbrechen (destructive)"],
+            "accepted_both": ["Abbrechen (destructive)"],
+            "cancelled_or_completed": []
           }
         },
         {
@@ -302,13 +350,18 @@
       "file": "src/routes/messages/+page.svelte",
       "title": "Nachrichten",
       "auth_required": true,
-      "description": "Message inbox. Shows conversation threads grouped by partner. Split view on desktop (thread list + active thread).",
+      "description": "Message inbox. Shows one conversation summary per trade and opens the selected thread on its own route.",
       "layout": {
-        "mobile": "Thread list only. Tap thread → navigates to /messages/[id]",
-        "desktop": "Master-detail split: thread list (320px left panel) + active MessageThread (right)"
+        "all_viewports": "Responsive thread list. Selecting a row navigates to /messages/[id]."
       },
       "thread_list_item": {
-        "content": ["Partner avatar", "Partner name", "Last message preview (truncated)", "Timestamp", "Unread indicator dot"],
+        "content": [
+          "Partner avatar",
+          "Partner name",
+          "Last message preview (truncated)",
+          "Timestamp",
+          "Unread indicator dot"
+        ],
         "style": "Glassmorphism card, highlight on hover, brand primary left border when unread"
       }
     },
@@ -331,9 +384,9 @@
           "component": "StatsCard",
           "repeat": { "kind": "fixed", "count": 3 },
           "instances": [
-            { "label": "Sammler",       "icon": "Users" },
+            { "label": "Sammler", "icon": "Users" },
             { "label": "Hefte erfasst", "icon": "Library" },
-            { "label": "Tausche",       "icon": "ArrowLeftRight" }
+            { "label": "Tausche", "icon": "ArrowLeftRight" }
           ],
           "description": "Aggregated platform statistics. Three cards in a row."
         },
@@ -375,8 +428,14 @@
           "id": "public_lists",
           "component": null,
           "tabs": [
-            { "label": "Tauschbar", "description": "Public list of duplicate items available for trade" },
-            { "label": "Wunschliste", "description": "Public list of wanted items" }
+            {
+              "label": "Tauschbar",
+              "description": "Public list of duplicate items available for trade"
+            },
+            {
+              "label": "Wunschliste",
+              "description": "Public list of wanted items"
+            }
           ],
           "description": "Tabbed view of public trade/want lists. Each tab shows a CoverGrid. Shareable via direct link."
         },
@@ -386,14 +445,36 @@
           "description": "Profile settings section (only on own profile). Glass card container.",
           "fields": [
             { "name": "display_name", "type": "text", "label": "Anzeigename" },
-            { "name": "location", "type": "text", "label": "Standort (optional)" },
-            { "name": "profile_public", "type": "toggle", "label": "Profil öffentlich" },
-            { "name": "collection_public", "type": "toggle", "label": "Sammlung öffentlich", "warning": "Public collections also expose personal issue notes." },
+            {
+              "name": "location",
+              "type": "text",
+              "label": "Standort (optional)"
+            },
+            {
+              "name": "profile_public",
+              "type": "toggle",
+              "label": "Profil öffentlich"
+            },
+            {
+              "name": "collection_public",
+              "type": "toggle",
+              "label": "Sammlung öffentlich",
+              "warning": "Public collections also expose personal issue notes."
+            },
             { "name": "theme", "type": "ThemeToggle", "label": "Darstellung" },
-            { "name": "email", "type": "text", "label": "E-Mail", "readonly_hint": "Änderung per Verifizierung" }
+            {
+              "name": "email",
+              "type": "text",
+              "label": "E-Mail",
+              "readonly_hint": "Änderung per Verifizierung"
+            }
           ],
           "danger_zone": {
-            "actions": ["Passwort ändern", "Daten exportieren (DSGVO)", "Account löschen"],
+            "actions": [
+              "Passwort ändern",
+              "Daten exportieren (DSGVO)",
+              "Account löschen"
+            ],
             "style": "Red-bordered glass card at bottom"
           }
         }
@@ -405,17 +486,17 @@
       "file": "src/routes/users/[id]/+page.svelte",
       "title": "Sammler-Profil",
       "auth_required": false,
-	  "description": "Public view of a collector's profile when profile_public is true. Collection statistics appear only when collection_public is independently true. A private profile uses the same 404-style state as an absent profile.",
+      "description": "Public view of a collector's profile when profile_public is true. Collection statistics appear only when collection_public is independently true. A private profile uses the same 404-style state as an absent profile.",
       "reuses": "profile (sections: profile_header, profile_stats, public_lists)"
     },
 
-	"public_collection": {
-	  "route": "/users/[id]/collection",
-	  "file": "src/routes/users/[id]/collection/+page.svelte",
-	  "title": "Öffentliche Sammlung",
-	  "auth_required": false,
-	  "description": "Direct public collection view, independently available when collection_public is true even if the profile is private. Shows status, Z0–Z4 condition and escaped personal notes with preserved line breaks. Private and absent collections share the same 404-style state."
-	},
+    "public_collection": {
+      "route": "/users/[id]/collection",
+      "file": "src/routes/users/[id]/collection/+page.svelte",
+      "title": "Öffentliche Sammlung",
+      "auth_required": false,
+      "description": "Direct public collection view, independently available when collection_public is true even if the profile is private. Shows status, Z0–Z4 condition and escaped personal notes with preserved line breaks. Private and absent collections share the same 404-style state."
+    },
 
     "auth_login": {
       "route": "/login",

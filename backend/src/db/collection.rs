@@ -1,4 +1,4 @@
-use sqlx::MySqlPool;
+use sqlx::{MySqlConnection, MySqlPool};
 
 use crate::models::collection::{CollectionEntry, CollectionEntryRow, CollectionQueryParams};
 
@@ -76,8 +76,32 @@ macro_rules! bind_missing_filters {
 // CRUD
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub async fn add_entry(
     pool: &MySqlPool,
+    user_id: u32,
+    issue_id: u32,
+    copy_number: u8,
+    condition_grade: Option<&str>,
+    status: &str,
+    notes: Option<&str>,
+) -> Result<u32, sqlx::Error> {
+    let mut connection = pool.acquire().await?;
+    add_entry_on_connection(
+        &mut connection,
+        user_id,
+        issue_id,
+        copy_number,
+        condition_grade,
+        status,
+        notes,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn add_entry_on_connection(
+    connection: &mut MySqlConnection,
     user_id: u32,
     issue_id: u32,
     copy_number: u8,
@@ -95,7 +119,7 @@ pub async fn add_entry(
     .bind(condition_grade)
     .bind(status)
     .bind(notes)
-    .execute(pool)
+    .execute(connection)
     .await?;
 
     #[allow(clippy::cast_possible_truncation)]
@@ -131,8 +155,18 @@ pub async fn find_entry_by_id_and_user(
     .await
 }
 
+#[allow(dead_code)]
 pub async fn find_entry_row_by_id_and_user(
     pool: &MySqlPool,
+    entry_id: u32,
+    user_id: u32,
+) -> Result<Option<CollectionEntryRow>, sqlx::Error> {
+    let mut connection = pool.acquire().await?;
+    find_entry_row_by_id_and_user_on_connection(&mut connection, entry_id, user_id).await
+}
+
+pub async fn find_entry_row_by_id_and_user_on_connection(
+    connection: &mut MySqlConnection,
     entry_id: u32,
     user_id: u32,
 ) -> Result<Option<CollectionEntryRow>, sqlx::Error> {
@@ -148,7 +182,7 @@ pub async fn find_entry_row_by_id_and_user(
     )
     .bind(entry_id)
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(connection)
     .await
 }
 
@@ -175,8 +209,30 @@ pub async fn find_entry_row_by_issue_and_user(
 }
 
 #[allow(clippy::option_option)]
+#[allow(dead_code)]
 pub async fn update_entry(
     pool: &MySqlPool,
+    entry_id: u32,
+    user_id: u32,
+    condition_grade: Option<&str>,
+    status: Option<&str>,
+    notes: Option<Option<&str>>,
+) -> Result<bool, sqlx::Error> {
+    let mut connection = pool.acquire().await?;
+    update_entry_on_connection(
+        &mut connection,
+        entry_id,
+        user_id,
+        condition_grade,
+        status,
+        notes,
+    )
+    .await
+}
+
+#[allow(clippy::option_option)]
+pub async fn update_entry_on_connection(
+    connection: &mut MySqlConnection,
     entry_id: u32,
     user_id: u32,
     condition_grade: Option<&str>,
@@ -218,19 +274,29 @@ pub async fn update_entry(
 
     query = query.bind(entry_id).bind(user_id);
 
-    let result = query.execute(pool).await?;
+    let result = query.execute(connection).await?;
     Ok(result.rows_affected() > 0)
 }
 
+#[allow(dead_code)]
 pub async fn delete_entry(
     pool: &MySqlPool,
+    entry_id: u32,
+    user_id: u32,
+) -> Result<bool, sqlx::Error> {
+    let mut connection = pool.acquire().await?;
+    delete_entry_on_connection(&mut connection, entry_id, user_id).await
+}
+
+pub async fn delete_entry_on_connection(
+    connection: &mut MySqlConnection,
     entry_id: u32,
     user_id: u32,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query("DELETE FROM collection_entries WHERE id = ? AND user_id = ?")
         .bind(entry_id)
         .bind(user_id)
-        .execute(pool)
+        .execute(connection)
         .await?;
     Ok(result.rows_affected() > 0)
 }
