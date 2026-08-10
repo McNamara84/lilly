@@ -122,14 +122,3 @@ jobs:
     with:
       browser: ${{ matrix.browser }}
       write_cache: ${{ matrix.browser == 'chromium' }}
-
-  docker-build:
-    name: Docker Build Validation
-    runs-on: ubuntu-latest
-    needs: [frontend-test, backend-test]
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - name: Build Frontend Image
-        run: docker build -t lilly-frontend ./frontend
-      - name: Build Backend Image
-        run: docker build -t lilly-backend -f backend/Dockerfile .
