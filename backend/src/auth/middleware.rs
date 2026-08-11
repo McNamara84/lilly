@@ -15,6 +15,33 @@ pub struct AuthUser {
     pub role: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct OptionalAuthUser(pub Option<AuthUser>);
+
+impl FromRequestParts<AppState> for OptionalAuthUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let jar = CookieJar::from_request_parts(parts, state)
+            .await
+            .map_err(|_| AppError::InternalError(anyhow::anyhow!("Cookie extraction failed")))?;
+        let Some(access_token) = jar.get("access_token") else {
+            return Ok(Self(None));
+        };
+        let Ok(claims) = jwt::validate_token(access_token.value(), &state.inner.jwt_secret) else {
+            return Ok(Self(None));
+        };
+        Ok(Self(Some(AuthUser {
+            user_id: claims.sub,
+            display_name: claims.name,
+            role: claims.role,
+        })))
+    }
+}
+
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
@@ -92,5 +119,11 @@ mod tests {
         let admin = AdminUser(auth_user);
         assert_eq!(admin.0.user_id, 42);
         assert_eq!(admin.0.role, "admin");
+    }
+
+    #[test]
+    fn optional_auth_user_can_represent_anonymous_access() {
+        let optional = OptionalAuthUser(None);
+        assert!(optional.0.is_none());
     }
 }

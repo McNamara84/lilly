@@ -8,6 +8,9 @@ pub enum AppError {
     BadRequest(String),
 
     #[error("{0}")]
+    PayloadTooLarge(String),
+
+    #[error("{0}")]
     Conflict(String),
 
     #[error("{message}")]
@@ -63,6 +66,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message, code) = match &self {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
+            AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone(), None),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone(), None),
             AppError::ConflictWithCode { message, code } => {
                 (StatusCode::CONFLICT, message.clone(), Some(code.clone()))
@@ -105,6 +109,13 @@ mod tests {
         let error = AppError::Conflict("invalid state transition".to_string());
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn test_payload_too_large_status() {
+        let error = AppError::PayloadTooLarge("too large".to_string());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[test]

@@ -240,6 +240,26 @@ The start request returns a persistent job with HTTP 202 before wiki access begi
 
 For production rollout, first leave `IMPORT_SCHEDULER_ENABLED=false`, run both initial imports manually, review their complete job-specific result lists and pinned reference samples, acknowledge non-blocking warnings where appropriate, and publish each series from that import review. Activation and later deactivation are audited with the acting administrator; blocking or incomplete results cannot be published. Run an unchanged second synchronization before enabling the scheduler. See [Import sources and mapping contract](docs/import-sources.md) for source identities, mappings and recovery behavior. The source-independent contract is isolated from built-in implementations; see [Adding an import adapter](docs/adding-import-adapter.md) for the required offline contract and persistence tests.
 
+### Personal issue photos
+
+Personal collection photos use the persistent `media_data` volume but are not exposed as static
+files. Caddy serves only imported reference covers below `/media/covers/`; personal photos pass
+through the backend's ownership and collection-privacy checks. JPEG, PNG and WebP inputs are
+decoded, orientation-corrected, stripped of metadata and stored as normalised JPEG derivatives.
+The production defaults can be restricted through these settings:
+
+```dotenv
+PHOTO_MAX_UPLOAD_BYTES=5242880
+PHOTO_MAX_COUNT=4
+PHOTO_MAX_EDGE=2048
+PHOTO_MAX_SOURCE_DIMENSION=10000
+PHOTO_MAX_SOURCE_PIXELS=40000000
+PHOTO_JPEG_QUALITY=85
+```
+
+`PHOTO_MAX_COUNT` remains fixed at four for the MVP schema. Failed file deletions are persisted and
+retried during storage reconciliation after a backend restart.
+
 ---
 
 ## Testing

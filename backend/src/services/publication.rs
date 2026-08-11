@@ -580,6 +580,10 @@ mod tests {
             adapter_registry: registry,
             media_path: std::path::PathBuf::from("/tmp/lilly-review-test"),
             media_url_prefix: "/media".to_string(),
+            photo_upload_config: crate::config::PhotoUploadConfig::default(),
+            media_storage: crate::services::media::MediaStorage::new(std::path::Path::new(
+                "/tmp/lilly-review-test",
+            )),
             import_scheduler_config: ImportSchedulerConfig {
                 enabled: false,
                 schedule: "0 10 6 * * Sat *".to_string(),

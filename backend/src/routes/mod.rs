@@ -3,13 +3,16 @@ use std::sync::Arc;
 
 use lilly_importer_core::adapter::AdapterRegistry;
 
+use crate::config::PhotoUploadConfig;
 use crate::services::email::EmailService;
 use crate::services::import_scheduler::ImportSchedulerConfig;
+use crate::services::media::MediaStorage;
 
 pub mod admin;
 pub mod auth;
 pub mod collection;
 pub mod health;
+pub mod media;
 pub mod messages;
 pub mod notifications;
 pub mod profiles;
@@ -32,5 +35,7 @@ pub struct AppStateInner {
     pub adapter_registry: AdapterRegistry,
     pub media_path: PathBuf,
     pub media_url_prefix: String,
+    pub photo_upload_config: PhotoUploadConfig,
+    pub media_storage: MediaStorage,
     pub import_scheduler_config: ImportSchedulerConfig,
 }

@@ -127,6 +127,15 @@ describe('Issue Detail Page', () => {
 		expect(screen.getByTestId('loading-indicator')).toHaveTextContent('Lade Heft...');
 	});
 
+	it('waits for authentication initialization before loading collection-aware details', () => {
+		mockGetAuthState.mockReturnValue({ isAuthenticated: false, user: null, isLoading: true });
+		render(IssueDetailPage);
+
+		expect(mockFetchIssue).not.toHaveBeenCalled();
+		expect(mockFetchCollectionEntryByIssue).not.toHaveBeenCalled();
+		expect(screen.getByTestId('loading-indicator')).toHaveTextContent('Lade Heft...');
+	});
+
 	it('renders issue details after loading', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);

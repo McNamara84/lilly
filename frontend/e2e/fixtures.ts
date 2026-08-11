@@ -64,7 +64,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 	],
 	anonymousRequest: async ({ playwright }, use, testInfo) => {
 		const request = await playwright.request.newContext({
-			baseURL: projectBaseURL(testInfo.project.use.baseURL)
+			baseURL: projectBaseURL(testInfo.project.use.baseURL),
+			storageState: { cookies: [], origins: [] }
 		});
 		await use(request);
 		await request.dispose();
