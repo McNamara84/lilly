@@ -1,0 +1,13 @@
+[Unit]
+Description=Create a consistent local LILLY backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=lilly-deploy
+Group=lilly-deploy
+ExecStart=/opt/lilly/current/scripts/backup.sh daily
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

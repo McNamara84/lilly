@@ -1,0 +1,158 @@
+name: lilly
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  db:
+    image: mariadb:12.3.2
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-lilly}
+      MARIADB_USER: ${MARIADB_USER:-lilly}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *default-logging
+
+  backend:
+    image: ghcr.io/mcnamara84/lilly-backend:${LILLY_IMAGE_TAG:?LILLY_IMAGE_TAG is required}
+    restart: unless-stopped
+    init: true
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ACCESS_TOKEN_EXPIRY: ${JWT_ACCESS_TOKEN_EXPIRY:-900}
+      JWT_REFRESH_TOKEN_EXPIRY: ${JWT_REFRESH_TOKEN_EXPIRY:-2592000}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      PRIVACY_POLICY_VERSION: ${PRIVACY_POLICY_VERSION:-2026-03-06}
+      RUST_LOG: ${RUST_LOG:-info}
+      BACKEND_PORT: "8080"
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_TLS_MODE: ${SMTP_TLS_MODE:-starttls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@maddrax-fanclub.de}
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL is required}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      ENABLE_DEMO_SEED: "false"
+      E2E_WORKER_COUNT: "0"
+      ENABLE_E2E_FIXTURE_ADAPTER: "false"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      MEDIA_PATH: /media
+      MEDIA_URL_PREFIX: /media
+      PHOTO_MAX_UPLOAD_BYTES: ${PHOTO_MAX_UPLOAD_BYTES:-5242880}
+      PHOTO_MAX_COUNT: "4"
+      PHOTO_MAX_EDGE: ${PHOTO_MAX_EDGE:-2048}
+      PHOTO_MAX_SOURCE_DIMENSION: ${PHOTO_MAX_SOURCE_DIMENSION:-10000}
+      PHOTO_MAX_SOURCE_PIXELS: ${PHOTO_MAX_SOURCE_PIXELS:-40000000}
+      PHOTO_JPEG_QUALITY: ${PHOTO_JPEG_QUALITY:-85}
+      IMPORT_SCHEDULER_ENABLED: ${IMPORT_SCHEDULER_ENABLED:-false}
+      IMPORT_SCHEDULE: ${IMPORT_SCHEDULE:-0 10 6 * * Sat *}
+      IMPORT_TIMEZONE: ${IMPORT_TIMEZONE:-Europe/Berlin}
+      IMPORT_SCHEDULED_ADAPTERS: ${IMPORT_SCHEDULED_ADAPTERS:-maddrax,john-sinclair}
+    volumes:
+      - media_data:/media
+    networks:
+      - app
+      - data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent --show-error http://localhost:8080/api/v1/health >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+    logging: *default-logging
+
+  frontend:
+    image: ghcr.io/mcnamara84/lilly-frontend:${LILLY_IMAGE_TAG:?LILLY_IMAGE_TAG is required}
+    restart: unless-stopped
+    init: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      ORIGIN: ${APP_BASE_URL:?APP_BASE_URL is required}
+    networks:
+      - app
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging: *default-logging
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    ports:
+      - "${LILLY_BIND_ADDRESS:-127.0.0.1}:${LILLY_HOST_PORT:-8091}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - media_data:/srv/media:ro
+    networks:
+      - app
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --quiet --output-document=- http://localhost:80/api/v1/health >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging: *default-logging
+
+networks:
+  app:
+    name: ${LILLY_RESOURCE_PREFIX:-lilly}_app
+  data:
+    name: ${LILLY_RESOURCE_PREFIX:-lilly}_data
+    internal: true
+
+volumes:
+  db_data:
+    name: ${LILLY_RESOURCE_PREFIX:-lilly}_db_data
+  caddy_data:
+    name: ${LILLY_RESOURCE_PREFIX:-lilly}_caddy_data
+  media_data:
+    name: ${LILLY_RESOURCE_PREFIX:-lilly}_media_data

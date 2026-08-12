@@ -10,6 +10,9 @@ target/
 .env
 .env.local
 .env.*.local
+deploy/.env.production
+deploy/.deployment.env
+deploy/backups/
 
 # IDE
 .vscode/
@@ -37,3 +40,4 @@ docker-compose.override.yml
 *tmp/
 
 docs/server.env
+.deployment-secrets/

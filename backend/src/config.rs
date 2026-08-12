@@ -4,6 +4,28 @@ pub struct E2eConfig {
     pub fixture_adapter_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmtpTlsMode {
+    StartTls,
+    Tls,
+}
+
+impl SmtpTlsMode {
+    fn from_env(value: Option<String>) -> Self {
+        match value
+            .as_deref()
+            .unwrap_or("starttls")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "starttls" => Self::StartTls,
+            "tls" => Self::Tls,
+            _ => panic!("SMTP_TLS_MODE must be starttls or tls"),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct OAuthCredentials {
     pub client_id: String,
@@ -41,6 +63,7 @@ pub struct AppConfig {
     pub backend_port: u16,
     pub smtp_host: Option<String>,
     pub smtp_port: u16,
+    pub smtp_tls_mode: SmtpTlsMode,
     pub smtp_user: Option<String>,
     pub smtp_password: Option<String>,
     pub smtp_from: String,
@@ -121,6 +144,7 @@ impl AppConfig {
                 .unwrap_or_else(|| "587".to_string())
                 .parse()
                 .expect("SMTP_PORT must be a number"),
+            smtp_tls_mode: SmtpTlsMode::from_env(get("SMTP_TLS_MODE")),
             smtp_user: get("SMTP_USER").filter(|s| !s.is_empty()),
             smtp_password: get("SMTP_PASSWORD").filter(|s| !s.is_empty()),
             smtp_from: get("SMTP_FROM").unwrap_or_else(|| "noreply@lilly.app".to_string()),
@@ -273,6 +297,7 @@ mod tests {
         assert_eq!(config.backend_port, 8080);
         assert!(config.smtp_host.is_none());
         assert_eq!(config.smtp_port, 587);
+        assert_eq!(config.smtp_tls_mode, SmtpTlsMode::StartTls);
         assert!(config.smtp_user.is_none());
         assert!(config.smtp_password.is_none());
         assert_eq!(config.smtp_from, "noreply@lilly.app");
@@ -300,6 +325,29 @@ mod tests {
             config.import_scheduled_adapters,
             vec!["maddrax", "john-sinclair"]
         );
+    }
+
+    #[test]
+    fn smtp_tls_mode_supports_implicit_tls() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "SMTP_TLS_MODE" => Some(" TLS ".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.smtp_tls_mode, SmtpTlsMode::Tls);
+    }
+
+    #[test]
+    #[should_panic(expected = "SMTP_TLS_MODE must be starttls or tls")]
+    fn invalid_smtp_tls_mode_fails_configuration() {
+        AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "SMTP_TLS_MODE" => Some("opportunistic".to_string()),
+            _ => None,
+        });
     }
 
     #[test]

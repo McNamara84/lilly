@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the LILLY backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Europe/Berlin
+Persistent=true
+RandomizedDelaySec=15m
+Unit=lilly-backup.service
+
+[Install]
+WantedBy=timers.target

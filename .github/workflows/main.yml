@@ -7,7 +7,11 @@ on:
 
 concurrency:
   group: main-${{ github.ref }}
-  cancel-in-progress: true
+  # A running production deployment must never be interrupted half-way.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   frontend-lint:
@@ -122,3 +126,177 @@ jobs:
     with:
       browser: ${{ matrix.browser }}
       write_cache: ${{ matrix.browser == 'chromium' }}
+
+  build-images:
+    name: Build ${{ matrix.component }} image
+    needs:
+      - frontend-lint
+      - frontend-test
+      - frontend-build
+      - backend-lint
+      - backend-test
+      - e2e
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            context: .
+            dockerfile: backend/Dockerfile
+            image: ghcr.io/mcnamara84/lilly-backend
+            cache_scope: lilly-backend
+          - component: frontend
+            context: ./frontend
+            dockerfile: frontend/Dockerfile
+            image: ghcr.io/mcnamara84/lilly-frontend
+            cache_scope: lilly-frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push immutable image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: |
+            ${{ matrix.image }}:${{ github.sha }}
+            ${{ matrix.image }}:main
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+
+  deploy:
+    name: Deploy immutable release
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: lilly-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure pinned SSH host and deployment key
+        env:
+          LILLY_SERVER_SSH_KEY: ${{ secrets.LILLY_SERVER_SSH_KEY }}
+          LILLY_SERVER_KNOWN_HOSTS: ${{ secrets.LILLY_SERVER_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/lilly-ssh"
+          printf '%s\n' "$LILLY_SERVER_SSH_KEY" >"$RUNNER_TEMP/lilly-ssh/id_ed25519"
+          printf '%s\n' "$LILLY_SERVER_KNOWN_HOSTS" >"$RUNNER_TEMP/lilly-ssh/known_hosts"
+          chmod 0600 "$RUNNER_TEMP/lilly-ssh/id_ed25519" "$RUNNER_TEMP/lilly-ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/lilly-ssh/id_ed25519" >/dev/null
+
+      - name: Package deployment release
+        run: |
+          set -Eeuo pipefail
+          tar --create --gzip \
+            --file "$RUNNER_TEMP/lilly-${GITHUB_SHA}.tar.gz" \
+            --directory deploy \
+            .
+
+      - name: Upload and activate release
+        env:
+          LILLY_GHCR_TOKEN: ${{ github.token }}
+          LILLY_SERVER_HOST: ${{ secrets.LILLY_SERVER_HOST }}
+          LILLY_SERVER_USER: ${{ secrets.LILLY_SERVER_USER }}
+        run: |
+          set -Eeuo pipefail
+          case "$GITHUB_SHA" in
+            (*[!0-9a-f]*|'') echo "Invalid commit SHA" >&2; exit 1 ;;
+          esac
+
+          SSH_ARGS=(
+            -i "$RUNNER_TEMP/lilly-ssh/id_ed25519"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=$RUNNER_TEMP/lilly-ssh/known_hosts"
+          )
+          REMOTE="${LILLY_SERVER_USER}@${LILLY_SERVER_HOST}"
+          ARCHIVE="/opt/lilly/incoming/${GITHUB_SHA}.tar.gz"
+
+          case "$GITHUB_ACTOR" in
+            (*[!A-Za-z0-9_-]*|'') echo "Invalid GitHub actor" >&2; exit 1 ;;
+          esac
+
+          registry_logged_in=0
+          logout_registry() {
+            if [[ "$registry_logged_in" = "1" ]]; then
+              ssh "${SSH_ARGS[@]}" "$REMOTE" \
+                'docker logout ghcr.io >/dev/null 2>&1 || true'
+            fi
+          }
+          trap logout_registry EXIT
+
+          # The ephemeral job token also covers the first deployment, before
+          # newly created GHCR packages have been made publicly readable.
+          # shellcheck disable=SC2029 # Actor is validated and intentionally expanded locally.
+          printf '%s' "$LILLY_GHCR_TOKEN" \
+            | ssh "${SSH_ARGS[@]}" "$REMOTE" \
+              "docker login ghcr.io --username ${GITHUB_ACTOR} --password-stdin"
+          registry_logged_in=1
+
+          scp "${SSH_ARGS[@]}" \
+            "$RUNNER_TEMP/lilly-${GITHUB_SHA}.tar.gz" \
+            "${REMOTE}:${ARCHIVE}"
+
+          ssh "${SSH_ARGS[@]}" "$REMOTE" 'bash -s' -- "$GITHUB_SHA" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          readonly RELEASE_ID="$1"
+          readonly LILLY_ROOT="/opt/lilly"
+          case "$RELEASE_ID" in
+            (*[!0-9a-f]*|'') echo "Invalid release ID" >&2; exit 1 ;;
+          esac
+          if [[ "${#RELEASE_ID}" -ne 40 ]]; then
+            echo "Release ID must be a full commit SHA" >&2
+            exit 1
+          fi
+
+          readonly ARCHIVE="${LILLY_ROOT}/incoming/${RELEASE_ID}.tar.gz"
+          readonly RELEASE_DIR="${LILLY_ROOT}/releases/${RELEASE_ID}"
+          readonly TEMP_DIR="${LILLY_ROOT}/releases/.${RELEASE_ID}.incoming"
+
+          umask 077
+          if [[ ! -d "$RELEASE_DIR" ]]; then
+            rm -rf -- "$TEMP_DIR"
+            mkdir "$TEMP_DIR"
+            tar --extract --gzip --file "$ARCHIVE" --directory "$TEMP_DIR"
+            test -f "$TEMP_DIR/docker-compose.production.yml"
+            test -x "$TEMP_DIR/scripts/deploy.sh"
+            mv -- "$TEMP_DIR" "$RELEASE_DIR"
+          fi
+          rm -f -- "$ARCHIVE"
+          "$RELEASE_DIR/scripts/deploy.sh" "$RELEASE_ID"
+          REMOTE_SCRIPT
+
+          logout_registry
+          registry_logged_in=0
+
+      - name: Remove ephemeral SSH material
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/lilly-ssh" "$RUNNER_TEMP/lilly-${GITHUB_SHA}.tar.gz"

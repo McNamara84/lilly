@@ -1,0 +1,21 @@
+:80 {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle /media/covers/* {
+		root * /srv
+		file_server
+	}
+
+	# Private user photos are only returned by authenticated backend routes.
+	handle /media/* {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

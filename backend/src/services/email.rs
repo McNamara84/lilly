@@ -4,6 +4,7 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Address, AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 use crate::config::AppConfig;
+use crate::config::SmtpTlsMode;
 use crate::error::AppError;
 
 fn html_escape(s: &str) -> String {
@@ -28,7 +29,14 @@ pub enum EmailService {
 impl EmailService {
     pub fn from_config(config: &AppConfig) -> Self {
         if let Some(host) = &config.smtp_host {
-            match AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host) {
+            let builder = match config.smtp_tls_mode {
+                SmtpTlsMode::StartTls => {
+                    AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
+                }
+                SmtpTlsMode::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(host),
+            };
+
+            match builder {
                 Ok(builder) => {
                     let mut builder = builder.port(config.smtp_port);
 
@@ -158,6 +166,7 @@ mod tests {
             backend_port: 8080,
             smtp_host: None,
             smtp_port: 587,
+            smtp_tls_mode: SmtpTlsMode::StartTls,
             smtp_user: None,
             smtp_password: None,
             smtp_from: "test@lilly.app".to_string(),
