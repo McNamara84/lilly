@@ -1,5 +1,6 @@
 pub mod collection;
 pub mod import_review;
+pub mod media;
 pub mod messaging;
 pub mod notifications;
 pub mod profile;

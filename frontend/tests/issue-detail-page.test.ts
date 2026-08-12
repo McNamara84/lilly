@@ -127,6 +127,15 @@ describe('Issue Detail Page', () => {
 		expect(screen.getByTestId('loading-indicator')).toHaveTextContent('Lade Heft...');
 	});
 
+	it('waits for authentication initialization before loading collection-aware details', () => {
+		mockGetAuthState.mockReturnValue({ isAuthenticated: false, user: null, isLoading: true });
+		render(IssueDetailPage);
+
+		expect(mockFetchIssue).not.toHaveBeenCalled();
+		expect(mockFetchCollectionEntryByIssue).not.toHaveBeenCalled();
+		expect(screen.getByTestId('loading-indicator')).toHaveTextContent('Lade Heft...');
+	});
+
 	it('renders issue details after loading', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
@@ -399,6 +408,23 @@ describe('Issue Detail Page', () => {
 				notes: 'Test note'
 			})
 		);
+	});
+
+	it('does not offer photo management for a wanted entry', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue({
+			...sampleEntry,
+			condition_grade: null,
+			status: 'wanted'
+		});
+
+		render(IssueDetailPage);
+
+		expect(
+			await screen.findByText('Eigene Fotos sind für vorhandene oder doppelte Exemplare verfügbar.')
+		).toBeInTheDocument();
+		expect(screen.queryByTestId('photo-uploader')).not.toBeInTheDocument();
 	});
 
 	it('sends an empty note explicitly when clearing an existing note', async () => {

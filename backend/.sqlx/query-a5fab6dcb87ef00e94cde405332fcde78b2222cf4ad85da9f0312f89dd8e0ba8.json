@@ -1,0 +1,184 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT cp.id AS `id: u32`, ce.user_id AS `owner_user_id: u32`,\n                  u.collection_public AS `collection_public: bool`,\n                  cp.storage_key AS `storage_key: String`,\n                  cp.media_type AS `media_type: String`, cp.byte_size AS `byte_size: u32`,\n                  cp.width AS `width: u32`, cp.height AS `height: u32`,\n                  cp.sort_order AS `sort_order: u8`,\n                  cp.created_at AS `created_at: chrono::NaiveDateTime`\n           FROM collection_photos cp\n           JOIN collection_entries ce ON ce.id = cp.entry_id\n           JOIN users u ON u.id = ce.user_id\n           WHERE cp.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | PRIMARY_KEY | UNSIGNED | AUTO_INCREMENT",
+          "collation": 63,
+          "max_size": 10
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_user_id: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | MULTIPLE_KEY | UNSIGNED | NO_DEFAULT_VALUE",
+          "collation": 63,
+          "max_size": 10
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_entries",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "collection_public: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "collation": 63,
+          "max_size": 1
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.users",
+            "name": "collection_public"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "storage_key: String",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "collation": 224,
+          "max_size": 512
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "storage_key"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "media_type: String",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "collation": 224,
+          "max_size": 128
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "media_type"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "byte_size: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "collation": 63,
+          "max_size": 10
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "byte_size"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "width: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "collation": 63,
+          "max_size": 10
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "width"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "height: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "collation": 63,
+          "max_size": 10
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "height"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "sort_order: u8",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL | UNSIGNED",
+          "collation": 63,
+          "max_size": 3
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "sort_order"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at: chrono::NaiveDateTime",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "NOT_NULL | BINARY",
+          "collation": 63,
+          "max_size": 19
+        },
+        "origin": {
+          "Table": {
+            "table": "lilly_test.collection_photos",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a5fab6dcb87ef00e94cde405332fcde78b2222cf4ad85da9f0312f89dd8e0ba8"
+}

@@ -3,6 +3,7 @@ pub mod demo;
 pub mod import_jobs;
 pub mod import_review;
 pub mod issues;
+pub mod media;
 pub mod messaging;
 pub mod notifications;
 pub mod profiles;

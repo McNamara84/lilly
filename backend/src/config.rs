@@ -4,6 +4,29 @@ pub struct E2eConfig {
     pub fixture_adapter_enabled: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PhotoUploadConfig {
+    pub max_upload_bytes: usize,
+    pub max_count: u8,
+    pub max_edge: u32,
+    pub max_source_dimension: u32,
+    pub max_source_pixels: u64,
+    pub jpeg_quality: u8,
+}
+
+impl Default for PhotoUploadConfig {
+    fn default() -> Self {
+        Self {
+            max_upload_bytes: 5 * 1024 * 1024,
+            max_count: 4,
+            max_edge: 2_048,
+            max_source_dimension: 10_000,
+            max_source_pixels: 40_000_000,
+            jpeg_quality: 85,
+        }
+    }
+}
+
 pub struct AppConfig {
     pub database_url: String,
     pub jwt_secret: String,
@@ -20,6 +43,7 @@ pub struct AppConfig {
     pub admin_email: Option<String>,
     pub media_path: String,
     pub media_url_prefix: String,
+    pub photo_upload: PhotoUploadConfig,
     pub e2e: E2eConfig,
     pub import_scheduler_enabled: bool,
     pub import_schedule: String,
@@ -53,6 +77,8 @@ impl AppConfig {
             !e2e_fixture_adapter_enabled || demo_seed_enabled,
             "ENABLE_E2E_FIXTURE_ADAPTER requires ENABLE_DEMO_SEED=true"
         );
+
+        let photo_upload = photo_upload_config(&get);
 
         Self {
             database_url: get("DATABASE_URL").expect("DATABASE_URL must be set"),
@@ -90,6 +116,7 @@ impl AppConfig {
                 }),
             media_path: get("MEDIA_PATH").unwrap_or_else(|| "/media".to_string()),
             media_url_prefix: get("MEDIA_URL_PREFIX").unwrap_or_else(|| "/media".to_string()),
+            photo_upload,
             e2e: E2eConfig {
                 demo_seed_enabled,
                 worker_count: e2e_worker_count,
@@ -111,6 +138,61 @@ impl AppConfig {
                 .collect(),
         }
     }
+}
+
+fn photo_upload_config(get: &impl Fn(&str) -> Option<String>) -> PhotoUploadConfig {
+    let config = PhotoUploadConfig {
+        max_upload_bytes: get("PHOTO_MAX_UPLOAD_BYTES")
+            .unwrap_or_else(|| (5 * 1024 * 1024).to_string())
+            .parse()
+            .expect("PHOTO_MAX_UPLOAD_BYTES must be a number"),
+        max_count: get("PHOTO_MAX_COUNT")
+            .unwrap_or_else(|| "4".to_string())
+            .parse()
+            .expect("PHOTO_MAX_COUNT must be a number"),
+        max_edge: get("PHOTO_MAX_EDGE")
+            .unwrap_or_else(|| "2048".to_string())
+            .parse()
+            .expect("PHOTO_MAX_EDGE must be a number"),
+        max_source_dimension: get("PHOTO_MAX_SOURCE_DIMENSION")
+            .unwrap_or_else(|| "10000".to_string())
+            .parse()
+            .expect("PHOTO_MAX_SOURCE_DIMENSION must be a number"),
+        max_source_pixels: get("PHOTO_MAX_SOURCE_PIXELS")
+            .unwrap_or_else(|| "40000000".to_string())
+            .parse()
+            .expect("PHOTO_MAX_SOURCE_PIXELS must be a number"),
+        jpeg_quality: get("PHOTO_JPEG_QUALITY")
+            .unwrap_or_else(|| "85".to_string())
+            .parse()
+            .expect("PHOTO_JPEG_QUALITY must be a number"),
+    };
+    assert!(
+        (1..=5 * 1024 * 1024).contains(&config.max_upload_bytes),
+        "PHOTO_MAX_UPLOAD_BYTES must be between 1 and 5242880"
+    );
+    assert!(
+        config.max_count == 4,
+        "PHOTO_MAX_COUNT must be 4 for the MVP database constraint"
+    );
+    assert!(
+        (1..=4_096).contains(&config.max_edge),
+        "PHOTO_MAX_EDGE must be between 1 and 4096"
+    );
+    assert!(
+        config.max_source_dimension >= config.max_edge && config.max_source_dimension <= 20_000,
+        "PHOTO_MAX_SOURCE_DIMENSION must be between PHOTO_MAX_EDGE and 20000"
+    );
+    assert!(
+        config.max_source_pixels >= u64::from(config.max_edge).pow(2)
+            && config.max_source_pixels <= 100_000_000,
+        "PHOTO_MAX_SOURCE_PIXELS must safely cover PHOTO_MAX_EDGE and not exceed 100000000"
+    );
+    assert!(
+        (1..=100).contains(&config.jpeg_quality),
+        "PHOTO_JPEG_QUALITY must be between 1 and 100"
+    );
+    config
 }
 
 #[cfg(test)]
@@ -137,6 +219,12 @@ mod tests {
         assert!(config.admin_email.is_none());
         assert_eq!(config.media_path, "/media");
         assert_eq!(config.media_url_prefix, "/media");
+        assert_eq!(config.photo_upload.max_upload_bytes, 5 * 1024 * 1024);
+        assert_eq!(config.photo_upload.max_count, 4);
+        assert_eq!(config.photo_upload.max_edge, 2_048);
+        assert_eq!(config.photo_upload.max_source_dimension, 10_000);
+        assert_eq!(config.photo_upload.max_source_pixels, 40_000_000);
+        assert_eq!(config.photo_upload.jpeg_quality, 85);
         assert!(!config.e2e.demo_seed_enabled);
         assert_eq!(config.e2e.worker_count, 0);
         assert!(!config.e2e.fixture_adapter_enabled);
@@ -213,6 +301,37 @@ mod tests {
             "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
             "JWT_SECRET" => Some("test-secret".to_string()),
             "ENABLE_E2E_FIXTURE_ADAPTER" => Some("true".to_string()),
+            _ => None,
+        });
+    }
+
+    #[test]
+    fn photo_upload_configuration_can_be_restricted() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "PHOTO_MAX_UPLOAD_BYTES" => Some("1048576".to_string()),
+            "PHOTO_MAX_EDGE" => Some("1024".to_string()),
+            "PHOTO_MAX_SOURCE_DIMENSION" => Some("8000".to_string()),
+            "PHOTO_MAX_SOURCE_PIXELS" => Some("20000000".to_string()),
+            "PHOTO_JPEG_QUALITY" => Some("80".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.photo_upload.max_upload_bytes, 1_048_576);
+        assert_eq!(config.photo_upload.max_edge, 1_024);
+        assert_eq!(config.photo_upload.max_source_dimension, 8_000);
+        assert_eq!(config.photo_upload.max_source_pixels, 20_000_000);
+        assert_eq!(config.photo_upload.jpeg_quality, 80);
+    }
+
+    #[test]
+    #[should_panic(expected = "PHOTO_MAX_COUNT must be 4")]
+    fn photo_count_outside_mvp_constraint_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "PHOTO_MAX_COUNT" => Some("5".to_string()),
             _ => None,
         });
     }

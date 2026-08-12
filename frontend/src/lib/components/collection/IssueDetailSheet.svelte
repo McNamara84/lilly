@@ -8,6 +8,7 @@
 	} from '$lib/collection/notes';
 	import type { Issue } from '$lib/api/series';
 	import ConditionChips from './ConditionChips.svelte';
+	import PhotoUploader from '$lib/components/media/PhotoUploader.svelte';
 
 	interface Props {
 		issue: Issue | null;
@@ -187,6 +188,18 @@
 				<p id="entry-notes-hint" class="mt-1 text-[10px]" style="color: var(--text-tertiary);">
 					Leeren und speichern entfernt die Notiz. {noteLength}/{MAX_COLLECTION_NOTE_LENGTH}
 				</p>
+
+				{#if isEditing && collection_entry && collection_entry.status !== 'wanted' && status !== 'wanted'}
+					<PhotoUploader entryId={collection_entry.id} />
+				{:else if isEditing && (collection_entry?.status === 'wanted' || status === 'wanted')}
+					<p class="mt-4 text-xs" style="color: var(--text-tertiary);">
+						Eigene Fotos sind für vorhandene oder doppelte Exemplare verfügbar.
+					</p>
+				{:else}
+					<p class="mt-4 text-xs" style="color: var(--text-tertiary);">
+						Speichere das Exemplar zuerst, um eigene Fotos hinzuzufügen.
+					</p>
+				{/if}
 			</section>
 
 			<!-- Error message -->

@@ -511,11 +511,11 @@
       },
       "features": [
         "Drag-and-drop zone with dashed border",
-        "Camera capture button (uses navigator.mediaDevices on mobile)",
-        "Photo preview grid with reorder drag handles",
+        "Camera-compatible file input using capture=environment on supported mobile browsers",
+        "Photo preview grid using four stable slots",
         "Delete button with confirmation",
         "Upload progress indicator per photo",
-        "Client-side image compression before upload (max 2048px, 85% JPEG quality)"
+        "Server-authoritative validation and normalisation (max 2048px, 85% JPEG quality)"
       ]
     },
 

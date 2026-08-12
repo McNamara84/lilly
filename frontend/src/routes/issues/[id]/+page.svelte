@@ -18,6 +18,7 @@
 		limitCollectionNote
 	} from '$lib/collection/notes';
 	import ConditionChips from '$lib/components/collection/ConditionChips.svelte';
+	import PhotoUploader from '$lib/components/media/PhotoUploader.svelte';
 
 	const auth = getAuthState();
 
@@ -39,14 +40,17 @@
 	const noteLength = $derived(countCollectionNoteCharacters(notes));
 
 	$effect(() => {
-		void issueId;
+		const currentIssueId = issueId;
+		const authenticationLoading = auth.isLoading;
+		const authenticated = auth.isAuthenticated;
+		if (authenticationLoading) return;
 		untrack(() => {
-			loadIssue();
+			loadIssue(currentIssueId, authenticated);
 		});
 	});
 
-	async function loadIssue() {
-		if (!issueId || isNaN(issueId)) {
+	async function loadIssue(currentIssueId: number, authenticated: boolean) {
+		if (!currentIssueId || isNaN(currentIssueId)) {
 			issue = null;
 			entry = null;
 			error = 'Ungültige Heft-ID';
@@ -62,12 +66,12 @@
 		status = 'owned';
 		notes = '';
 		try {
-			issue = await fetchIssue(issueId);
+			issue = await fetchIssue(currentIssueId);
 
 			// Try to load collection entry for this issue (if authenticated)
-			if (auth.isAuthenticated) {
+			if (authenticated) {
 				try {
-					const found = await fetchCollectionEntryByIssue(issueId);
+					const found = await fetchCollectionEntryByIssue(currentIssueId);
 					if (found) {
 						entry = found;
 						conditionGrade = found.condition_grade ?? 'Z2';
@@ -310,6 +314,18 @@
 							</button>
 						{/if}
 					</div>
+
+					{#if isInCollection && entry && entry.status !== 'wanted' && status !== 'wanted'}
+						<PhotoUploader entryId={entry.id} />
+					{:else if isInCollection && (entry?.status === 'wanted' || status === 'wanted')}
+						<p class="mt-4 text-xs" style="color: var(--text-tertiary);">
+							Eigene Fotos sind für vorhandene oder doppelte Exemplare verfügbar.
+						</p>
+					{:else}
+						<p class="mt-4 text-xs" style="color: var(--text-tertiary);">
+							Speichere das Exemplar zuerst, um eigene Fotos hinzuzufügen.
+						</p>
+					{/if}
 				</section>
 			{/if}
 

@@ -72,7 +72,7 @@ MariaDB ist ein ausgereiftes, performantes RDBMS mit vollständiger MySQL-Kompat
 
 **Caddy als Reverse Proxy**
 
-Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Encrypt) mit minimalem Konfigurationsaufwand. Ein typisches Caddyfile für LILLY umfasst weniger als 10 Zeilen. Caddy unterstützt HTTP/2 und HTTP/3 out-of-the-box und dient gleichzeitig als Static File Server für die hochgeladenen Fotos.
+Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Encrypt) mit minimalem Konfigurationsaufwand. Caddy unterstützt HTTP/2 und HTTP/3 out-of-the-box und stellt ausschließlich öffentliche Referenzcover statisch bereit. Private Sammlungsfotos werden dagegen immer zugriffskontrolliert über die Backend-API ausgeliefert.
 
 ---
 
@@ -109,7 +109,7 @@ Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 
 | Container  | Image                                       | Port (intern)    | Aufgabe                                                              |
 | ---------- | ------------------------------------------- | ---------------- | -------------------------------------------------------------------- |
-| `caddy`    | `caddy:2.11.4-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, Static File Serving für /media    |
+| `caddy`    | `caddy:2.11.4-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
 | `frontend` | `node:26.7.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages       |
 | `backend`  | `rust:1.97.1-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung |
 | `db`       | `mariadb:12.3.2`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                              |
@@ -122,7 +122,7 @@ Der typische Ablauf einer Nutzeranfrage:
 1. **Client → Caddy:** Alle eingehenden Requests landen bei Caddy (Port 443). Caddy terminiert TLS und routet basierend auf dem Pfad.
 2. **Caddy → Frontend:** Seiten-Requests (HTML, JS, CSS) werden an den SvelteKit-Server (Port 3000) weitergeleitet. SvelteKit liefert SSR-gerenderte Seiten oder die PWA-Shell.
 3. **Caddy → Backend:** API-Requests unter `/api/*` werden direkt an den Axum-Server (Port 8080) geroutet.
-4. **Caddy → Dateisystem:** Requests unter `/media/*` werden direkt von Caddy als statische Dateien aus dem gemounteten Volume serviert (Fotos, Cover).
+4. **Caddy → Dateisystem:** Nur Referenzcover unter `/media/covers/*` werden statisch aus dem gemounteten Volume ausgeliefert. Nutzerfotos laufen immer über den autorisierenden API-Endpunkt; andere `/media/*`-Pfade liefern `404`.
 5. **Backend → MariaDB:** Der Axum-Server kommuniziert über SQLx mit MariaDB für alle Datenoperationen.
 
 ---
@@ -211,9 +211,18 @@ _Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe H
 | ------------ | ------------ | --------------- | ------------------------------------------------------------ |
 | `id`         | INT UNSIGNED | PK, AUTO_INC    | Primärschlüssel                                              |
 | `entry_id`   | INT UNSIGNED | FK, NOT NULL    | Fremdschlüssel auf collection_entries.id (ON DELETE CASCADE) |
-| `file_path`  | VARCHAR(500) | NOT NULL        | Relativer Pfad im /media-Volume                              |
-| `sort_order` | TINYINT      | NOT NULL, DEF 0 | Sortierreihenfolge der Fotos                                 |
-| `created_at` | TIMESTAMP    | NOT NULL        | Upload-Zeitpunkt                                             |
+| `storage_key` | VARCHAR(128) | UNIQUE, NOT NULL | Servergenerierter, nicht erratbarer Schlüssel im privaten Media-Volume |
+| `media_type`  | VARCHAR(32)  | NOT NULL         | Kanonischer MIME-Typ des gespeicherten Derivats              |
+| `byte_size`   | INT UNSIGNED | NOT NULL         | Größe des normalisierten Derivats                             |
+| `width`       | INT UNSIGNED | NOT NULL         | Verifizierte Breite des Derivats                              |
+| `height`      | INT UNSIGNED | NOT NULL         | Verifizierte Höhe des Derivats                                |
+| `sort_order`  | TINYINT      | NOT NULL, 0–3    | Stabiler Foto-Slot innerhalb des Sammlungsexemplars           |
+| `created_at`  | TIMESTAMP    | NOT NULL         | Upload-Zeitpunkt                                              |
+
+_Unique Index: `(entry_id, sort_order)` – zusammen mit einer `FOR UPDATE`-Sperre des
+Sammlungseintrags verhindert er, dass parallele Uploads das Viererlimit überschreiten. Offene
+Dateilöschungen werden in `media_deletion_jobs` persistiert und beim Backend-Start idempotent
+wiederholt._
 
 ### 4.6 Tabelle: `import_jobs`
 
@@ -289,6 +298,10 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **PATCH**    | `/api/v1/me/collection/{id}`                      | Ja      | Eintrag ändern (Zustand, Status, Notizen)                                               |
 | **DELETE**   | `/api/v1/me/collection/{id}`                      | Ja      | Eintrag entfernen                                                                       |
 | **POST**     | `/api/v1/me/collection/{id}/photos`               | Ja      | Foto hochladen (multipart/form-data)                                                    |
+| **GET**      | `/api/v1/me/collection/{id}/photos`                | Ja      | Eigene Fotos des exakten Sammlungsexemplars auflisten                                  |
+| **DELETE**   | `/api/v1/me/collection/{id}/photos/{photo_id}`     | Ja      | Eigenes Foto einzeln löschen                                                           |
+| **GET**      | `/api/v1/collection-photos/{photo_id}/content`     | Optional| Foto für Eigentümer oder bei öffentlicher Sammlung ausliefern                          |
+| **GET**      | `/api/v1/media/photo-policy`                       | Nein    | Nicht-sensitive Uploadgrenzen und unterstützte Bildtypen                               |
 | **GET**      | `/api/v1/me/trade-offers`                         | Ja      | Eigene aktive Tauschangebote aus Einträgen mit Status `duplicate` (Filter, Paginierung) |
 | **GET**      | `/api/v1/me/wanted`                               | Ja      | Eigene aktive Wunschliste (Filter, Paginierung)                                         |
 | **GET**      | `/api/v1/me/wanted/candidates`                    | Ja      | Nicht vorhandene Hefte einer aktiven Serie samt Wunschstatus                            |
@@ -447,13 +460,13 @@ SvelteKit generiert in Kombination mit dem Vite-PWA-Plugin einen Service Worker,
 
 - **App Shell (Cache First):** HTML-Gerüst, JavaScript-Bundles, CSS und UI-Assets werden beim ersten Besuch gecacht und bei Updates im Hintergrund aktualisiert.
 - **API-Daten (Network First):** Sammlungsdaten werden bevorzugt vom Server geladen. Bei fehlender Verbindung wird die letzte gecachte Version angezeigt.
-- **Bilder (Stale While Revalidate):** Cover-Bilder und Fotos werden aus dem Cache serviert und im Hintergrund aktualisiert.
+- **Bilder:** Öffentliche Referenzcover können „Stale While Revalidate“ verwenden. Persönliche Fotos werden mit `private, no-store` ausgeliefert und nicht in einen gemeinsamen Service-Worker-Cache aufgenommen.
 
 ### 7.2 Offline-Fähigkeit
 
 - **Lesen:** Die eigene Sammlung kann vollständig offline eingesehen werden (gecachte Daten + IndexedDB).
 - **Schreiben:** Änderungen an der Sammlung (Zustand, Status, Notizen) werden lokal in einer Sync-Queue gespeichert und bei Wiederherstellung der Verbindung automatisch synchronisiert.
-- **Fotos:** Foto-Uploads werden in der Queue gespeichert und bei nächster Gelegenheit hochgeladen.
+- **Fotos:** Foto-Uploads sind im MVP bewusst onlinepflichtig. Ausgewählte Dateien werden nicht dauerhaft in einer Offline-Queue abgelegt; die UI meldet Übertragungsfehler und lässt vorhandene Fotos unverändert.
 - **Tausch:** Tausch-Funktionen erfordern eine aktive Internetverbindung.
 
 ---
@@ -559,8 +572,13 @@ lilly/
 - **Input-Validierung:** Alle Eingaben werden serverseitig validiert (serde + validator-Crate). SQL Injection wird durch SQLx-Prepared-Statements verhindert.
 - **XSS:** SvelteKit escaped Output automatisch. User-generierte Notizen werden ausschließlich als Text gespeichert und gerendert; ungeprüftes HTML wird nicht ausgegeben.
 - **CSRF:** API-Calls sind durch JWT im Authorization-Header geschützt (kein Cookie). Der Refresh-Token wird jedoch als httpOnly-Cookie übertragen, daher ist der Endpunkt `/api/v1/auth/refresh` prinzipiell CSRF-anfällig. Schutzmaßnahmen: `SameSite=Strict` auf dem Refresh-Cookie, serverseitige Validierung des `Origin`-Headers, und Beschränkung des Refresh-Endpunkts auf das Ausstellen neuer Tokens (keine zustandsändernde Geschäftslogik).
-- **Upload-Sicherheit:** Nur JPEG, PNG und WebP erlaubt. Maximale Dateigröße: 5 MB. Dateien werden serverseitig re-encoded (image-Crate), um Exploits in Bild-Metadaten zu eliminieren.
-- **Datenschutz:** E-Mail-Adressen werden verschlüsselt gespeichert (AES-256-GCM). Account-Löschung entfernt alle personenbezogenen Daten inklusive Fotos.
+- **Upload-Sicherheit:** Nur erfolgreich dekodierbare JPEG-, PNG- und WebP-Inhalte sind erlaubt;
+  Dateiname und Client-MIME-Typ werden nicht vertraut. Maximale Eingabegröße: 5 MiB. Container,
+  Abmessungen und Pixelzahl werden vor teurer Verarbeitung begrenzt. Das Backend korrigiert die
+  Orientierung, skaliert ohne Hochskalierung auf maximal 2048 px, entfernt Metadaten und erzeugt
+  ein kanonisches JPEG-Derivat. Caddy veröffentlicht ausschließlich Referenzcover unter
+  `/media/covers/*`; Nutzerfotos werden nach Owner-/Privacy-Prüfung durch die API gestreamt.
+- **Datenschutz:** E-Mail-Adressen werden verschlüsselt gespeichert (AES-256-GCM). Beim Löschen eines Accounts entfernt die Datenbankkaskade die Fotozuordnungen; der idempotente Storage-Abgleich beseitigt die danach verwaisten Dateien.
 
 ---
 

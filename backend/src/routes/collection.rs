@@ -279,6 +279,13 @@ async fn update_entry(
         .await?;
     }
 
+    let photo_storage_keys = if final_status == "wanted" && existing.status != "wanted" {
+        crate::db::media::enqueue_entry_photo_deletions(&mut transaction, entry_id, auth.user_id)
+            .await?
+    } else {
+        Vec::new()
+    };
+
     collection::update_entry_on_connection(
         &mut transaction,
         entry_id,
@@ -305,6 +312,18 @@ async fn update_entry(
     }
     transaction.commit().await?;
 
+    for storage_key in photo_storage_keys {
+        if let Err(error) = crate::services::media::process_deletion_key(
+            &state.inner.pool,
+            &state.inner.media_storage,
+            &storage_key,
+        )
+        .await
+        {
+            tracing::warn!(entry_id, error = %error, "Collection photo deletion queued for retry");
+        }
+    }
+
     Ok(Json(CollectionEntryResponse::from(&row)))
 }
 
@@ -320,6 +339,9 @@ async fn delete_entry(
     let mut transaction = state.inner.pool.begin().await?;
     trade_matching::prepare_entry_mutation_in_transaction(&mut transaction, auth.user_id, entry_id)
         .await?;
+    let photo_storage_keys =
+        crate::db::media::enqueue_entry_photo_deletions(&mut transaction, entry_id, auth.user_id)
+            .await?;
     let deleted =
         collection::delete_entry_on_connection(&mut transaction, entry_id, auth.user_id).await?;
 
@@ -331,6 +353,18 @@ async fn delete_entry(
 
     crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
     transaction.commit().await?;
+
+    for storage_key in photo_storage_keys {
+        if let Err(error) = crate::services::media::process_deletion_key(
+            &state.inner.pool,
+            &state.inner.media_storage,
+            &storage_key,
+        )
+        .await
+        {
+            tracing::warn!(entry_id, error = %error, "Collection photo deletion queued for retry");
+        }
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -26,6 +26,8 @@ COPY backend/migrations/ backend/migrations/
 COPY backend/.sqlx/ backend/.sqlx/
 COPY importer-core/src/ importer-core/src/
 COPY importer-adapters/src/ importer-adapters/src/
+COPY importer-adapters/tests/ importer-adapters/tests/
+COPY importer/src/ importer/src/
 
 # Touch main.rs so cargo rebuilds it
 RUN touch backend/src/main.rs importer-core/src/lib.rs importer-adapters/src/lib.rs

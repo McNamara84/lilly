@@ -166,6 +166,7 @@ mod tests {
             admin_email: None,
             media_path: "/media".to_string(),
             media_url_prefix: "/media".to_string(),
+            photo_upload: crate::config::PhotoUploadConfig::default(),
             import_scheduler_enabled: false,
             import_schedule: "0 10 6 * * Sat *".to_string(),
             import_timezone: "Europe/Berlin".to_string(),

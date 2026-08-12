@@ -223,6 +223,9 @@ async fn delete_wanted_entry(
         entry_id,
     )
     .await?;
+    let photo_storage_keys =
+        crate::db::media::enqueue_entry_photo_deletions(&mut transaction, entry_id, auth.user_id)
+            .await?;
     let deleted =
         trades::delete_wanted_entry_on_connection(&mut transaction, auth.user_id, entry_id).await?;
     if !deleted {
@@ -231,6 +234,18 @@ async fn delete_wanted_entry(
 
     crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
     transaction.commit().await?;
+
+    for storage_key in photo_storage_keys {
+        if let Err(error) = crate::services::media::process_deletion_key(
+            &state.inner.pool,
+            &state.inner.media_storage,
+            &storage_key,
+        )
+        .await
+        {
+            tracing::warn!(entry_id, error = %error, "Wanted photo deletion queued for retry");
+        }
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -270,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn trade_routes_reject_unauthenticated_requests() {
-        let app = test_router(lazy_pool());
+        let app = test_router(lazy_pool(), PathBuf::from("/tmp/lilly-trade-route-tests"));
         let requests = [
             request(Method::GET, "/api/v1/me/trade-offers", "", None),
             request(Method::GET, "/api/v1/me/wanted", "", None),
@@ -314,7 +329,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::too_many_lines)]
     async fn trade_routes_validate_query_path_and_json_extractors() {
-        let app = test_router(lazy_pool());
+        let app = test_router(lazy_pool(), PathBuf::from("/tmp/lilly-trade-route-tests"));
         let long_search = "a".repeat(201);
         let long_slug = "s".repeat(101);
 
@@ -439,7 +454,26 @@ mod tests {
             insert_entry(&pool, owner_id, owned_issue_id, "owned", Some("Z1")).await;
         let foreign_wanted_id =
             insert_entry(&pool, other_id, foreign_issue_id, "wanted", None).await;
-        let app = test_router(pool.clone());
+        let media_root = std::env::temp_dir().join(format!("lilly-trade-route-{suffix}"));
+        let wanted_storage_key = format!("{suffix:032x}.jpg");
+        let wanted_photo_path = media_root.join("user-photos").join(&wanted_storage_key);
+        tokio::fs::create_dir_all(wanted_photo_path.parent().unwrap())
+            .await
+            .expect("photo fixture directory must be created");
+        tokio::fs::write(&wanted_photo_path, b"legacy wanted photo")
+            .await
+            .expect("photo fixture must be written");
+        sqlx::query(
+            "INSERT INTO collection_photos \
+             (entry_id, storage_key, media_type, byte_size, width, height, sort_order) \
+             VALUES (?, ?, 'image/jpeg', 19, 1, 1, 0)",
+        )
+        .bind(wanted_entry_id)
+        .bind(&wanted_storage_key)
+        .execute(&pool)
+        .await
+        .expect("wanted photo fixture must be inserted");
+        let app = test_router(pool.clone(), media_root.clone());
 
         let offers = app
             .clone()
@@ -535,6 +569,15 @@ mod tests {
             .expect("own wanted delete request must complete");
         assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
         assert_eq!(entry_count(&pool, wanted_entry_id).await, 0);
+        assert!(!wanted_photo_path.exists());
+        let deletion_processed = sqlx::query_scalar::<_, bool>(
+            "SELECT processed_at IS NOT NULL FROM media_deletion_jobs WHERE storage_key = ?",
+        )
+        .bind(&wanted_storage_key)
+        .fetch_one(&pool)
+        .await
+        .expect("wanted photo deletion job must exist");
+        assert!(deletion_processed);
 
         sqlx::query("DELETE FROM users WHERE id IN (?, ?)")
             .bind(owner_id)
@@ -547,6 +590,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("series fixture must be deleted");
+        let _ = tokio::fs::remove_dir_all(media_root).await;
     }
 
     fn lazy_pool() -> MySqlPool {
@@ -555,7 +599,8 @@ mod tests {
             .expect("lazy test pool URL must be valid")
     }
 
-    fn test_router(pool: MySqlPool) -> Router {
+    fn test_router(pool: MySqlPool, media_root: PathBuf) -> Router {
+        let media_storage = crate::services::media::MediaStorage::new(&media_root);
         router().with_state(AppState {
             inner: Arc::new(AppStateInner {
                 pool,
@@ -568,8 +613,10 @@ mod tests {
                 app_base_url: "http://localhost".to_string(),
                 cookie_secure: false,
                 adapter_registry: AdapterRegistry::new(),
-                media_path: PathBuf::from("/tmp/lilly-trade-route-tests"),
+                media_path: media_root,
                 media_url_prefix: "/media".to_string(),
+                photo_upload_config: crate::config::PhotoUploadConfig::default(),
+                media_storage,
                 import_scheduler_config: ImportSchedulerConfig {
                     enabled: false,
                     schedule: "0 10 6 * * Sat *".to_string(),

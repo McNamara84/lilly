@@ -97,6 +97,9 @@ async fn main() {
         tracing::error!("Failed to seed demo data: {e}");
     }
 
+    let media_path = PathBuf::from(&config.media_path);
+    let media_storage = prepare_media_storage(&pool, &media_path).await;
+
     let match_stats = db::trade_matching::reconcile_all_matches(&pool)
         .await
         .expect("Failed to reconcile trade matches");
@@ -115,13 +118,7 @@ async fn main() {
 
     let email_service = services::email::EmailService::from_config(&config);
 
-    let mut adapter_registry = lilly_importer_adapters::builtin_registry()
-        .expect("Failed to create built-in import adapters");
-    if config.e2e.fixture_adapter_enabled {
-        adapter_registry
-            .register(Box::new(services::e2e_import::E2eFixtureAdapter))
-            .expect("E2E fixture adapter name must be unique");
-    }
+    let adapter_registry = build_adapter_registry(config.e2e.fixture_adapter_enabled);
 
     let import_scheduler_config = services::import_scheduler::ImportSchedulerConfig {
         enabled: config.import_scheduler_enabled,
@@ -140,8 +137,10 @@ async fn main() {
             app_base_url: config.app_base_url,
             cookie_secure: config.cookie_secure,
             adapter_registry,
-            media_path: PathBuf::from(config.media_path),
+            media_path,
             media_url_prefix: config.media_url_prefix,
+            photo_upload_config: config.photo_upload,
+            media_storage,
             import_scheduler_config: import_scheduler_config.clone(),
         }),
     };
@@ -160,6 +159,7 @@ async fn main() {
         .merge(routes::profiles::router())
         .merge(routes::trades::router())
         .merge(routes::messages::router())
+        .merge(routes::media::router())
         .merge(routes::notifications::router())
         .merge(routes::admin::router())
         .with_state(app_state)
@@ -174,6 +174,34 @@ async fn main() {
         .expect("Failed to bind listener");
 
     axum::serve(listener, app).await.expect("Server error");
+}
+
+async fn prepare_media_storage(
+    pool: &sqlx::MySqlPool,
+    media_path: &std::path::Path,
+) -> services::media::MediaStorage {
+    let storage = services::media::MediaStorage::new(media_path);
+    match services::media::reconcile_storage(pool, &storage).await {
+        Ok(stats) => tracing::info!(
+            completed_deletions = stats.completed_jobs,
+            failed_deletions = stats.failed_jobs,
+            removed_orphans = stats.removed_orphans,
+            "User photo storage reconciled"
+        ),
+        Err(error) => tracing::error!(error = %error, "User photo storage reconciliation failed"),
+    }
+    storage
+}
+
+fn build_adapter_registry(fixture_adapter_enabled: bool) -> lilly_importer_core::AdapterRegistry {
+    let mut registry = lilly_importer_adapters::builtin_registry()
+        .expect("Failed to create built-in import adapters");
+    if fixture_adapter_enabled {
+        registry
+            .register(Box::new(services::e2e_import::E2eFixtureAdapter))
+            .expect("E2E fixture adapter name must be unique");
+    }
+    registry
 }
 
 async fn bootstrap_admin(pool: &sqlx::MySqlPool, admin_email: &str) {

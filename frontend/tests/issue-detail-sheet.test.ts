@@ -265,6 +265,38 @@ describe('IssueDetailSheet', () => {
 		);
 	});
 
+	it('only shows photo management for a physical collection status', async () => {
+		render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: sampleEntry, onclose, onsave }
+		});
+		const user = userEvent.setup();
+
+		expect(screen.getByTestId('photo-uploader')).toBeInTheDocument();
+		await user.click(screen.getByTestId('status-wanted'));
+		expect(screen.queryByTestId('photo-uploader')).not.toBeInTheDocument();
+		expect(
+			screen.getByText('Eigene Fotos sind für vorhandene oder doppelte Exemplare verfügbar.')
+		).toBeInTheDocument();
+	});
+
+	it('keeps photo management hidden until a wanted status change is saved', async () => {
+		render(IssueDetailSheet, {
+			props: {
+				issue: sampleIssue,
+				collection_entry: { ...sampleEntry, status: 'wanted', condition_grade: null },
+				onclose,
+				onsave
+			}
+		});
+		const user = userEvent.setup();
+
+		await user.click(screen.getByTestId('status-owned'));
+		expect(screen.queryByTestId('photo-uploader')).not.toBeInTheDocument();
+		expect(
+			screen.getByText('Eigene Fotos sind für vorhandene oder doppelte Exemplare verfügbar.')
+		).toBeInTheDocument();
+	});
+
 	it('shows cover image when available', () => {
 		render(IssueDetailSheet, {
 			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }

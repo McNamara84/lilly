@@ -1,0 +1,26 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT COUNT(cp.id) AS photo_count\n           FROM collection_entries ce\n           LEFT JOIN collection_photos cp ON cp.entry_id = ce.id\n           WHERE ce.id = ? AND ce.user_id = ? AND ce.status <> 'wanted'\n           GROUP BY ce.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "photo_count",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | BINARY",
+          "collation": 63,
+          "max_size": 21
+        },
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2494712d3b4e3920aaaec31793ba8588746df1c4187bc629bf6944c1b18dc07b"
+}

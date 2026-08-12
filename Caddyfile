@@ -3,9 +3,15 @@
 		reverse_proxy backend:8080
 	}
 
-	handle /media/* {
+	handle /media/covers/* {
 		root * /srv
 		file_server
+	}
+
+	# User photos are private-by-default and are served only by the authorised
+	# backend endpoint. Never expose arbitrary files from the shared volume.
+	handle /media/* {
+		respond 404
 	}
 
 	handle {
