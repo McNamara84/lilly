@@ -30,9 +30,7 @@ impl EmailService {
     pub fn from_config(config: &AppConfig) -> Self {
         if let Some(host) = &config.smtp_host {
             let builder = match config.smtp_tls_mode {
-                SmtpTlsMode::StartTls => {
-                    AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
-                }
+                SmtpTlsMode::StartTls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host),
                 SmtpTlsMode::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(host),
             };
 

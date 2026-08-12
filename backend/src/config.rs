@@ -11,9 +11,8 @@ pub enum SmtpTlsMode {
 }
 
 impl SmtpTlsMode {
-    fn from_env(value: Option<String>) -> Self {
+    fn from_env(value: Option<&str>) -> Self {
         match value
-            .as_deref()
             .unwrap_or("starttls")
             .trim()
             .to_ascii_lowercase()
@@ -144,7 +143,7 @@ impl AppConfig {
                 .unwrap_or_else(|| "587".to_string())
                 .parse()
                 .expect("SMTP_PORT must be a number"),
-            smtp_tls_mode: SmtpTlsMode::from_env(get("SMTP_TLS_MODE")),
+            smtp_tls_mode: SmtpTlsMode::from_env(get("SMTP_TLS_MODE").as_deref()),
             smtp_user: get("SMTP_USER").filter(|s| !s.is_empty()),
             smtp_password: get("SMTP_PASSWORD").filter(|s| !s.is_empty()),
             smtp_from: get("SMTP_FROM").unwrap_or_else(|| "noreply@lilly.app".to_string()),
