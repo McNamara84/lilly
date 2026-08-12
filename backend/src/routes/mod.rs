@@ -7,6 +7,7 @@ use crate::config::PhotoUploadConfig;
 use crate::services::email::EmailService;
 use crate::services::import_scheduler::ImportSchedulerConfig;
 use crate::services::media::MediaStorage;
+use crate::services::oauth::OAuthService;
 
 pub mod admin;
 pub mod auth;
@@ -15,6 +16,7 @@ pub mod health;
 pub mod media;
 pub mod messages;
 pub mod notifications;
+pub mod oauth;
 pub mod profiles;
 pub mod series;
 pub mod trades;
@@ -32,6 +34,8 @@ pub struct AppStateInner {
     pub email_service: EmailService,
     pub app_base_url: String,
     pub cookie_secure: bool,
+    pub oauth_service: OAuthService,
+    pub privacy_policy_version: String,
     pub adapter_registry: AdapterRegistry,
     pub media_path: PathBuf,
     pub media_url_prefix: String,

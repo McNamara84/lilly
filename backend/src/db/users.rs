@@ -16,6 +16,7 @@ pub async fn find_user_by_email(
     Ok(user)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_user(
     pool: &MySqlPool,
     email: &str,
@@ -24,7 +25,9 @@ pub async fn create_user(
     verification_token: &str,
     verification_expires_at: chrono::NaiveDateTime,
     privacy_consent_at: chrono::NaiveDateTime,
+    privacy_policy_version: &str,
 ) -> Result<u32, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
     let result = sqlx::query(
         "INSERT INTO users (email, password_hash, display_name, verification_token, \
          verification_token_expires_at, privacy_consent_at, email_verified) \
@@ -36,11 +39,21 @@ pub async fn create_user(
     .bind(verification_token)
     .bind(verification_expires_at)
     .bind(privacy_consent_at)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     #[allow(clippy::cast_possible_truncation)]
-    Ok(result.last_insert_id() as u32)
+    let user_id = result.last_insert_id() as u32;
+    crate::db::privacy_consents::insert_on_transaction(
+        &mut transaction,
+        user_id,
+        privacy_policy_version,
+        privacy_consent_at,
+        "password",
+    )
+    .await?;
+    transaction.commit().await?;
+    Ok(user_id)
 }
 
 pub async fn find_user_by_verification_token(
@@ -183,11 +196,87 @@ pub async fn seed_e2e_worker_users(
 
 #[cfg(test)]
 mod tests {
-    use super::e2e_worker_email;
+    use super::{create_user, e2e_worker_email};
+    use sqlx::mysql::MySqlPoolOptions;
 
     #[test]
     fn test_e2e_worker_email_is_deterministic() {
         assert_eq!(e2e_worker_email(0), "e2e-worker-0@lilly.app");
         assert_eq!(e2e_worker_email(12), "e2e-worker-12@lilly.app");
+    }
+
+    #[tokio::test]
+    async fn password_user_and_versioned_consent_are_created_atomically() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let email = format!("password-consent-{suffix}@example.test");
+        let now = chrono::Utc::now().naive_utc();
+
+        let user_id = create_user(
+            &pool,
+            &email,
+            "argon2-test-hash",
+            "Password Collector",
+            &format!("verification-token-hash-{suffix}"),
+            now + chrono::Duration::hours(24),
+            now,
+            "policy-password-v1",
+        )
+        .await
+        .unwrap();
+        let consent: (String, String) = sqlx::query_as(
+            "SELECT policy_version, registration_method FROM privacy_consents WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            consent,
+            ("policy-password-v1".to_string(), "password".to_string())
+        );
+
+        assert!(
+            create_user(
+                &pool,
+                &email,
+                "different-hash",
+                "Duplicate Collector",
+                "second-token",
+                now + chrono::Duration::hours(24),
+                now,
+                "policy-password-v2",
+            )
+            .await
+            .is_err()
+        );
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), (SELECT COUNT(*) FROM privacy_consents WHERE user_id = ?) \
+             FROM users WHERE email = ?",
+        )
+        .bind(user_id)
+        .bind(&email)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (1, 1));
+
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }

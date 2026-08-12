@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import PrivacyPage from '../src/routes/privacy/+page.svelte';
 
@@ -6,7 +6,39 @@ vi.mock('$app/paths', () => ({
 	resolve: (path: string) => path
 }));
 
+vi.mock('$lib/api/auth', () => ({
+	fetchAuthOptions: vi.fn()
+}));
+
 describe('Privacy Page', () => {
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		const { fetchAuthOptions } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockResolvedValue({
+			privacy_policy: { version: 'test-v1', url: '/privacy' },
+			oauth: { google: true, github: true }
+		});
+	});
+
+	it('renders the current policy version from the public auth options', async () => {
+		render(PrivacyPage);
+
+		expect(await screen.findByTestId('privacy-policy-version')).toHaveTextContent(
+			'Version test-v1'
+		);
+	});
+
+	it('falls back to a loading label when auth options cannot be fetched', async () => {
+		const { fetchAuthOptions } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockRejectedValue(new Error('Network failure'));
+
+		render(PrivacyPage);
+
+		expect(await screen.findByTestId('privacy-policy-version')).toHaveTextContent(
+			'Version wird geladen'
+		);
+	});
+
 	it('renders the page heading', () => {
 		render(PrivacyPage);
 
@@ -19,12 +51,13 @@ describe('Privacy Page', () => {
 		expect(screen.getByText(/1\. Verantwortlicher/)).toBeInTheDocument();
 		expect(screen.getByText(/2\. Erhobene Daten/)).toBeInTheDocument();
 		expect(screen.getByText(/3\. Zweck der Verarbeitung/)).toBeInTheDocument();
-		expect(screen.getByText(/4\. Öffentliche Freigaben/)).toBeInTheDocument();
-		expect(screen.getByText(/5\. Rechtsgrundlage/)).toBeInTheDocument();
-		expect(screen.getByText(/6\. Speicherdauer/)).toBeInTheDocument();
-		expect(screen.getByText(/7\. Ihre Rechte/)).toBeInTheDocument();
-		expect(screen.getByText(/8\. Cookies/)).toBeInTheDocument();
-		expect(screen.getByText(/9\. Kontakt/)).toBeInTheDocument();
+		expect(screen.getByText(/4\. Anmeldung über Google oder GitHub/)).toBeInTheDocument();
+		expect(screen.getByText(/5\. Öffentliche Freigaben/)).toBeInTheDocument();
+		expect(screen.getByText(/6\. Rechtsgrundlage/)).toBeInTheDocument();
+		expect(screen.getByText(/7\. Speicherdauer/)).toBeInTheDocument();
+		expect(screen.getByText(/8\. Ihre Rechte/)).toBeInTheDocument();
+		expect(screen.getByText(/9\. Cookies/)).toBeInTheDocument();
+		expect(screen.getByText(/10\. Kontakt/)).toBeInTheDocument();
 	});
 
 	it('explains that public collections also publish personal issue notes', () => {

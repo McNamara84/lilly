@@ -13,6 +13,7 @@ export interface RegisterRequest {
 	password: string;
 	password_confirmation: string;
 	privacy_consent: boolean;
+	privacy_policy_version: string;
 }
 
 export interface RegisterResponse {
@@ -30,6 +31,32 @@ export interface MeResponse {
 export interface ApiError {
 	error: string;
 	code?: string;
+	fields?: Record<string, string>;
+}
+
+export type OAuthProvider = 'google' | 'github';
+export type OAuthIntent = 'login' | 'register';
+
+export interface AuthOptionsResponse {
+	privacy_policy: {
+		version: string;
+		url: string;
+	};
+	oauth: Record<OAuthProvider, boolean>;
+}
+
+export interface PendingOAuthLink {
+	pending: boolean;
+	provider?: OAuthProvider;
+	masked_email?: string;
+	expires_at?: string;
+	confirmation_token?: string;
+}
+
+export interface PrivacyConsent {
+	policy_version: string;
+	consented_at: string;
+	registration_method: 'password' | OAuthProvider | 'legacy';
 }
 
 const API_BASE = '/api/v1';
@@ -45,6 +72,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
 				: 'An unexpected error occurred'
 		);
 		(error as ApiError & Error).code = errorBody?.code;
+		(error as ApiError & Error).fields = errorBody?.fields;
 		throw error;
 	}
 	return response.json();
@@ -68,6 +96,59 @@ export async function register(data: RegisterRequest): Promise<RegisterResponse>
 		body: JSON.stringify(data)
 	});
 	return handleResponse<RegisterResponse>(response);
+}
+
+export async function fetchAuthOptions(): Promise<AuthOptionsResponse> {
+	const response = await fetch(`${API_BASE}/auth/options`, { credentials: 'same-origin' });
+	return handleResponse<AuthOptionsResponse>(response);
+}
+
+export async function startOAuth(
+	provider: OAuthProvider,
+	intent: OAuthIntent,
+	consent?: { privacy_consent: boolean; privacy_policy_version: string }
+): Promise<string> {
+	const response = await fetch(`${API_BASE}/auth/oauth/${provider}/start`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ intent, ...consent })
+	});
+	const result = await handleResponse<{ authorization_url: string }>(response);
+	return result.authorization_url;
+}
+
+export async function fetchPendingOAuthLink(): Promise<PendingOAuthLink> {
+	const response = await fetch(`${API_BASE}/auth/oauth/link`, { credentials: 'same-origin' });
+	return handleResponse<PendingOAuthLink>(response);
+}
+
+export async function confirmOAuthLink(confirmationToken: string): Promise<void> {
+	const response = await fetch(`${API_BASE}/auth/oauth/link`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-CSRF-Token': confirmationToken
+		},
+		credentials: 'same-origin',
+		body: '{}'
+	});
+	await handleResponse<{ message: string }>(response);
+}
+
+export async function cancelOAuthLink(): Promise<void> {
+	const response = await fetch(`${API_BASE}/auth/oauth/link`, {
+		method: 'DELETE',
+		credentials: 'same-origin'
+	});
+	if (!response.ok && response.status !== 204) await handleResponse(response);
+}
+
+export async function fetchPrivacyConsents(): Promise<PrivacyConsent[]> {
+	const response = await fetch(`${API_BASE}/me/privacy-consents`, {
+		credentials: 'same-origin'
+	});
+	return handleResponse<PrivacyConsent[]>(response);
 }
 
 export async function fetchMe(): Promise<MeResponse> {

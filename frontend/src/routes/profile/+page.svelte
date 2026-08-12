@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { fetchOwnProfile, updateVisibility, type OwnProfile } from '$lib/api/profile';
+	import { fetchPrivacyConsents, type PrivacyConsent } from '$lib/api/auth';
 	import { getAuthState } from '$lib/stores/auth.svelte';
 
 	const auth = getAuthState();
@@ -13,6 +14,8 @@
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
+	let privacyConsents = $state<PrivacyConsent[]>([]);
+	let privacyConsentsError = $state<string | null>(null);
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -25,14 +28,41 @@
 	async function loadProfile() {
 		loading = true;
 		error = null;
-		try {
-			profile = await fetchOwnProfile();
+		privacyConsentsError = null;
+		const [profileResult, consentsResult] = await Promise.allSettled([
+			fetchOwnProfile(),
+			fetchPrivacyConsents()
+		]);
+		if (profileResult.status === 'fulfilled') {
+			profile = profileResult.value;
 			profilePublic = profile.profile_public;
 			collectionPublic = profile.collection_public;
-		} catch (cause) {
+		} else {
+			const cause = profileResult.reason;
 			error = cause instanceof Error ? cause.message : 'Profil konnte nicht geladen werden.';
-		} finally {
-			loading = false;
+		}
+		if (consentsResult.status === 'fulfilled') {
+			privacyConsents = consentsResult.value;
+		} else {
+			const cause = consentsResult.reason;
+			privacyConsentsError =
+				cause instanceof Error
+					? cause.message
+					: 'Datenschutz-Einwilligungen konnten nicht geladen werden.';
+		}
+		loading = false;
+	}
+
+	function registrationMethodLabel(method: PrivacyConsent['registration_method']): string {
+		switch (method) {
+			case 'google':
+				return 'Google';
+			case 'github':
+				return 'GitHub';
+			case 'legacy':
+				return 'Bestehendes Konto';
+			default:
+				return 'E-Mail und Passwort';
 		}
 	}
 
@@ -84,6 +114,45 @@
 						<dd data-testid="profile-email">{profile.email}</dd>
 					</div>
 				</dl>
+			</section>
+
+			<section
+				class="glass-elevated mb-6 rounded-lg p-6"
+				aria-labelledby="privacy-consents-heading"
+			>
+				<h2 id="privacy-consents-heading" class="mb-2 text-lg font-semibold">
+					Datenschutz-Einwilligungen
+				</h2>
+				<p class="mb-4 text-sm" style="color: var(--text-secondary);">
+					Diese Historie ist nur für dich sichtbar und wird bei späteren Versionen nicht
+					überschrieben.
+				</p>
+				{#if privacyConsentsError}
+					<p
+						class="text-sm"
+						role="alert"
+						style="color: var(--color-error);"
+						data-testid="privacy-consents-error"
+					>
+						{privacyConsentsError}
+					</p>
+				{:else if privacyConsents.length === 0}
+					<p class="text-sm" data-testid="privacy-consents-empty">
+						Für dieses Konto wurde noch kein versionierter Eintrag übernommen.
+					</p>
+				{:else}
+					<ul class="space-y-3" data-testid="privacy-consents-list">
+						{#each privacyConsents as consent (consent.policy_version)}
+							<li class="rounded-lg p-3" style="background: var(--surface-raised);">
+								<strong>Version {consent.policy_version}</strong>
+								<span class="block text-sm" style="color: var(--text-secondary);">
+									{new Date(consent.consented_at).toLocaleString('de-DE')} ·
+									{registrationMethodLabel(consent.registration_method)}
+								</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			</section>
 
 			<section class="glass-elevated rounded-lg p-6" aria-labelledby="visibility-heading">

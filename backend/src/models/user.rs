@@ -51,6 +51,8 @@ pub struct RegisterRequest {
     pub password: String,
     pub password_confirmation: String,
     pub privacy_consent: bool,
+    #[validate(length(min = 1, max = 64, message = "Privacy policy version is required"))]
+    pub privacy_policy_version: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -147,6 +149,7 @@ mod tests {
             password: "strongpass123".to_string(),
             password_confirmation: "strongpass123".to_string(),
             privacy_consent: true,
+            privacy_policy_version: "test-v1".to_string(),
         };
         assert!(req.validate().is_ok());
     }
@@ -159,6 +162,7 @@ mod tests {
             password: "strongpass123".to_string(),
             password_confirmation: "strongpass123".to_string(),
             privacy_consent: true,
+            privacy_policy_version: "test-v1".to_string(),
         };
         assert!(req.validate().is_err());
     }
@@ -171,6 +175,7 @@ mod tests {
             password: "strongpass123".to_string(),
             password_confirmation: "strongpass123".to_string(),
             privacy_consent: true,
+            privacy_policy_version: "test-v1".to_string(),
         };
         assert!(req.validate().is_err());
     }
@@ -183,6 +188,7 @@ mod tests {
             password: "short".to_string(),
             password_confirmation: "short".to_string(),
             privacy_consent: true,
+            privacy_policy_version: "test-v1".to_string(),
         };
         assert!(req.validate().is_err());
     }

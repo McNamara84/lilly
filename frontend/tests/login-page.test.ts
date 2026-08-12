@@ -3,10 +3,16 @@ import { render, screen } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import LoginPage from '../src/routes/login/+page.svelte';
 
+const pageState = vi.hoisted(() => ({
+	url: new URL('http://localhost/login')
+}));
+
 // Mock the API module
 vi.mock('$lib/api/auth', () => ({
 	login: vi.fn(),
-	resendVerification: vi.fn()
+	resendVerification: vi.fn(),
+	fetchAuthOptions: vi.fn(),
+	startOAuth: vi.fn()
 }));
 
 // Mock SvelteKit modules
@@ -16,9 +22,7 @@ vi.mock('$app/navigation', () => ({
 
 // Mock $app/state
 vi.mock('$app/state', () => ({
-	page: {
-		url: new URL('http://localhost/login')
-	}
+	page: pageState
 }));
 
 // Mock auth store
@@ -27,8 +31,15 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 }));
 
 describe('Login Page', () => {
-	beforeEach(() => {
+	beforeEach(async () => {
 		vi.clearAllMocks();
+		pageState.url = new URL('http://localhost/login');
+		window.history.replaceState({}, '', '/login');
+		const { fetchAuthOptions } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockResolvedValue({
+			privacy_policy: { version: 'test-v1', url: '/privacy' },
+			oauth: { google: false, github: false }
+		});
 	});
 
 	it('renders the login form with all elements', () => {
@@ -48,6 +59,117 @@ describe('Login Page', () => {
 
 		expect(googleBtn).toBeDisabled();
 		expect(githubBtn).toBeDisabled();
+	});
+
+	it('enables configured providers and starts OAuth login', async () => {
+		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockResolvedValue({
+			privacy_policy: { version: 'test-v1', url: '/privacy' },
+			oauth: { google: true, github: false }
+		});
+		vi.mocked(startOAuth).mockReturnValue(new Promise(() => {}));
+		render(LoginPage);
+		const google = screen.getByTestId('oauth-google');
+		await vi.waitFor(() => expect(google).toBeEnabled());
+
+		await userEvent.setup().click(google);
+
+		expect(startOAuth).toHaveBeenCalledWith('google', 'login');
+		expect(screen.getByText('Weiterleitung …')).toBeInTheDocument();
+		expect(screen.getByTestId('oauth-github')).toBeDisabled();
+	});
+
+	it('starts a configured GitHub login', async () => {
+		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockResolvedValue({
+			privacy_policy: { version: 'test-v1', url: '/privacy' },
+			oauth: { google: false, github: true }
+		});
+		vi.mocked(startOAuth).mockReturnValue(new Promise(() => {}));
+		render(LoginPage);
+		const github = screen.getByTestId('oauth-github');
+		await vi.waitFor(() => expect(github).toBeEnabled());
+
+		await userEvent.setup().click(github);
+
+		expect(startOAuth).toHaveBeenCalledWith('github', 'login');
+		expect(screen.getByText('Weiterleitung …')).toBeInTheDocument();
+	});
+
+	it('reports OAuth startup errors and resets the loading state', async () => {
+		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockResolvedValue({
+			privacy_policy: { version: 'test-v1', url: '/privacy' },
+			oauth: { google: true, github: false }
+		});
+		vi.mocked(startOAuth).mockRejectedValue(new Error('OAuth-Start fehlgeschlagen'));
+		render(LoginPage);
+		const google = screen.getByTestId('oauth-google');
+		await vi.waitFor(() => expect(google).toBeEnabled());
+
+		await userEvent.setup().click(google);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('OAuth-Start fehlgeschlagen');
+		expect(google).toBeEnabled();
+	});
+
+	it('navigates to the provider authorization URL after a successful OAuth start', async () => {
+		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockResolvedValue({
+			privacy_policy: { version: 'test-v1', url: '/privacy' },
+			oauth: { google: true, github: false }
+		});
+		vi.mocked(startOAuth).mockResolvedValue('#google-authorization');
+		render(LoginPage);
+		const google = screen.getByTestId('oauth-google');
+		await vi.waitFor(() => expect(google).toBeEnabled());
+
+		await userEvent.setup().click(google);
+
+		await vi.waitFor(() => expect(window.location.hash).toBe('#google-authorization'));
+	});
+
+	it('uses a safe fallback for untyped OAuth startup errors', async () => {
+		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		vi.mocked(fetchAuthOptions).mockResolvedValue({
+			privacy_policy: { version: 'test-v1', url: '/privacy' },
+			oauth: { google: true, github: false }
+		});
+		vi.mocked(startOAuth).mockRejectedValue('untyped failure');
+		render(LoginPage);
+		const google = screen.getByTestId('oauth-google');
+		await vi.waitFor(() => expect(google).toBeEnabled());
+
+		await userEvent.setup().click(google);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'OAuth konnte nicht gestartet werden.'
+		);
+	});
+
+	it('explains when OAuth registration is required', () => {
+		pageState.url = new URL('http://localhost/login?oauth_error=OAUTH_REGISTRATION_REQUIRED');
+		render(LoginPage);
+
+		expect(screen.getByTestId('oauth-error')).toHaveTextContent(/noch kein LILLY-Konto/i);
+		expect(screen.getByRole('link', { name: /jetzt registrieren/i })).toHaveAttribute(
+			'href',
+			'/register'
+		);
+	});
+
+	it.each([
+		['OAUTH_PROVIDER_DENIED', 'Anmeldung beim Anbieter wurde abgebrochen'],
+		['OAUTH_VERIFIED_EMAIL_REQUIRED', 'keine bestätigte primäre E-Mail-Adresse'],
+		['OAUTH_STATE_INVALID', 'Anmeldevorgang ist abgelaufen oder ungültig'],
+		['OAUTH_PROVIDER_DISABLED', 'Anmeldeanbieter ist derzeit nicht verfügbar'],
+		['OAUTH_PROVIDER_ERROR', 'Anmeldeanbieter konnte nicht erreicht werden']
+	])('shows the mapped OAuth error for %s', (code, message) => {
+		pageState.url = new URL(`http://localhost/login?oauth_error=${code}`);
+
+		render(LoginPage);
+
+		expect(screen.getByTestId('oauth-error')).toHaveTextContent(message);
 	});
 
 	it('shows tagline text', () => {
@@ -115,6 +237,21 @@ describe('Login Page', () => {
 		});
 	});
 
+	it('returns to account linking after a successful login', async () => {
+		pageState.url = new URL('http://localhost/login?return_to=%2Foauth%2Flink');
+		const { login } = await import('$lib/api/auth');
+		const { goto } = await import('$app/navigation');
+		vi.mocked(login).mockResolvedValue({ message: 'Login successful' });
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		await user.type(screen.getByLabelText(/e-mail/i), 'demo@lilly.app');
+		await user.type(screen.getByLabelText(/passwort/i), 'demo1234');
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+
+		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/oauth/link'));
+	});
+
 	it('shows error message on failed login', async () => {
 		const { login } = await import('$lib/api/auth');
 		const mockLogin = vi.mocked(login);
@@ -170,6 +307,23 @@ describe('Login Page', () => {
 		await user.click(resendButton);
 
 		expect(mockResend).toHaveBeenCalledWith('unverified@test.com');
+		expect(await screen.findByText(/Bestätigungsmail wurde erneut gesendet/i)).toBeInTheDocument();
+	});
+
+	it('keeps the resend response indistinguishable when delivery fails', async () => {
+		const { login, resendVerification } = await import('$lib/api/auth');
+		const error = new Error('Email not verified') as Error & { code?: string };
+		error.code = 'EMAIL_NOT_VERIFIED';
+		vi.mocked(login).mockRejectedValue(error);
+		vi.mocked(resendVerification).mockRejectedValue(new Error('Delivery failed'));
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		await user.type(screen.getByLabelText(/e-mail/i), 'unverified@test.com');
+		await user.type(screen.getByLabelText(/passwort/i), 'password123');
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+		await user.click(await screen.findByTestId('resend-verification-button'));
+
 		expect(await screen.findByText(/Bestätigungsmail wurde erneut gesendet/i)).toBeInTheDocument();
 	});
 

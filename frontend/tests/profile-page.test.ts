@@ -6,6 +6,7 @@ import ProfilePage from '../src/routes/profile/+page.svelte';
 const mockGetAuthState = vi.fn();
 const mockFetchOwnProfile = vi.fn();
 const mockUpdateVisibility = vi.fn();
+const mockFetchPrivacyConsents = vi.fn();
 
 vi.mock('$lib/stores/auth.svelte', () => ({
 	getAuthState: () => mockGetAuthState()
@@ -14,6 +15,10 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 vi.mock('$lib/api/profile', () => ({
 	fetchOwnProfile: (...args: unknown[]) => mockFetchOwnProfile(...args),
 	updateVisibility: (...args: unknown[]) => mockUpdateVisibility(...args)
+}));
+
+vi.mock('$lib/api/auth', () => ({
+	fetchPrivacyConsents: (...args: unknown[]) => mockFetchPrivacyConsents(...args)
 }));
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
@@ -49,6 +54,13 @@ describe('Profile Page', () => {
 		vi.clearAllMocks();
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchOwnProfile.mockResolvedValue({ ...profile });
+		mockFetchPrivacyConsents.mockResolvedValue([
+			{
+				policy_version: 'test-v1',
+				consented_at: '2026-01-01T00:00:00',
+				registration_method: 'password'
+			}
+		]);
 	});
 
 	it('loads private account data and initializes both visibility toggles', async () => {
@@ -61,6 +73,67 @@ describe('Profile Page', () => {
 		expect(screen.getByTestId('profile-public-toggle')).not.toBeChecked();
 		expect(screen.getByTestId('collection-public-toggle')).not.toBeChecked();
 		expect(mockFetchOwnProfile).toHaveBeenCalledOnce();
+		expect(screen.getByTestId('privacy-consents-list')).toHaveTextContent('Version test-v1');
+	});
+
+	it('labels every supported registration method in consent history', async () => {
+		mockFetchPrivacyConsents.mockResolvedValue([
+			{
+				policy_version: 'google-v1',
+				consented_at: '2026-01-01T00:00:00',
+				registration_method: 'google'
+			},
+			{
+				policy_version: 'github-v1',
+				consented_at: '2026-01-02T00:00:00',
+				registration_method: 'github'
+			},
+			{
+				policy_version: 'legacy-v1',
+				consented_at: '2026-01-03T00:00:00',
+				registration_method: 'legacy'
+			}
+		]);
+
+		render(ProfilePage);
+
+		const history = await screen.findByTestId('privacy-consents-list');
+		expect(history).toHaveTextContent('Google');
+		expect(history).toHaveTextContent('GitHub');
+		expect(history).toHaveTextContent('Bestehendes Konto');
+	});
+
+	it('shows an explicit empty state when no versioned consent exists', async () => {
+		mockFetchPrivacyConsents.mockResolvedValue([]);
+
+		render(ProfilePage);
+
+		expect(await screen.findByTestId('privacy-consents-empty')).toHaveTextContent(
+			'noch kein versionierter Eintrag'
+		);
+	});
+
+	it('keeps profile controls available when only consent history fails', async () => {
+		mockFetchPrivacyConsents.mockRejectedValue(new Error('Consent-Historie nicht verfügbar'));
+
+		render(ProfilePage);
+
+		expect(await screen.findByTestId('profile-display-name')).toHaveTextContent('Sammler');
+		expect(screen.getByTestId('save-visibility')).toBeEnabled();
+		expect(screen.getByTestId('privacy-consents-error')).toHaveTextContent(
+			'Consent-Historie nicht verfügbar'
+		);
+	});
+
+	it('uses a scoped fallback for an untyped consent-history failure', async () => {
+		mockFetchPrivacyConsents.mockRejectedValue('untyped consent failure');
+
+		render(ProfilePage);
+
+		expect(await screen.findByTestId('profile-display-name')).toBeInTheDocument();
+		expect(screen.getByTestId('privacy-consents-error')).toHaveTextContent(
+			'Datenschutz-Einwilligungen konnten nicht geladen werden.'
+		);
 	});
 
 	it('shows the explicit warning that public collections include personal notes', async () => {

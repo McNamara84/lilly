@@ -35,3 +35,5 @@ docker-compose.override.yml
 # Logs
 *.log
 *tmp/
+
+docs/server.env

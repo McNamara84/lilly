@@ -1,5 +1,14 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { fetchAuthOptions } from '$lib/api/auth';
+
+	let policyVersion = $state('');
+
+	$effect(() => {
+		void fetchAuthOptions()
+			.then((options) => (policyVersion = options.privacy_policy.version))
+			.catch(() => (policyVersion = ''));
+	});
 </script>
 
 <svelte:head>
@@ -8,6 +17,9 @@
 
 <div class="min-h-[calc(100vh-3.5rem)] px-4 py-8 sm:px-6 lg:px-8 max-w-3xl mx-auto">
 	<h1 class="text-3xl font-bold mb-6" style="color: var(--text-primary);">Datenschutzerklärung</h1>
+	<p class="mb-6 text-sm" data-testid="privacy-policy-version">
+		Version {policyVersion || 'wird geladen'}
+	</p>
 
 	<div class="space-y-6 text-sm" style="color: var(--text-secondary);">
 		<section>
@@ -30,8 +42,8 @@
 			<ul class="list-disc list-inside mt-2 space-y-1">
 				<li>Anzeigename</li>
 				<li>E-Mail-Adresse</li>
-				<li>Passwort (verschlüsselt gespeichert mit Argon2id)</li>
-				<li>Zeitpunkt der Registrierung und Datenschutz-Einwilligung</li>
+				<li>Passwort-Hash (Argon2id; das Klartextpasswort wird nicht gespeichert)</li>
+				<li>Version und Zeitpunkt der Datenschutz-Einwilligung sowie Registrierungsweg</li>
 				<li>Sammlungsdaten (Serien, Hefte, Tauschangebote und persönliche Heftnotizen)</li>
 				<li>Tausch-Matches, Tauschvorschläge und zugehörige interne Nachrichten</li>
 			</ul>
@@ -53,7 +65,22 @@
 
 		<section>
 			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				4. Öffentliche Freigaben
+				4. Anmeldung über Google oder GitHub
+			</h2>
+			<p>
+				Optional kann die Registrierung und Anmeldung über Google oder GitHub erfolgen. LILLY fragt
+				bei Google ausschließlich die Berechtigungen <code>openid</code>, <code>email</code>
+				und <code>profile</code> sowie bei GitHub ausschließlich <code>read:user</code> und
+				<code>user:email</code> an. Verarbeitet werden die stabile Anbieter-ID, eine bestätigte primäre
+				E-Mail-Adresse und ein Anzeigename. Zugriffstoken werden nur kurzzeitig für den Anmeldevorgang
+				verwendet und nicht gespeichert. Eine neue Anbieter-Identität wird bei übereinstimmender E-Mail
+				erst nach Anmeldung am bestehenden LILLY-Konto und ausdrücklicher Bestätigung verknüpft.
+			</p>
+		</section>
+
+		<section>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
+				5. Öffentliche Freigaben
 			</h2>
 			<p>
 				Profil und Sammlung sind standardmäßig privat und können unabhängig voneinander öffentlich
@@ -65,7 +92,7 @@
 
 		<section>
 			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				5. Rechtsgrundlage
+				6. Rechtsgrundlage
 			</h2>
 			<p>
 				Die Verarbeitung erfolgt auf Grundlage Ihrer Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) sowie
@@ -75,7 +102,7 @@
 
 		<section>
 			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-				6. Speicherdauer
+				7. Speicherdauer
 			</h2>
 			<p>
 				Ihre Daten werden so lange gespeichert, wie Ihr Benutzerkonto besteht. Nach Löschung des
@@ -87,7 +114,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">7. Ihre Rechte</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">8. Ihre Rechte</h2>
 			<p>Sie haben das Recht auf:</p>
 			<ul class="list-disc list-inside mt-2 space-y-1">
 				<li>Auskunft über Ihre gespeicherten Daten</li>
@@ -100,7 +127,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">8. Cookies</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">9. Cookies</h2>
 			<p>
 				LILLY verwendet ausschließlich technisch notwendige Cookies zur Authentifizierung (HttpOnly,
 				SameSite). Es werden keine Tracking- oder Analyse-Cookies eingesetzt.
@@ -108,7 +135,7 @@
 		</section>
 
 		<section>
-			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">9. Kontakt</h2>
+			<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">10. Kontakt</h2>
 			<p>
 				Bei Fragen zum Datenschutz wenden Sie sich bitte an den Betreiber über die auf der Plattform
 				bereitgestellten Kontaktmöglichkeiten.

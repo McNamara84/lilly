@@ -1,11 +1,15 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
+use std::collections::BTreeMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("{0}")]
     BadRequest(String),
+
+    #[error("Validation failed")]
+    Validation { fields: BTreeMap<String, String> },
 
     #[error("{0}")]
     PayloadTooLarge(String),
@@ -24,6 +28,9 @@ pub enum AppError {
         message: String,
         code: Option<String>,
     },
+
+    #[error("{message}")]
+    TooManyRequests { message: String, code: String },
 
     #[error("{0}")]
     #[allow(dead_code)]
@@ -64,26 +71,46 @@ impl From<jsonwebtoken::errors::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message, code) = match &self {
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
-            AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone(), None),
-            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone(), None),
-            AppError::ConflictWithCode { message, code } => {
-                (StatusCode::CONFLICT, message.clone(), Some(code.clone()))
+        let (status, message, code, fields) = match &self {
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None, None),
+            AppError::Validation { fields } => (
+                StatusCode::BAD_REQUEST,
+                "Validation failed".to_string(),
+                None,
+                Some(fields.clone()),
+            ),
+            AppError::PayloadTooLarge(msg) => {
+                (StatusCode::PAYLOAD_TOO_LARGE, msg.clone(), None, None)
             }
-            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone(), None, None),
+            AppError::ConflictWithCode { message, code } => (
+                StatusCode::CONFLICT,
+                message.clone(),
+                Some(code.clone()),
+                None,
+            ),
+            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None, None),
             AppError::Forbidden { message, code } => {
-                (StatusCode::FORBIDDEN, message.clone(), code.clone())
+                (StatusCode::FORBIDDEN, message.clone(), code.clone(), None)
             }
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone(), None),
+            AppError::TooManyRequests { message, code } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                message.clone(),
+                Some(code.clone()),
+                None,
+            ),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone(), None, None),
             AppError::InternalError(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),
                 None,
+                None,
             ),
         };
 
-        let body = if let Some(code) = code {
+        let body = if let Some(fields) = fields {
+            json!({ "error": message, "fields": fields })
+        } else if let Some(code) = code {
             json!({ "error": message, "code": code })
         } else {
             json!({ "error": message })
@@ -100,6 +127,15 @@ mod tests {
     #[test]
     fn test_bad_request_status() {
         let error = AppError::BadRequest("invalid input".to_string());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn validation_error_contains_field_messages() {
+        let error = AppError::Validation {
+            fields: BTreeMap::from([("email".to_string(), "Invalid email".to_string())]),
+        };
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -153,6 +189,16 @@ mod tests {
         };
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn rate_limit_error_uses_too_many_requests_status() {
+        let error = AppError::TooManyRequests {
+            message: "Too many attempts".to_string(),
+            code: "RATE_LIMITED".to_string(),
+        };
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[test]

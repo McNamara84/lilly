@@ -50,6 +50,7 @@ fn parse_startup_command(args: impl IntoIterator<Item = String>) -> Result<Start
 }
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() {
     dotenvy::dotenv().ok();
 
@@ -117,6 +118,10 @@ async fn main() {
     }
 
     let email_service = services::email::EmailService::from_config(&config);
+    let oauth_service = services::oauth::OAuthService::production(
+        config.google_oauth.clone(),
+        config.github_oauth.clone(),
+    );
 
     let adapter_registry = build_adapter_registry(config.e2e.fixture_adapter_enabled);
 
@@ -136,6 +141,8 @@ async fn main() {
             email_service,
             app_base_url: config.app_base_url,
             cookie_secure: config.cookie_secure,
+            oauth_service,
+            privacy_policy_version: config.privacy_policy_version,
             adapter_registry,
             media_path,
             media_url_prefix: config.media_url_prefix,
@@ -154,6 +161,7 @@ async fn main() {
     let app = Router::new()
         .merge(routes::health::router())
         .merge(routes::auth::router())
+        .merge(routes::oauth::router())
         .merge(routes::series::router())
         .merge(routes::collection::router())
         .merge(routes::profiles::router())
@@ -173,7 +181,12 @@ async fn main() {
         .await
         .expect("Failed to bind listener");
 
-    axum::serve(listener, app).await.expect("Server error");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("Server error");
 }
 
 async fn prepare_media_storage(
@@ -316,6 +329,7 @@ fn cors_layer() -> CorsLayer {
         .allow_headers(AllowHeaders::list([
             http::header::CONTENT_TYPE,
             http::header::AUTHORIZATION,
+            http::HeaderName::from_static("x-csrf-token"),
         ]))
         .allow_credentials(true)
 }

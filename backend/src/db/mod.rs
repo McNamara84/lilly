@@ -6,6 +6,8 @@ pub mod issues;
 pub mod media;
 pub mod messaging;
 pub mod notifications;
+pub mod oauth;
+pub mod privacy_consents;
 pub mod profiles;
 pub mod refresh_tokens;
 pub mod series;
