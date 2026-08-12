@@ -410,6 +410,23 @@ describe('Issue Detail Page', () => {
 		);
 	});
 
+	it('does not offer photo management for a wanted entry', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue({
+			...sampleEntry,
+			condition_grade: null,
+			status: 'wanted'
+		});
+
+		render(IssueDetailPage);
+
+		expect(
+			await screen.findByText('Eigene Fotos sind für vorhandene oder doppelte Exemplare verfügbar.')
+		).toBeInTheDocument();
+		expect(screen.queryByTestId('photo-uploader')).not.toBeInTheDocument();
+	});
+
 	it('sends an empty note explicitly when clearing an existing note', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);

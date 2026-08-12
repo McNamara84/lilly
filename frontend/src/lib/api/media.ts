@@ -57,6 +57,10 @@ export function uploadCollectionPhoto(
 	signal?: AbortSignal
 ): Promise<CollectionPhoto> {
 	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new DOMException('Foto-Upload abgebrochen', 'AbortError'));
+			return;
+		}
 		const request = new XMLHttpRequest();
 		const abort = () => request.abort();
 		request.open('POST', `${API_BASE}/me/collection/${entryId}/photos`);
@@ -88,10 +92,6 @@ export function uploadCollectionPhoto(
 			signal?.removeEventListener('abort', abort);
 			reject(new DOMException('Foto-Upload abgebrochen', 'AbortError'));
 		});
-		if (signal?.aborted) {
-			request.abort();
-			return;
-		}
 		signal?.addEventListener('abort', abort, { once: true });
 		const form = new FormData();
 		form.append('photo', file, file.name);

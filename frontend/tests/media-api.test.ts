@@ -165,7 +165,7 @@ describe('media API', () => {
 			alreadyAborted.signal
 		);
 		await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
-		expect(requests[0].sentBody).toBeNull();
+		expect(requests).toHaveLength(0);
 
 		const controller = new AbortController();
 		requests = captureRequests();
@@ -236,7 +236,9 @@ class FakeXmlHttpRequest extends FakeEventTarget {
 	}
 
 	abort() {
-		this.emit('abort');
+		// Browsers only dispatch abort for a request whose send flag is set.
+		// Calling abort() after open() but before send() does not emit an event.
+		if (this.sentBody !== null) this.emit('abort');
 	}
 
 	emitUpload(name: string, event?: unknown) {

@@ -27,7 +27,11 @@
 	let messageKind = $state<'status' | 'error'>('status');
 	let selectedPhoto = $state<CollectionPhoto | null>(null);
 	let fileInput = $state<HTMLInputElement>();
+	let photoDialog = $state<HTMLDivElement>();
+	let dialogCloseButton = $state<HTMLButtonElement>();
 	let uploadController: AbortController | null = null;
+	let deleteController: AbortController | null = null;
+	let viewerReturnFocus: HTMLElement | null = null;
 
 	const remainingSlots = $derived(Math.max(0, policy.max_photos - photos.length));
 	const acceptedTypes = $derived(policy.allowed_media_types.join(','));
@@ -36,6 +40,16 @@
 	$effect(() => {
 		const currentEntryId = entryId;
 		const controller = new AbortController();
+		uploadController?.abort();
+		deleteController?.abort();
+		photos = [];
+		selectedPhoto = null;
+		viewerReturnFocus = null;
+		deletingId = null;
+		pendingPreviewUrl = null;
+		uploading = false;
+		progress = 0;
+		currentFileName = '';
 		loading = true;
 		message = null;
 		Promise.all([
@@ -55,6 +69,13 @@
 				if (!controller.signal.aborted) loading = false;
 			});
 		return () => controller.abort();
+	});
+
+	$effect(() => {
+		if (!selectedPhoto || !dialogCloseButton) return;
+		queueMicrotask(() => {
+			if (selectedPhoto && dialogCloseButton?.isConnected) dialogCloseButton.focus();
+		});
 	});
 
 	function openFilePicker() {
@@ -79,12 +100,14 @@
 
 	async function uploadFiles(files: FileList | null) {
 		if (!files?.length || uploading) return;
+		const uploadEntryId = entryId;
 		message = null;
 		const candidates = Array.from(files).slice(0, remainingSlots);
 		if (files.length > remainingSlots) {
 			showMessage(`Es sind nur noch ${remainingSlots} Foto-Slots frei.`, 'error');
 		}
 		for (const file of candidates) {
+			if (entryId !== uploadEntryId) break;
 			const validationError = validateFile(file);
 			if (validationError) {
 				showMessage(validationError, 'error');
@@ -99,22 +122,30 @@
 			uploadController = controller;
 			try {
 				const photo = await uploadCollectionPhoto(
-					entryId,
+					uploadEntryId,
 					file,
-					(value) => (progress = value),
+					(value) => {
+						if (entryId === uploadEntryId) progress = value;
+					},
 					controller.signal
 				);
-				photos = sortPhotos([...photos, photo]);
-				showMessage(`„${file.name}“ wurde hochgeladen.`, 'status');
+				if (entryId === uploadEntryId) {
+					photos = sortPhotos([...photos, photo]);
+					showMessage(`„${file.name}“ wurde hochgeladen.`, 'status');
+				}
 			} catch (error) {
-				showMessage(errorMessage(error, 'Foto konnte nicht hochgeladen werden.'), 'error');
+				if (entryId === uploadEntryId) {
+					showMessage(errorMessage(error, 'Foto konnte nicht hochgeladen werden.'), 'error');
+				}
 			} finally {
 				URL.revokeObjectURL(previewUrl);
-				if (pendingPreviewUrl === previewUrl) pendingPreviewUrl = null;
 				if (uploadController === controller) uploadController = null;
-				uploading = false;
-				progress = 0;
-				currentFileName = '';
+				if (entryId === uploadEntryId) {
+					if (pendingPreviewUrl === previewUrl) pendingPreviewUrl = null;
+					uploading = false;
+					progress = 0;
+					currentFileName = '';
+				}
 			}
 		}
 	}
@@ -131,17 +162,73 @@
 
 	async function removePhoto(photo: CollectionPhoto) {
 		if (deletingId !== null || !window.confirm('Dieses Foto wirklich löschen?')) return;
+		const deleteEntryId = entryId;
+		const controller = new AbortController();
+		deleteController = controller;
 		deletingId = photo.id;
 		message = null;
 		try {
-			await deleteCollectionPhoto(entryId, photo.id);
-			photos = photos.filter((candidate) => candidate.id !== photo.id);
-			if (selectedPhoto?.id === photo.id) selectedPhoto = null;
-			showMessage('Foto wurde gelöscht.', 'status');
+			await deleteCollectionPhoto(deleteEntryId, photo.id, controller.signal);
+			if (entryId === deleteEntryId) {
+				photos = photos.filter((candidate) => candidate.id !== photo.id);
+				if (selectedPhoto?.id === photo.id) closePhotoViewer();
+				showMessage('Foto wurde gelöscht.', 'status');
+			}
 		} catch (error) {
-			showMessage(errorMessage(error, 'Foto konnte nicht gelöscht werden.'), 'error');
+			if (entryId === deleteEntryId) {
+				showMessage(errorMessage(error, 'Foto konnte nicht gelöscht werden.'), 'error');
+			}
 		} finally {
-			deletingId = null;
+			if (deleteController === controller) deleteController = null;
+			if (entryId === deleteEntryId && deletingId === photo.id) deletingId = null;
+		}
+	}
+
+	function openPhotoViewer(photo: CollectionPhoto, event: MouseEvent) {
+		viewerReturnFocus = event.currentTarget as HTMLElement;
+		selectedPhoto = photo;
+	}
+
+	function closePhotoViewer() {
+		const returnFocus = viewerReturnFocus;
+		selectedPhoto = null;
+		viewerReturnFocus = null;
+		queueMicrotask(() => {
+			if (returnFocus?.isConnected) returnFocus.focus();
+		});
+	}
+
+	function handlePhotoDialogKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			closePhotoViewer();
+			return;
+		}
+		if (event.key !== 'Tab' || !photoDialog) return;
+		const focusable = Array.from(
+			photoDialog.querySelectorAll<HTMLElement>(
+				'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+			)
+		).filter((element) => !element.hasAttribute('hidden'));
+		if (focusable.length === 0) {
+			event.preventDefault();
+			photoDialog.focus();
+			return;
+		}
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+		if (
+			event.shiftKey &&
+			(document.activeElement === first || !photoDialog.contains(document.activeElement))
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			last.focus();
+		} else if (!event.shiftKey && document.activeElement === last) {
+			event.preventDefault();
+			event.stopPropagation();
+			first.focus();
 		}
 	}
 
@@ -164,7 +251,10 @@
 		return error instanceof Error && error.message ? error.message : fallback;
 	}
 
-	onDestroy(() => uploadController?.abort());
+	onDestroy(() => {
+		uploadController?.abort();
+		deleteController?.abort();
+	});
 </script>
 
 <section class="mt-5" aria-labelledby="photo-uploader-heading" data-testid="photo-uploader">
@@ -194,7 +284,7 @@
 						<button
 							type="button"
 							class="block aspect-square w-full cursor-zoom-in"
-							onclick={() => (selectedPhoto = photo)}
+							onclick={(event) => openPhotoViewer(photo, event)}
 							aria-label="Foto {photo.sort_order + 1} vergrößern"
 						>
 							<img
@@ -304,20 +394,25 @@
 {#if selectedPhoto}
 	<div
 		class="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4"
-		role="presentation"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Fotoansicht"
+		tabindex="-1"
+		bind:this={photoDialog}
+		onkeydown={handlePhotoDialogKeydown}
+		data-testid="photo-dialog"
 	>
-		<button
-			type="button"
-			class="absolute inset-0 cursor-zoom-out"
-			onclick={() => (selectedPhoto = null)}
-			aria-label="Vergrößerte Fotoansicht schließen"
-		></button>
-		<div
-			class="relative max-h-full max-w-4xl"
-			role="dialog"
-			aria-modal="true"
-			aria-label="Fotoansicht"
-		>
+		<div class="relative max-h-full max-w-4xl">
+			<button
+				bind:this={dialogCloseButton}
+				type="button"
+				class="absolute right-2 top-2 z-10 rounded-md px-3 py-2 text-sm font-semibold cursor-pointer"
+				style="background: rgb(0 0 0 / 75%); color: white;"
+				onclick={closePhotoViewer}
+				aria-label="Vergrößerte Fotoansicht schließen"
+			>
+				Schließen
+			</button>
 			<img
 				src={selectedPhoto.content_url}
 				alt="Vergrößertes eigenes Foto des Sammlungsexemplars"

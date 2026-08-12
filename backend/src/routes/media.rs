@@ -61,6 +61,18 @@ async fn upload_photo(
     Path(entry_id): Path<u32>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<CollectionPhotoResponse>), AppError> {
+    match media_db::photo_upload_preflight(
+        &state.inner.pool,
+        entry_id,
+        auth.user_id,
+        state.inner.photo_upload_config.max_count,
+    )
+    .await?
+    {
+        media_db::PhotoUploadPreflight::Ready => {}
+        media_db::PhotoUploadPreflight::NotFound => return Err(photo_not_found()),
+        media_db::PhotoUploadPreflight::Full => return Err(photo_limit_reached()),
+    }
     let bytes = read_single_photo(
         &mut multipart,
         state.inner.photo_upload_config.max_upload_bytes,
@@ -101,7 +113,7 @@ async fn persist_photo(
     staged: &StagedPhoto,
 ) -> Result<crate::models::media::CollectionPhotoRow, AppError> {
     let mut transaction = state.inner.pool.begin().await?;
-    if !media_db::lock_owned_entry(&mut transaction, entry_id, user_id).await? {
+    if !media_db::lock_uploadable_entry(&mut transaction, entry_id, user_id).await? {
         return Err(photo_not_found());
     }
     let slot = media_db::first_free_slot(
@@ -110,9 +122,7 @@ async fn persist_photo(
         state.inner.photo_upload_config.max_count,
     )
     .await?
-    .ok_or_else(|| {
-        AppError::Conflict("This collection entry already has four photos".to_string())
-    })?;
+    .ok_or_else(photo_limit_reached)?;
     let byte_size = u32::try_from(processed.bytes.len()).map_err(|_| {
         AppError::PayloadTooLarge("Processed photo is too large to store".to_string())
     })?;
@@ -259,6 +269,10 @@ fn photo_not_found() -> AppError {
     AppError::NotFound("Photo not found".to_string())
 }
 
+fn photo_limit_reached() -> AppError {
+    AppError::Conflict("This collection entry already has four photos".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -333,6 +347,10 @@ mod tests {
         let concurrent_issue_id = insert_issue(&pool, series_id, 2).await;
         let entry_id = insert_entry(&pool, owner_id, issue_id).await;
         let concurrent_entry_id = insert_entry(&pool, owner_id, concurrent_issue_id).await;
+        let wanted_issue_id = insert_issue(&pool, series_id, 3).await;
+        let wanted_entry_id = insert_wanted_entry(&pool, owner_id, wanted_issue_id).await;
+        let status_change_issue_id = insert_issue(&pool, series_id, 4).await;
+        let status_change_entry_id = insert_entry(&pool, owner_id, status_change_issue_id).await;
         let app = test_router(pool.clone(), &media_root);
         let png = encoded_png();
 
@@ -358,6 +376,66 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(foreign_list.status(), StatusCode::NOT_FOUND);
+
+        let foreign_upload = app
+            .clone()
+            .oneshot(multipart_request(entry_id, b"not an image", other_id))
+            .await
+            .unwrap();
+        assert_eq!(foreign_upload.status(), StatusCode::NOT_FOUND);
+
+        let missing_upload = app
+            .clone()
+            .oneshot(multipart_request(u32::MAX, b"not an image", owner_id))
+            .await
+            .unwrap();
+        assert_eq!(missing_upload.status(), StatusCode::NOT_FOUND);
+
+        let wanted_upload = app
+            .clone()
+            .oneshot(multipart_request(
+                wanted_entry_id,
+                b"not an image",
+                owner_id,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(wanted_upload.status(), StatusCode::NOT_FOUND);
+
+        let status_change_upload = app
+            .clone()
+            .oneshot(multipart_request(status_change_entry_id, &png, owner_id))
+            .await
+            .unwrap();
+        assert_eq!(status_change_upload.status(), StatusCode::CREATED);
+        let status_change_storage_key = storage_keys(&pool, status_change_entry_id)
+            .await
+            .pop()
+            .unwrap();
+        assert!(
+            media_root
+                .join("user-photos")
+                .join(&status_change_storage_key)
+                .exists()
+        );
+        let change_to_wanted = app
+            .clone()
+            .oneshot(json_request(
+                Method::PATCH,
+                &format!("/api/v1/me/collection/{status_change_entry_id}"),
+                r#"{"status":"wanted"}"#,
+                owner_id,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(change_to_wanted.status(), StatusCode::OK);
+        assert_eq!(photo_count(&pool, status_change_entry_id).await, 0);
+        assert!(
+            !media_root
+                .join("user-photos")
+                .join(&status_change_storage_key)
+                .exists()
+        );
 
         let oversized =
             vec![0_u8; crate::config::PhotoUploadConfig::default().max_upload_bytes + 1];
@@ -396,7 +474,7 @@ mod tests {
         assert_eq!(photo_count(&pool, entry_id).await, 4);
         let fifth = app
             .clone()
-            .oneshot(multipart_request(entry_id, &png, owner_id))
+            .oneshot(multipart_request(entry_id, b"not an image", owner_id))
             .await
             .unwrap();
         assert_eq!(fifth.status(), StatusCode::CONFLICT);
@@ -608,6 +686,16 @@ mod tests {
             .unwrap()
     }
 
+    fn json_request(method: Method, uri: &str, body: &str, user_id: u32) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::COOKIE, auth_cookie(user_id))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
     fn auth_cookie(user_id: u32) -> String {
         let token =
             jwt::create_token(user_id, "Photo Tester", "user", TEST_JWT_SECRET, 3_600).unwrap();
@@ -666,6 +754,21 @@ mod tests {
                 "INSERT INTO collection_entries \
                  (user_id, issue_id, copy_number, condition_grade, status) \
                  VALUES (?, ?, 1, 'Z1', 'owned')",
+            )
+            .bind(user_id)
+            .bind(issue_id)
+            .execute(pool)
+            .await
+            .unwrap(),
+        )
+    }
+
+    async fn insert_wanted_entry(pool: &MySqlPool, user_id: u32, issue_id: u32) -> u32 {
+        inserted_id(
+            &sqlx::query(
+                "INSERT INTO collection_entries \
+                 (user_id, issue_id, copy_number, condition_grade, status) \
+                 VALUES (?, ?, 1, NULL, 'wanted')",
             )
             .bind(user_id)
             .bind(issue_id)

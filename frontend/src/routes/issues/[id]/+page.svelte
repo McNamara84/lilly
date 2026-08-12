@@ -315,8 +315,12 @@
 						{/if}
 					</div>
 
-					{#if isInCollection && entry}
+					{#if isInCollection && entry && entry.status !== 'wanted' && status !== 'wanted'}
 						<PhotoUploader entryId={entry.id} />
+					{:else if isInCollection && (entry?.status === 'wanted' || status === 'wanted')}
+						<p class="mt-4 text-xs" style="color: var(--text-tertiary);">
+							Eigene Fotos sind für vorhandene oder doppelte Exemplare verfügbar.
+						</p>
 					{:else}
 						<p class="mt-4 text-xs" style="color: var(--text-tertiary);">
 							Speichere das Exemplar zuerst, um eigene Fotos hinzuzufügen.

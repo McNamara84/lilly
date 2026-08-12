@@ -149,6 +149,32 @@ describe('PhotoUploader', () => {
 		expect(objectUrlMocks.revoke).toHaveBeenCalledWith('blob:photo-preview');
 	});
 
+	it('aborts an upload and discards its state when the entry changes', async () => {
+		let uploadSignal: AbortSignal | undefined;
+		mocks.uploadCollectionPhoto.mockImplementation(
+			(_entryId: number, _file: File, _progress: (value: number) => void, signal?: AbortSignal) =>
+				new Promise((_resolve, reject) => {
+					uploadSignal = signal;
+					signal?.addEventListener('abort', () =>
+						reject(new DOMException('Foto-Upload abgebrochen', 'AbortError'))
+					);
+				})
+		);
+		const view = render(PhotoUploader, { props: { entryId: 17 } });
+		await userEvent.upload(
+			await screen.findByTestId('photo-file-input'),
+			new File(['valid'], 'condition.png', { type: 'image/png' })
+		);
+		await screen.findByTestId('pending-photo-preview');
+
+		await view.rerender({ entryId: 18 });
+
+		expect(uploadSignal?.aborted).toBe(true);
+		await waitFor(() => expect(screen.getByTestId('photo-count')).toHaveTextContent('0/4'));
+		expect(screen.queryByTestId('pending-photo-preview')).not.toBeInTheDocument();
+		expect(objectUrlMocks.revoke).toHaveBeenCalledWith('blob:photo-preview');
+	});
+
 	it('rejects unsupported and oversized files before upload', async () => {
 		render(PhotoUploader, { props: { entryId: 17 } });
 		const input = (await screen.findByTestId('photo-file-input')) as HTMLInputElement;
@@ -175,9 +201,29 @@ describe('PhotoUploader', () => {
 
 		await userEvent.click(screen.getByTestId('delete-photo-1'));
 		expect(window.confirm).toHaveBeenCalledWith('Dieses Foto wirklich löschen?');
-		expect(mocks.deleteCollectionPhoto).toHaveBeenCalledWith(17, 1);
+		expect(mocks.deleteCollectionPhoto).toHaveBeenCalledWith(17, 1, expect.any(AbortSignal));
 		await waitFor(() => expect(screen.getByTestId('photo-count')).toHaveTextContent('3/4'));
 		expect(screen.getByTestId('photo-dropzone')).not.toBeDisabled();
+	});
+
+	it('aborts an in-flight deletion when the entry changes', async () => {
+		let deleteSignal: AbortSignal | undefined;
+		mocks.fetchCollectionPhotos.mockResolvedValueOnce([photos[0]]).mockResolvedValueOnce([]);
+		mocks.deleteCollectionPhoto.mockImplementation(
+			(_entryId: number, _photoId: number, signal?: AbortSignal) =>
+				new Promise((_resolve, reject) => {
+					deleteSignal = signal;
+					signal?.addEventListener('abort', () => reject(signal.reason));
+				})
+		);
+		const view = render(PhotoUploader, { props: { entryId: 17 } });
+		await userEvent.click(await screen.findByTestId('delete-photo-1'));
+
+		await view.rerender({ entryId: 18 });
+
+		expect(deleteSignal?.aborted).toBe(true);
+		await waitFor(() => expect(screen.getByTestId('photo-count')).toHaveTextContent('0/4'));
+		expect(screen.queryByTestId('delete-photo-1')).not.toBeInTheDocument();
 	});
 
 	it('supports drag and drop and reports backend failures without losing existing photos', async () => {
@@ -193,6 +239,19 @@ describe('PhotoUploader', () => {
 		expect(screen.getByAltText('Eigenes Foto 1 des Sammlungsexemplars')).toBeInTheDocument();
 	});
 
+	it('opens the file picker and accepts drag-over only while slots are available', async () => {
+		render(PhotoUploader, { props: { entryId: 17 } });
+		const input = (await screen.findByTestId('photo-file-input')) as HTMLInputElement;
+		const click = vi.spyOn(input, 'click');
+		const dropzone = screen.getByTestId('photo-dropzone');
+
+		await userEvent.click(dropzone);
+		expect(click).toHaveBeenCalledOnce();
+		const dragOver = new Event('dragover', { bubbles: true, cancelable: true });
+		dropzone.dispatchEvent(dragOver);
+		expect(dragOver.defaultPrevented).toBe(true);
+	});
+
 	it('falls back to the default policy and reports photo-list loading failures', async () => {
 		mocks.fetchPhotoPolicy.mockRejectedValue(new Error('policy offline'));
 		mocks.fetchCollectionPhotos.mockRejectedValue('untyped failure');
@@ -205,20 +264,46 @@ describe('PhotoUploader', () => {
 		expect(mocks.fetchCollectionPhotos).toHaveBeenCalledOnce();
 	});
 
-	it('opens and closes the enlarged photo dialog', async () => {
+	it('clears entry-bound state before a changed entry finishes loading', async () => {
+		mocks.fetchCollectionPhotos.mockResolvedValueOnce([photos[0]]);
+		const view = render(PhotoUploader, { props: { entryId: 17 } });
+		await screen.findByAltText('Eigenes Foto 1 des Sammlungsexemplars');
+
+		mocks.fetchCollectionPhotos.mockRejectedValueOnce(new Error('new entry unavailable'));
+		await view.rerender({ entryId: 18 });
+
+		expect(screen.queryByAltText('Eigenes Foto 1 des Sammlungsexemplars')).not.toBeInTheDocument();
+		expect(screen.getByTestId('photo-count')).toHaveTextContent('0/4');
+		expect(await screen.findByRole('alert')).toHaveTextContent('new entry unavailable');
+		expect(mocks.fetchCollectionPhotos).toHaveBeenLastCalledWith(18, expect.any(AbortSignal));
+	});
+
+	it('traps dialog focus, closes on Escape and restores the trigger focus', async () => {
 		mocks.fetchCollectionPhotos.mockResolvedValue([photos[0]]);
 		render(PhotoUploader, { props: { entryId: 17 } });
+		const user = userEvent.setup();
 
-		await userEvent.click(await screen.findByRole('button', { name: 'Foto 1 vergrößern' }));
+		const trigger = await screen.findByRole('button', { name: 'Foto 1 vergrößern' });
+		await user.click(trigger);
 		expect(screen.getByRole('dialog', { name: 'Fotoansicht' })).toBeInTheDocument();
 		expect(screen.getByAltText('Vergrößertes eigenes Foto des Sammlungsexemplars')).toHaveAttribute(
 			'src',
 			photos[0].content_url
 		);
-		await userEvent.click(
-			screen.getByRole('button', { name: 'Vergrößerte Fotoansicht schließen' })
-		);
+		const close = screen.getByRole('button', { name: 'Vergrößerte Fotoansicht schließen' });
+		await waitFor(() => expect(close).toHaveFocus());
+		const escapedToWindow = vi.fn();
+		window.addEventListener('keydown', escapedToWindow);
+		await user.tab();
+		expect(close).toHaveFocus();
+		await user.tab({ shift: true });
+		expect(close).toHaveFocus();
+		escapedToWindow.mockClear();
+		await user.keyboard('{Escape}');
+		window.removeEventListener('keydown', escapedToWindow);
 		expect(screen.queryByRole('dialog', { name: 'Fotoansicht' })).not.toBeInTheDocument();
+		expect(escapedToWindow).not.toHaveBeenCalled();
+		await waitFor(() => expect(trigger).toHaveFocus());
 	});
 
 	it('preserves a photo when deletion is cancelled or fails', async () => {
