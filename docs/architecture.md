@@ -185,9 +185,19 @@ erlaubt für die beiden Provenienzfelder nur gemeinsam `NULL` oder gemeinsam ges
 | `location`          | VARCHAR(255) | NULL                 | Standort (freiwillig, für Tausch-Nähe)                                                 |
 | `profile_public`    | BOOLEAN      | NOT NULL, DEF 0      | Profil öffentlich sichtbar?                                                            |
 | `collection_public` | BOOLEAN      | NOT NULL, DEF 0      | Sammlung einschließlich persönlicher Heftnotizen öffentlich sichtbar?                  |
-| `oauth_provider`    | VARCHAR(50)  | NULL                 | 'google' \| 'github' \| NULL                                                           |
-| `oauth_id`          | VARCHAR(255) | NULL                 | Externe OAuth-ID                                                                       |
 | `created_at`        | TIMESTAMP    | NOT NULL             | Registrierungszeitpunkt                                                                |
+
+OAuth-Identitäten und Einwilligungen sind normalisiert:
+
+- `oauth_identities`: `user_id`, Provider, unveränderliches Provider-Subject sowie letzter Login;
+  Unique-Constraints auf `(provider, provider_subject)` und `(user_id, provider)` verhindern
+  Identitätsübernahme und doppelte Verknüpfungen.
+- `privacy_consents`: unveränderliche Policy-Version, Zeitpunkt und Registrierungsweg
+  (`password`, `google`, `github`, `legacy`). Die Fremdschlüssel werden bei Kontolöschung
+  kaskadiert.
+- `oauth_authorization_flows` und `pending_oauth_links`: ausschließlich kurzlebige, serverseitige
+  Zustände. State, Browserbindung und Link-Token werden nur gehasht gespeichert und nach Ablauf
+  bereinigt.
 
 ### 4.4 Tabelle: `collection_entries`
 
@@ -284,12 +294,16 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | ------------ | ------------------------------------------------- | ------- | --------------------------------------------------------------------------------------- |
 | **POST**     | `/api/v1/auth/register`                           | Nein    | Registrierung (E-Mail/Passwort)                                                         |
 | **POST**     | `/api/v1/auth/login`                              | Nein    | Login → Access + Refresh Token                                                          |
-| **POST**     | `/api/v1/auth/oauth/{provider}`                   | Nein    | OAuth-Login (Google/GitHub)                                                             |
+| **GET**      | `/api/v1/auth/options`                            | Nein    | Provider-Verfügbarkeit und aktuelle Datenschutzversion                                  |
+| **POST**     | `/api/v1/auth/oauth/{provider}/start`             | Nein    | OAuth-Login/-Registrierung mit State, Browserbindung und PKCE starten                    |
+| **GET**      | `/api/v1/auth/oauth/{provider}/callback`          | Nein    | Provider-Callback prüfen und Login/Registrierung abschließen                            |
+| **GET/POST/DELETE** | `/api/v1/auth/oauth/link`                | Optional/Ja | Ausstehende explizite Kontoverknüpfung lesen, bestätigen oder abbrechen              |
 | **POST**     | `/api/v1/auth/refresh`                            | Refresh | Token-Erneuerung                                                                        |
 | **GET**      | `/api/v1/auth/me`                                 | Ja      | Aktueller Nutzer (inkl. Rolle)                                                          |
 | **POST**     | `/api/v1/auth/logout`                             | Ja      | Logout (Cookies löschen)                                                                |
 | **GET**      | `/api/v1/auth/verify`                             | Nein    | E-Mail-Verifizierung per Token                                                          |
 | **POST**     | `/api/v1/auth/resend-verification`                | Nein    | Verifizierungs-E-Mail erneut senden                                                     |
+| **GET**      | `/api/v1/me/privacy-consents`                     | Ja      | Private, versionierte Einwilligungshistorie des eigenen Kontos                          |
 | **GET**      | `/api/v1/series`                                  | Nein    | Alle **aktiven** Serien auflisten                                                       |
 | **GET**      | `/api/v1/series/{slug}/issues`                    | Nein    | Alle Hefte einer aktiven Serie (paginiert)                                              |
 | **GET**      | `/api/v1/issues/{id}`                             | Nein    | Heft-Details + Community-Kommentare                                                     |
@@ -383,7 +397,14 @@ Die Authentifizierung basiert auf einem JWT-Paar:
 - **Access Token:** Kurzlebig (15 Minuten), wird als httpOnly-Cookie gespeichert. Enthält user_id, display_name und role als Claims.
 - **Refresh Token:** Langlebig (30 Tage), wird als httpOnly-Cookie gespeichert. Dient ausschließlich zur Erneuerung des Access Tokens.
 - **Rollenwechsel:** Bereits ausgestellte Access Tokens behalten ihre Rolle bis zum Ablauf. Ein Refresh liest die aktuelle Rolle aus MariaDB und stellt danach einen Token mit der neuen Rolle aus.
-- **OAuth2 Flow:** Authorization Code Flow mit PKCE für Google und GitHub. Nach erfolgreicher OAuth-Authentifizierung wird ein lokaler JWT ausgestellt.
+- **OAuth2 Flow:** Authorization Code Flow mit PKCE S256, zufälligem State und zusätzlicher
+  HttpOnly-Browserbindung für Google und GitHub. Vorgänge sind zehn Minuten gültig und einmalig.
+  Nur verifizierte Provider-E-Mails und stabile Subjects werden akzeptiert; Zugriffstoken bleiben
+  flüchtig. Ein E-Mail-Treffer verknüpft niemals automatisch, sondern erfordert Login am passenden
+  Bestandskonto und einen ausdrücklichen Bestätigungs-POST.
+- **Datenschutz-Einwilligung:** Passwort- und OAuth-Registrierung speichern Policy-Version,
+  Zeitpunkt und Registrierungsweg atomar mit dem Konto. Eine zwischen Anzeige und Abschluss
+  geänderte Version wird mit `PRIVACY_POLICY_CHANGED` zurückgewiesen.
 - **Passwort-Hashing:** argon2id mit empfohlenen Parametern (m=19456, t=2, p=1).
 
 ---

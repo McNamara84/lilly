@@ -5,6 +5,7 @@ pub mod import;
 pub mod import_scheduler;
 pub mod media;
 pub mod messaging;
+pub mod oauth;
 pub mod publication;
 pub mod trade_matching;
 pub mod trades;

@@ -103,7 +103,9 @@ While generic book managers and general-purpose collector software exist, there 
 
 ### User Management
 
-- Registration via email/password or OAuth (Google, GitHub)
+- Registration via email/password or OAuth Authorization Code + PKCE (Google, GitHub)
+- Explicit, versioned privacy consent stored atomically with every new account
+- Secure account linking: matching provider emails never link or sign in automatically
 - Profile with display name, avatar, and optional location
 - Profile visibility (public/private) configurable
 - GDPR-compliant: full account and data deletion supported
@@ -207,6 +209,35 @@ Requires [Rust](https://rustup.rs/) and a running MariaDB instance.
 cd backend
 cargo run            # Start API server on http://localhost:8080
 ```
+
+### OAuth and privacy consent
+
+OAuth providers are optional and are enabled only when both values for that provider are set.
+Register these exact callback URLs at the providers, using the public `APP_BASE_URL` of the
+deployment:
+
+- `${APP_BASE_URL}/api/v1/auth/oauth/google/callback`
+- `${APP_BASE_URL}/api/v1/auth/oauth/github/callback`
+
+```dotenv
+APP_BASE_URL=https://lilly.example
+COOKIE_SECURE=true
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+GITHUB_OAUTH_CLIENT_ID=
+GITHUB_OAUTH_CLIENT_SECRET=
+PRIVACY_POLICY_VERSION=2026-03-06
+```
+
+Google uses `openid email profile`; GitHub uses `read:user user:email`. LILLY accepts only a
+verified provider email, never persists provider access tokens, and derives callbacks only from the
+validated application origin. Increase `PRIVACY_POLICY_VERSION` whenever the registration-relevant
+privacy text changes. The UI then rejects stale submissions and asks for fresh consent. Production
+deployments require HTTPS and `COOKIE_SECURE=true`.
+
+If a new provider identity returns an email already used by LILLY, the application creates only a
+ten-minute linking request. The person must first authenticate the matching existing account and
+then explicitly confirm the link; email equality alone never creates a session or links accounts.
 
 The bootstrap account configured through `ADMIN_EMAIL` must already exist. Its address is
 trimmed, lowercased and validated; a real promotion is written atomically with a retained

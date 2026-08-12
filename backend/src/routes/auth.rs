@@ -7,6 +7,7 @@ use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use validator::Validate;
 
 use super::AppState;
@@ -77,26 +78,39 @@ async fn register(
     State(state): State<AppState>,
     Json(mut payload): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<RegisterResponse>), AppError> {
-    payload.email = normalize_email(&payload.email).map_err(AppError::BadRequest)?;
+    payload.email = normalize_email(&payload.email)
+        .map_err(|message| field_validation_error("email", message))?;
     payload
         .validate()
-        .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
+        .map_err(|errors| register_validation_error(&errors))?;
 
     if !payload.privacy_consent {
-        return Err(AppError::BadRequest(
-            "Privacy consent is required".to_string(),
+        return Err(field_validation_error(
+            "privacy_consent",
+            "Privacy consent is required",
         ));
     }
 
+    if payload.privacy_policy_version != state.inner.privacy_policy_version {
+        return Err(AppError::ConflictWithCode {
+            message: "Privacy policy changed; please review it again".to_string(),
+            code: "PRIVACY_POLICY_CHANGED".to_string(),
+        });
+    }
+
     if payload.password != payload.password_confirmation {
-        return Err(AppError::BadRequest("Passwords do not match".to_string()));
+        return Err(field_validation_error(
+            "password_confirmation",
+            "Passwords do not match",
+        ));
     }
 
     // Check password strength with zxcvbn
     let entropy = zxcvbn::zxcvbn(&payload.password, &[&payload.email, &payload.display_name]);
     if entropy.score() < zxcvbn::Score::Two {
-        return Err(AppError::BadRequest(
-            "Password is too weak. Please choose a stronger password.".to_string(),
+        return Err(field_validation_error(
+            "password",
+            "Password is too weak. Please choose a stronger password.",
         ));
     }
 
@@ -132,6 +146,7 @@ async fn register(
         &verification_token_hash,
         expires_at,
         now,
+        &payload.privacy_policy_version,
     )
     .await
     {
@@ -172,6 +187,32 @@ async fn register(
                 .to_string(),
         }),
     ))
+}
+
+fn field_validation_error(field: &str, message: impl Into<String>) -> AppError {
+    AppError::Validation {
+        fields: BTreeMap::from([(field.to_string(), message.into())]),
+    }
+}
+
+fn register_validation_error(errors: &validator::ValidationErrors) -> AppError {
+    let fields = errors
+        .field_errors()
+        .iter()
+        .filter_map(|(field, errors)| {
+            errors.first().map(|error| {
+                (
+                    (*field).to_string(),
+                    error
+                        .message
+                        .as_deref()
+                        .unwrap_or("Invalid value")
+                        .to_string(),
+                )
+            })
+        })
+        .collect();
+    AppError::Validation { fields }
 }
 
 async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQuery>) -> Response {
@@ -281,49 +322,7 @@ async fn login(
         });
     }
 
-    // Create access token
-    let access_token = jwt::create_token(
-        user.id,
-        &user.display_name,
-        &user.role,
-        &state.inner.jwt_secret,
-        state.inner.jwt_access_expiry,
-    )?;
-
-    // Create refresh token
-    let raw_refresh_token = generate_random_token();
-    let refresh_token_hash = hash_token(&raw_refresh_token);
-
-    #[allow(clippy::cast_possible_truncation)]
-    let refresh_expires_at = Utc::now().naive_utc()
-        + chrono::Duration::seconds(state.inner.jwt_refresh_expiry.cast_signed());
-
-    refresh_tokens::store_refresh_token(
-        &state.inner.pool,
-        user.id,
-        &refresh_token_hash,
-        refresh_expires_at,
-    )
-    .await?;
-
-    // Set cookies
-    let access_cookie = build_cookie(
-        "access_token",
-        access_token,
-        "/api",
-        state.inner.jwt_access_expiry.cast_signed(),
-        state.inner.cookie_secure,
-    );
-
-    let refresh_cookie = build_cookie(
-        "refresh_token",
-        raw_refresh_token,
-        "/api/v1/auth",
-        state.inner.jwt_refresh_expiry.cast_signed(),
-        state.inner.cookie_secure,
-    );
-
-    let jar = jar.add(access_cookie).add(refresh_cookie);
+    let jar = authenticated_jar(&state, jar, &user).await?;
 
     Ok((
         jar,
@@ -331,6 +330,47 @@ async fn login(
             message: "Login successful".to_string(),
         }),
     ))
+}
+
+pub(super) async fn authenticated_jar(
+    state: &AppState,
+    jar: CookieJar,
+    user: &crate::models::user::User,
+) -> Result<CookieJar, AppError> {
+    let access_token = jwt::create_token(
+        user.id,
+        &user.display_name,
+        &user.role,
+        &state.inner.jwt_secret,
+        state.inner.jwt_access_expiry,
+    )?;
+    let raw_refresh_token = generate_random_token();
+    let refresh_token_hash = hash_token(&raw_refresh_token);
+    #[allow(clippy::cast_possible_truncation)]
+    let refresh_expires_at = Utc::now().naive_utc()
+        + chrono::Duration::seconds(state.inner.jwt_refresh_expiry.cast_signed());
+    refresh_tokens::store_refresh_token(
+        &state.inner.pool,
+        user.id,
+        &refresh_token_hash,
+        refresh_expires_at,
+    )
+    .await?;
+    Ok(jar
+        .add(build_cookie(
+            "access_token",
+            access_token,
+            "/api",
+            state.inner.jwt_access_expiry.cast_signed(),
+            state.inner.cookie_secure,
+        ))
+        .add(build_cookie(
+            "refresh_token",
+            raw_refresh_token,
+            "/api/v1/auth",
+            state.inner.jwt_refresh_expiry.cast_signed(),
+            state.inner.cookie_secure,
+        )))
 }
 
 async fn refresh(
@@ -461,7 +501,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use axum::body::Body;
+    use axum::body::{Body, to_bytes};
     use axum::http::{Request, header};
     use lilly_importer_core::AdapterRegistry;
     use sqlx::mysql::MySqlPoolOptions;
@@ -472,6 +512,36 @@ mod tests {
     use crate::services::admin_roles::{PromotionResult, RoleChangeMethod};
     use crate::services::email::EmailService;
     use crate::services::import_scheduler::ImportSchedulerConfig;
+
+    fn test_state(pool: sqlx::MySqlPool) -> AppState {
+        let media_path = PathBuf::from("/tmp/lilly-auth-route-tests");
+        AppState {
+            inner: Arc::new(AppStateInner {
+                pool,
+                jwt_secret: "auth-route-test-secret".to_string(),
+                jwt_access_expiry: 900,
+                jwt_refresh_expiry: 2_592_000,
+                email_service: EmailService::Log {
+                    from: "test@example.test".to_string(),
+                },
+                app_base_url: "http://localhost".to_string(),
+                cookie_secure: false,
+                oauth_service: crate::services::oauth::OAuthService::disabled(),
+                privacy_policy_version: "policy-test-v1".to_string(),
+                adapter_registry: AdapterRegistry::new(),
+                media_path: media_path.clone(),
+                media_url_prefix: "/media".to_string(),
+                photo_upload_config: crate::config::PhotoUploadConfig::default(),
+                media_storage: crate::services::media::MediaStorage::new(&media_path),
+                import_scheduler_config: ImportSchedulerConfig {
+                    enabled: false,
+                    schedule: "0 10 6 * * Sat *".to_string(),
+                    timezone: "Europe/Berlin".to_string(),
+                    adapters: Vec::new(),
+                },
+            }),
+        }
+    }
 
     #[test]
     fn test_generate_random_token_length() {
@@ -542,6 +612,149 @@ mod tests {
         assert_eq!(cookie.path(), Some("/api"));
         assert!(cookie.http_only().unwrap_or(false));
         assert_eq!(cookie.max_age(), Some(time::Duration::ZERO));
+    }
+
+    #[tokio::test]
+    async fn registration_validation_returns_field_specific_errors() {
+        let pool = MySqlPoolOptions::new()
+            .connect_lazy("mysql://test:test@localhost/test")
+            .unwrap();
+        let response = Router::new()
+            .merge(router())
+            .with_state(test_state(pool))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"display_name":"M","email":"invalid","password":"short","password_confirmation":"different","privacy_consent":false,"privacy_policy_version":"policy-test-v1"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "Validation failed");
+        assert_eq!(json["fields"]["email"], "Invalid email format");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn password_registration_is_atomic_versioned_and_indistinguishable_when_repeated() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let email = format!("registration-route-{suffix}@example.test");
+        let stale_email = format!("registration-stale-{suffix}@example.test");
+        let state = test_state(pool.clone());
+        let credential = crate::auth::oauth::random_urlsafe_token();
+        let request_body = serde_json::json!({
+            "display_name": "Route Collector",
+            "email": email,
+            "password": credential,
+            "password_confirmation": credential,
+            "privacy_consent": true,
+            "privacy_policy_version": "policy-test-v1"
+        })
+        .to_string();
+
+        let first = Router::new()
+            .merge(router())
+            .with_state(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request_body.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let second = Router::new()
+            .merge(router())
+            .with_state(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status(), StatusCode::CREATED);
+        assert_eq!(second.status(), StatusCode::CREATED);
+        let first_body = to_bytes(first.into_body(), usize::MAX).await.unwrap();
+        let second_body = to_bytes(second.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(first_body, second_body);
+
+        let stale_body = serde_json::json!({
+            "display_name": "Stale Collector",
+            "email": stale_email,
+            "password": credential,
+            "password_confirmation": credential,
+            "privacy_consent": true,
+            "privacy_policy_version": "policy-stale"
+        })
+        .to_string();
+        let stale_response = Router::new()
+            .merge(router())
+            .with_state(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(stale_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(stale_response.status(), StatusCode::CONFLICT);
+        let stale_json: serde_json::Value = serde_json::from_slice(
+            &to_bytes(stale_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stale_json["code"], "PRIVACY_POLICY_CHANGED");
+
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+               (SELECT COUNT(*) FROM users WHERE email = ?), \
+               (SELECT COUNT(*) FROM privacy_consents pc JOIN users u ON u.id = pc.user_id WHERE u.email = ?), \
+               (SELECT COUNT(*) FROM users WHERE email = ?)",
+        )
+        .bind(&email)
+        .bind(&email)
+        .bind(&stale_email)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (1, 1, 0));
+
+        sqlx::query("DELETE FROM users WHERE email = ?")
+            .bind(email)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -618,6 +831,8 @@ mod tests {
                 },
                 app_base_url: "http://localhost".to_string(),
                 cookie_secure: false,
+                oauth_service: crate::services::oauth::OAuthService::disabled(),
+                privacy_policy_version: "test-v1".to_string(),
                 adapter_registry: AdapterRegistry::new(),
                 media_path: PathBuf::from("/tmp/lilly-refresh-role-test"),
                 media_url_prefix: "/media".to_string(),

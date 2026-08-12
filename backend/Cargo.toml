@@ -36,8 +36,11 @@ rand = "0.10.2"
 zxcvbn = "3.1.1"
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 hex = "0.4.3"
+base64 = "0.22.1"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 time = "0.3.55"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "rustls"] }
+url = "2.5.8"
 lilly-importer-core = { path = "../importer-core" }
 lilly-importer-adapters = { path = "../importer-adapters" }
 

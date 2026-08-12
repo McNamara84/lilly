@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
 	login,
 	register,
+	fetchAuthOptions,
+	startOAuth,
+	fetchPendingOAuthLink,
+	confirmOAuthLink,
+	cancelOAuthLink,
+	fetchPrivacyConsents,
 	fetchMe,
 	refreshToken,
 	logout,
@@ -70,6 +76,25 @@ describe('Auth API Client', () => {
 				expect((err as Error & { code?: string }).code).toBe('EMAIL_NOT_VERIFIED');
 			}
 		});
+
+		it('preserves field-specific validation errors', async () => {
+			mockFetch.mockResolvedValue({
+				ok: false,
+				json: () =>
+					Promise.resolve({
+						error: 'Validation failed',
+						fields: { email: 'Invalid email format' }
+					})
+			});
+
+			try {
+				await login({ email: 'invalid', password: 'pwd' });
+			} catch (error) {
+				expect((error as Error & { fields?: Record<string, string> }).fields).toEqual({
+					email: 'Invalid email format'
+				});
+			}
+		});
 	});
 
 	describe('register', () => {
@@ -84,7 +109,8 @@ describe('Auth API Client', () => {
 				email: 'max@test.com',
 				password: 'strongpass123!',
 				password_confirmation: 'strongpass123!',
-				privacy_consent: true
+				privacy_consent: true,
+				privacy_policy_version: 'test-v1'
 			});
 
 			expect(mockFetch).toHaveBeenCalledWith('/api/v1/auth/register', {
@@ -117,6 +143,134 @@ describe('Auth API Client', () => {
 				credentials: 'same-origin'
 			});
 			expect(result.display_name).toBe('User');
+		});
+	});
+
+	describe('OAuth and privacy', () => {
+		it('loads provider availability and the current privacy version', async () => {
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: () =>
+					Promise.resolve({
+						privacy_policy: { version: 'policy-v2', url: '/privacy' },
+						oauth: { google: true, github: false }
+					})
+			});
+
+			const options = await fetchAuthOptions();
+
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/auth/options', {
+				credentials: 'same-origin'
+			});
+			expect(options.privacy_policy.version).toBe('policy-v2');
+			expect(options.oauth.github).toBe(false);
+		});
+
+		it('starts OAuth registration with the observed consent version', async () => {
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve({ authorization_url: 'https://provider.test/authorize' })
+			});
+
+			const url = await startOAuth('github', 'register', {
+				privacy_consent: true,
+				privacy_policy_version: 'policy-v2'
+			});
+
+			expect(url).toBe('https://provider.test/authorize');
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/auth/oauth/github/start', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'same-origin',
+				body: JSON.stringify({
+					intent: 'register',
+					privacy_consent: true,
+					privacy_policy_version: 'policy-v2'
+				})
+			});
+		});
+
+		it('starts OAuth login without inventing a new consent', async () => {
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve({ authorization_url: 'https://provider.test/login' })
+			});
+
+			await startOAuth('google', 'login');
+
+			expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ intent: 'login' });
+		});
+
+		it('loads, confirms and cancels a pending OAuth link', async () => {
+			mockFetch
+				.mockResolvedValueOnce({
+					ok: true,
+					json: () =>
+						Promise.resolve({
+							pending: true,
+							provider: 'google',
+							masked_email: 'c***@example.com',
+							confirmation_token: 'one-time-confirmation'
+						})
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					json: () => Promise.resolve({ message: 'linked' })
+				})
+				.mockResolvedValueOnce({ ok: true, status: 204 });
+
+			const pending = await fetchPendingOAuthLink();
+			await confirmOAuthLink(pending.confirmation_token!);
+			await cancelOAuthLink();
+
+			expect(pending.masked_email).toBe('c***@example.com');
+			expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/v1/auth/oauth/link', {
+				credentials: 'same-origin'
+			});
+			expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/v1/auth/oauth/link', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-CSRF-Token': 'one-time-confirmation'
+				},
+				credentials: 'same-origin',
+				body: '{}'
+			});
+			expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/v1/auth/oauth/link', {
+				method: 'DELETE',
+				credentials: 'same-origin'
+			});
+		});
+
+		it('surfaces a failed link cancellation', async () => {
+			mockFetch.mockResolvedValue({
+				ok: false,
+				status: 409,
+				json: () => Promise.resolve({ error: 'Link expired', code: 'OAUTH_LINK_REQUIRED' })
+			});
+
+			await expect(cancelOAuthLink()).rejects.toThrow('Link expired');
+		});
+
+		it('loads the private consent history', async () => {
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: () =>
+					Promise.resolve([
+						{
+							policy_version: 'policy-v1',
+							consented_at: '2026-08-12T08:00:00',
+							registration_method: 'github'
+						}
+					])
+			});
+
+			const consents = await fetchPrivacyConsents();
+
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/me/privacy-consents', {
+				credentials: 'same-origin'
+			});
+			expect(consents[0].registration_method).toBe('github');
 		});
 	});
 

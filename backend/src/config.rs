@@ -4,6 +4,12 @@ pub struct E2eConfig {
     pub fixture_adapter_enabled: bool,
 }
 
+#[derive(Clone)]
+pub struct OAuthCredentials {
+    pub client_id: String,
+    pub client_secret: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct PhotoUploadConfig {
     pub max_upload_bytes: usize,
@@ -40,6 +46,9 @@ pub struct AppConfig {
     pub smtp_from: String,
     pub app_base_url: String,
     pub cookie_secure: bool,
+    pub google_oauth: Option<OAuthCredentials>,
+    pub github_oauth: Option<OAuthCredentials>,
+    pub privacy_policy_version: String,
     pub admin_email: Option<String>,
     pub media_path: String,
     pub media_url_prefix: String,
@@ -79,6 +88,18 @@ impl AppConfig {
         );
 
         let photo_upload = photo_upload_config(&get);
+        let google_oauth = oauth_credentials(&get, "GOOGLE");
+        let github_oauth = oauth_credentials(&get, "GITHUB");
+        let privacy_policy_version = get("PRIVACY_POLICY_VERSION")
+            .unwrap_or_else(|| "2026-03-06".to_string())
+            .trim()
+            .to_string();
+        assert!(
+            !privacy_policy_version.is_empty() && privacy_policy_version.len() <= 64,
+            "PRIVACY_POLICY_VERSION must contain 1 to 64 bytes"
+        );
+        let app_base_url = get("APP_BASE_URL").unwrap_or_else(|| "http://localhost".to_string());
+        let app_base_url = validate_app_base_url(&app_base_url);
 
         Self {
             database_url: get("DATABASE_URL").expect("DATABASE_URL must be set"),
@@ -103,11 +124,14 @@ impl AppConfig {
             smtp_user: get("SMTP_USER").filter(|s| !s.is_empty()),
             smtp_password: get("SMTP_PASSWORD").filter(|s| !s.is_empty()),
             smtp_from: get("SMTP_FROM").unwrap_or_else(|| "noreply@lilly.app".to_string()),
-            app_base_url: get("APP_BASE_URL").unwrap_or_else(|| "http://localhost".to_string()),
+            app_base_url,
             cookie_secure: get("COOKIE_SECURE")
                 .unwrap_or_else(|| "false".to_string())
                 .parse()
                 .unwrap_or(false),
+            google_oauth,
+            github_oauth,
+            privacy_policy_version,
             admin_email: get("ADMIN_EMAIL")
                 .filter(|value| !value.trim().is_empty())
                 .map(|value| {
@@ -137,6 +161,44 @@ impl AppConfig {
                 .map(ToString::to_string)
                 .collect(),
         }
+    }
+}
+
+fn validate_app_base_url(value: &str) -> String {
+    let value = value.trim().trim_end_matches('/');
+    let url = url::Url::parse(value).expect("APP_BASE_URL must be an absolute HTTP(S) origin");
+    assert!(
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && matches!(url.path(), "" | "/")
+            && url.query().is_none()
+            && url.fragment().is_none(),
+        "APP_BASE_URL must be an absolute HTTP(S) origin without credentials, path, query, or fragment"
+    );
+    value.to_string()
+}
+
+fn oauth_credentials(
+    get: &impl Fn(&str) -> Option<String>,
+    provider: &str,
+) -> Option<OAuthCredentials> {
+    let client_id_key = format!("{provider}_OAUTH_CLIENT_ID");
+    let client_secret_key = format!("{provider}_OAUTH_CLIENT_SECRET");
+    let client_id = get(&client_id_key)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let client_secret = get(&client_secret_key)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    match (client_id, client_secret) {
+        (None, None) => None,
+        (Some(client_id), Some(client_secret)) => Some(OAuthCredentials {
+            client_id,
+            client_secret,
+        }),
+        _ => panic!("{provider} OAuth client ID and secret must be configured together"),
     }
 }
 
@@ -216,6 +278,9 @@ mod tests {
         assert_eq!(config.smtp_from, "noreply@lilly.app");
         assert_eq!(config.app_base_url, "http://localhost");
         assert!(!config.cookie_secure);
+        assert!(config.google_oauth.is_none());
+        assert!(config.github_oauth.is_none());
+        assert_eq!(config.privacy_policy_version, "2026-03-06");
         assert!(config.admin_email.is_none());
         assert_eq!(config.media_path, "/media");
         assert_eq!(config.media_url_prefix, "/media");
@@ -332,6 +397,70 @@ mod tests {
             "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
             "JWT_SECRET" => Some("test-secret".to_string()),
             "PHOTO_MAX_COUNT" => Some("5".to_string()),
+            _ => None,
+        });
+    }
+
+    #[test]
+    fn oauth_credentials_and_policy_version_are_loaded() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "GOOGLE_OAUTH_CLIENT_ID" => Some(" google-client ".to_string()),
+            "GOOGLE_OAUTH_CLIENT_SECRET" => Some("google-secret".to_string()),
+            "GITHUB_OAUTH_CLIENT_ID" => Some("github-client".to_string()),
+            "GITHUB_OAUTH_CLIENT_SECRET" => Some("github-secret".to_string()),
+            "PRIVACY_POLICY_VERSION" => Some(" policy-v2 ".to_string()),
+            _ => None,
+        });
+
+        let google = config.google_oauth.unwrap();
+        assert_eq!(google.client_id, "google-client");
+        assert_eq!(google.client_secret, "google-secret");
+        assert!(config.github_oauth.is_some());
+        assert_eq!(config.privacy_policy_version, "policy-v2");
+    }
+
+    #[test]
+    #[should_panic(expected = "GOOGLE OAuth client ID and secret must be configured together")]
+    fn incomplete_oauth_credentials_fail_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "GOOGLE_OAUTH_CLIENT_ID" => Some("client-only".to_string()),
+            _ => None,
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "PRIVACY_POLICY_VERSION must contain 1 to 64 bytes")]
+    fn empty_policy_version_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "PRIVACY_POLICY_VERSION" => Some("   ".to_string()),
+            _ => None,
+        });
+    }
+
+    #[test]
+    fn app_base_url_is_trimmed_and_restricted_to_an_origin() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "APP_BASE_URL" => Some("  https://lilly.example/  ".to_string()),
+            _ => None,
+        });
+        assert_eq!(config.app_base_url, "https://lilly.example");
+    }
+
+    #[test]
+    #[should_panic(expected = "without credentials, path, query, or fragment")]
+    fn app_base_url_with_path_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "APP_BASE_URL" => Some("https://lilly.example/untrusted".to_string()),
             _ => None,
         });
     }

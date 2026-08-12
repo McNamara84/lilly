@@ -577,6 +577,8 @@ mod tests {
             },
             app_base_url: "http://localhost".to_string(),
             cookie_secure: false,
+            oauth_service: crate::services::oauth::OAuthService::disabled(),
+            privacy_policy_version: "test-v1".to_string(),
             adapter_registry: registry,
             media_path: std::path::PathBuf::from("/tmp/lilly-review-test"),
             media_url_prefix: "/media".to_string(),
