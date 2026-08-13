@@ -953,8 +953,14 @@ async fn fetch_issue_list_with_retry(adapter: &dyn WikiAdapter) -> Result<Vec<u3
     }
 }
 
-const fn is_transient(error: &AdapterError) -> bool {
-    matches!(error, AdapterError::Network(_) | AdapterError::RateLimited)
+fn is_transient(error: &AdapterError) -> bool {
+    match error {
+        AdapterError::RateLimited => true,
+        AdapterError::Network(error) => error
+            .status()
+            .is_none_or(|status| matches!(status.as_u16(), 408 | 429 | 500..=599)),
+        _ => false,
+    }
 }
 
 async fn fetch_and_store_cover(
@@ -1626,7 +1632,9 @@ mod tests {
         }
     }
 
-    async fn spawn_list_server_error_then_success() -> (String, tokio::task::JoinHandle<()>) {
+    async fn spawn_list_http_responses(
+        statuses: Vec<u16>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("fixture server must bind");
@@ -1634,7 +1642,7 @@ mod tests {
             .local_addr()
             .expect("fixture server address must be available");
         let server = tokio::spawn(async move {
-            for attempt in 1..=MAX_FETCH_ATTEMPTS {
+            for status in statuses {
                 let (mut stream, _) = listener.accept().await.expect("request must connect");
                 let mut request = vec![0_u8; 1024];
                 let _length = stream
@@ -1642,13 +1650,13 @@ mod tests {
                     .await
                     .expect("request must be readable");
 
-                let (status, body) = if attempt < MAX_FETCH_ATTEMPTS {
-                    ("500 Internal Server Error", "temporary failure")
+                let body = if status == 200 {
+                    "[3,1,2]"
                 } else {
-                    ("200 OK", "[3,1,2]")
+                    "temporary failure"
                 };
                 let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 stream
@@ -1784,7 +1792,7 @@ mod tests {
 
     #[tokio::test]
     async fn issue_list_retry_recovers_from_real_http_server_errors() {
-        let (url, server) = spawn_list_server_error_then_success().await;
+        let (url, server) = spawn_list_http_responses(vec![500, 599, 200]).await;
         let adapter = ListRetryAdapter::new(usize::MAX, ListFailureKind::HttpServer(url));
 
         let issue_numbers = fetch_issue_list_with_retry(&adapter)
@@ -1794,6 +1802,42 @@ mod tests {
         assert_eq!(issue_numbers, vec![3, 1, 2]);
         assert_eq!(adapter.calls(), usize::from(MAX_FETCH_ATTEMPTS));
         server.await.expect("fixture server must stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn issue_list_retry_repeats_only_retryable_http_client_errors() {
+        for status in [408, 429] {
+            let (url, server) = spawn_list_http_responses(vec![status, 200]).await;
+            let adapter = ListRetryAdapter::new(usize::MAX, ListFailureKind::HttpServer(url));
+
+            let issue_numbers = fetch_issue_list_with_retry(&adapter)
+                .await
+                .expect("HTTP 408 and 429 must be retried");
+
+            assert_eq!(issue_numbers, vec![3, 1, 2]);
+            assert_eq!(adapter.calls(), 2, "unexpected attempt count for {status}");
+            server.await.expect("fixture server must stop cleanly");
+        }
+    }
+
+    #[tokio::test]
+    async fn issue_list_retry_does_not_repeat_permanent_http_client_errors() {
+        for status in [400, 401, 403, 404] {
+            let (url, server) = spawn_list_http_responses(vec![status]).await;
+            let adapter = ListRetryAdapter::new(usize::MAX, ListFailureKind::HttpServer(url));
+
+            let error = fetch_issue_list_with_retry(&adapter)
+                .await
+                .expect_err("permanent HTTP client errors must fail immediately");
+
+            assert!(matches!(
+                error,
+                AdapterError::Network(error)
+                    if error.status().is_some_and(|actual| actual.as_u16() == status)
+            ));
+            assert_eq!(adapter.calls(), 1, "unexpected attempt count for {status}");
+            server.await.expect("fixture server must stop cleanly");
+        }
     }
 
     #[tokio::test]
