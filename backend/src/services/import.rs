@@ -447,7 +447,7 @@ async fn execute_import(
     )
     .await?;
 
-    let fetched_source_numbers = match adapter.fetch_issue_list().await {
+    let fetched_source_numbers = match fetch_issue_list_with_retry(adapter).await {
         Ok(numbers) => numbers,
         Err(error) => {
             let message = format!("Failed to fetch issue list: {error}");
@@ -932,6 +932,27 @@ async fn fetch_issue_details_with_retry(
     }
 }
 
+async fn fetch_issue_list_with_retry(adapter: &dyn WikiAdapter) -> Result<Vec<u32>, AdapterError> {
+    let mut attempt = 1u8;
+    loop {
+        match adapter.fetch_issue_list().await {
+            Ok(issue_numbers) => return Ok(issue_numbers),
+            Err(error) if attempt < MAX_FETCH_ATTEMPTS && is_transient(&error) => {
+                tracing::warn!(
+                    adapter = adapter.name(),
+                    attempt,
+                    max_attempts = MAX_FETCH_ATTEMPTS,
+                    error = %error,
+                    "Transient issue list fetch failed; retrying"
+                );
+                tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt))).await;
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 const fn is_transient(error: &AdapterError) -> bool {
     matches!(error, AdapterError::Network(_) | AdapterError::RateLimited)
 }
@@ -1131,6 +1152,7 @@ async fn validate_review_progress(
 mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, RwLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1139,6 +1161,7 @@ mod tests {
         AdapterRegistry, CoverData, ReferenceRecord, SeriesData, SeriesStatus, SourceReference,
     };
     use sqlx::mysql::MySqlPoolOptions;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::Notify;
 
     use super::*;
@@ -1272,6 +1295,88 @@ mod tests {
     struct BlockingAdapter {
         entered_fetch: Arc<Notify>,
         release_fetch: Arc<Notify>,
+    }
+
+    enum ListFailureKind {
+        RateLimited,
+        NonTransient,
+        HttpServer(String),
+    }
+
+    struct ListRetryAdapter {
+        calls: AtomicUsize,
+        failures_before_success: usize,
+        failure_kind: ListFailureKind,
+    }
+
+    impl ListRetryAdapter {
+        fn new(failures_before_success: usize, failure_kind: ListFailureKind) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                failures_before_success,
+                failure_kind,
+            }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl WikiAdapter for ListRetryAdapter {
+        fn name(&self) -> &'static str {
+            "list-retry-test"
+        }
+
+        fn display_name(&self) -> &'static str {
+            "List Retry Test"
+        }
+
+        fn version(&self) -> &'static str {
+            "1.0"
+        }
+
+        fn source_descriptor(&self) -> SourceDescriptor {
+            SYNC_DESCRIPTOR
+        }
+
+        async fn fetch_series_metadata(&self) -> Result<SeriesData, AdapterError> {
+            Err(AdapterError::Other(
+                "unexpected series metadata fetch".to_string(),
+            ))
+        }
+
+        async fn fetch_issue_list(&self) -> Result<Vec<u32>, AdapterError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if let ListFailureKind::HttpServer(url) = &self.failure_kind {
+                let response = reqwest::get(url).await?.error_for_status()?;
+                return Ok(response.json().await?);
+            }
+            if call >= self.failures_before_success {
+                return Ok(vec![3, 1, 2]);
+            }
+
+            match &self.failure_kind {
+                ListFailureKind::RateLimited => Err(AdapterError::RateLimited),
+                ListFailureKind::NonTransient => {
+                    Err(AdapterError::Parse("invalid issue list".to_string()))
+                }
+                ListFailureKind::HttpServer(_) => unreachable!("handled before scripted failures"),
+            }
+        }
+
+        async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError> {
+            Err(AdapterError::Other(format!(
+                "unexpected issue fetch for {issue_number}"
+            )))
+        }
+
+        async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+            Err(AdapterError::Other(format!(
+                "unexpected cover fetch for {issue_number}"
+            )))
+        }
     }
 
     #[async_trait]
@@ -1521,6 +1626,40 @@ mod tests {
         }
     }
 
+    async fn spawn_list_server_error_then_success() -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fixture server must bind");
+        let address = listener
+            .local_addr()
+            .expect("fixture server address must be available");
+        let server = tokio::spawn(async move {
+            for attempt in 1..=MAX_FETCH_ATTEMPTS {
+                let (mut stream, _) = listener.accept().await.expect("request must connect");
+                let mut request = vec![0_u8; 1024];
+                let _length = stream
+                    .read(&mut request)
+                    .await
+                    .expect("request must be readable");
+
+                let (status, body) = if attempt < MAX_FETCH_ATTEMPTS {
+                    ("500 Internal Server Error", "temporary failure")
+                } else {
+                    ("200 OK", "[3,1,2]")
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("response must be writable");
+            }
+        });
+        (format!("http://{address}/issues"), server)
+    }
+
     #[test]
     fn source_numbers_are_sorted_and_reject_invalid_or_duplicate_values() {
         assert_eq!(normalize_source_numbers(&[3, 1, 2]).unwrap(), vec![1, 2, 3]);
@@ -1615,6 +1754,61 @@ mod tests {
             ImportTrigger::Scheduled { scheduled_for }.database_values(),
             (None, "scheduled", Some(scheduled_for.naive_utc()))
         );
+    }
+
+    #[tokio::test]
+    async fn issue_list_retry_recovers_within_the_attempt_limit() {
+        for transient_failures in 1..usize::from(MAX_FETCH_ATTEMPTS) {
+            let adapter = ListRetryAdapter::new(transient_failures, ListFailureKind::RateLimited);
+
+            let issue_numbers = fetch_issue_list_with_retry(&adapter)
+                .await
+                .expect("a transient list error must recover within the attempt limit");
+
+            assert_eq!(issue_numbers, vec![3, 1, 2]);
+            assert_eq!(adapter.calls(), transient_failures + 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn issue_list_retry_returns_the_last_transient_error_after_three_attempts() {
+        let adapter = ListRetryAdapter::new(usize::MAX, ListFailureKind::RateLimited);
+
+        let error = fetch_issue_list_with_retry(&adapter)
+            .await
+            .expect_err("an unavailable source must fail after the attempt limit");
+
+        assert!(matches!(error, AdapterError::RateLimited));
+        assert_eq!(adapter.calls(), usize::from(MAX_FETCH_ATTEMPTS));
+    }
+
+    #[tokio::test]
+    async fn issue_list_retry_recovers_from_real_http_server_errors() {
+        let (url, server) = spawn_list_server_error_then_success().await;
+        let adapter = ListRetryAdapter::new(usize::MAX, ListFailureKind::HttpServer(url));
+
+        let issue_numbers = fetch_issue_list_with_retry(&adapter)
+            .await
+            .expect("HTTP 500 responses must be retried as network errors");
+
+        assert_eq!(issue_numbers, vec![3, 1, 2]);
+        assert_eq!(adapter.calls(), usize::from(MAX_FETCH_ATTEMPTS));
+        server.await.expect("fixture server must stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn issue_list_retry_does_not_repeat_non_transient_errors() {
+        let adapter = ListRetryAdapter::new(usize::MAX, ListFailureKind::NonTransient);
+
+        let error = fetch_issue_list_with_retry(&adapter)
+            .await
+            .expect_err("a parse error must fail immediately");
+
+        assert!(matches!(
+            error,
+            AdapterError::Parse(message) if message == "invalid issue list"
+        ));
+        assert_eq!(adapter.calls(), 1);
     }
 
     #[tokio::test]
