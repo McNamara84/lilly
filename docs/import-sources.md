@@ -28,7 +28,7 @@ Pflichtfelder sind Heftnummer, Titel, mindestens ein Autor, Ersterscheinungsdatu
 
 Jeder manuelle und geplante Lauf liest die aktuelle Quellliste vollständig und vergleicht jedes gemeldete Heft kanonisch mit MariaDB. Das Ergebnis ist genau eine der Kategorien `created`, `updated`, `unchanged`, `skipped` oder `failed`. Zukünftige Hefte werden zentral als `skipped` gezählt. Hefte, die nur lokal vorkommen, werden protokolliert, aber weder gelöscht noch deaktiviert.
 
-Cover werden nur für neue Hefte oder bei fehlendem lokalem Cover geladen. Ein Coverfehler wird mit Quellenkontext gespeichert, verhindert aber nicht das Schreiben valider bibliografischer Metadaten. Beide Adapter warten standardmäßig 500 ms zwischen Wiki-Zugriffen; transiente Detailfehler werden höchstens dreimal versucht.
+Cover werden nur für neue Hefte oder bei fehlendem lokalem Cover geladen. Ein Coverfehler wird mit Quellenkontext gespeichert, verhindert aber nicht das Schreiben valider bibliografischer Metadaten. Beide Adapter warten standardmäßig 500 ms zwischen Wiki-Zugriffen. Transiente Transportfehler sowie HTTP 408, 429 und 5xx werden sowohl bei der vollständigen Quellliste als auch bei Heftdetails höchstens dreimal versucht; erst der letzte fehlgeschlagene Listenversuch beendet den Lauf und wird als Fehler der Phase `list` gespeichert. Andere HTTP-4xx-, Parse-, Validierungs- und sonstige nicht transiente Fehler werden nicht wiederholt.
 
 ## Betrieb und Recovery
 
