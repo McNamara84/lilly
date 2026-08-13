@@ -1,5 +1,7 @@
 :80 {
 	handle /api/* {
+		# With no trusted upstream configured, Caddy discards client-supplied
+		# forwarding values and derives X-Forwarded-For from the socket peer.
 		reverse_proxy backend:8080
 	}
 

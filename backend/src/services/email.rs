@@ -32,6 +32,9 @@ impl EmailService {
             let builder = match config.smtp_tls_mode {
                 SmtpTlsMode::StartTls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host),
                 SmtpTlsMode::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(host),
+                SmtpTlsMode::None => Ok(AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(
+                    host,
+                )),
             };
 
             match builder {
@@ -143,6 +146,76 @@ impl EmailService {
         Ok(())
     }
 
+    pub async fn send_password_reset_email(
+        &self,
+        to_email: &str,
+        display_name: &str,
+        reset_token: &str,
+        base_url: &str,
+        ttl_seconds: u64,
+    ) -> Result<(), AppError> {
+        let reset_url = format!("{base_url}/reset-password?token={reset_token}");
+        let safe_name = html_escape(display_name);
+        let valid_minutes = ttl_seconds.div_ceil(60);
+        let subject = "Setze dein LILLY-Passwort zurück";
+        let body = format!(
+            r#"<!DOCTYPE html>
+<html lang="de">
+<head><meta charset="utf-8"></head>
+<body style="font-family: Inter, sans-serif; color: #1a1a1a;">
+<h2>Hallo {safe_name},</h2>
+<p>für dein LILLY-Konto wurde ein neues Passwort angefordert.</p>
+<p><a href="{reset_url}" style="display: inline-block; padding: 12px 24px; background-color: #06b6d4; color: white; text-decoration: none; border-radius: 8px;">Passwort zurücksetzen</a></p>
+<p>Oder kopiere diesen Link in deinen Browser:</p>
+<p style="word-break: break-all;">{reset_url}</p>
+<p>Dieser Link ist {valid_minutes} Minuten gültig und kann nur einmal verwendet werden.</p>
+<p>Falls du kein neues Passwort angefordert hast, kannst du diese E-Mail ignorieren.</p>
+<hr>
+<p style="font-size: 12px; color: #888;">LILLY – Listing Inventory for Lovely Little Yellowbacks</p>
+</body>
+</html>"#
+        );
+        let sender = self.sender_address();
+        let to_address: Address = to_email.parse().map_err(|error| {
+            AppError::InternalError(anyhow::anyhow!(
+                "Invalid password reset recipient address: {error}"
+            ))
+        })?;
+        let recipient = Mailbox::new(Some(display_name.to_string()), to_address);
+
+        match self {
+            Self::Smtp { transport, .. } => {
+                let email = Message::builder()
+                    .from(sender.parse().map_err(|error| {
+                        AppError::InternalError(anyhow::anyhow!(
+                            "Invalid password reset sender address: {error}"
+                        ))
+                    })?)
+                    .to(recipient)
+                    .subject(subject)
+                    .header(ContentType::TEXT_HTML)
+                    .body(body)
+                    .map_err(|error| {
+                        AppError::InternalError(anyhow::anyhow!(
+                            "Failed to build password reset email: {error}"
+                        ))
+                    })?;
+                transport.send(email).await.map_err(|error| {
+                    tracing::error!(error = %error, "Password reset email delivery failed");
+                    AppError::InternalError(anyhow::anyhow!("Failed to send password reset email"))
+                })?;
+                tracing::info!("Password reset email sent");
+            }
+            Self::Log { .. } => {
+                // Reset links contain credentials and must never be written to logs.
+                tracing::info!(
+                    "Password reset email suppressed in log-only mode; configure SMTP to deliver it"
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn sender_address(&self) -> &str {
         match self {
             Self::Smtp { from, .. } | Self::Log { from } => from,
@@ -161,6 +234,7 @@ mod tests {
             jwt_secret: String::new(),
             jwt_access_token_expiry: 900,
             jwt_refresh_token_expiry: 2_592_000,
+            password_reset_ttl_seconds: 3_600,
             backend_port: 8080,
             smtp_host: None,
             smtp_port: 587,
@@ -181,6 +255,8 @@ mod tests {
             import_schedule: "0 10 6 * * Sat *".to_string(),
             import_timezone: "Europe/Berlin".to_string(),
             import_scheduled_adapters: vec!["maddrax".to_string(), "john-sinclair".to_string()],
+            trusted_proxy_cidrs: Vec::new(),
+            rate_limits: crate::config::RateLimitConfig::default(),
             e2e: crate::config::E2eConfig {
                 demo_seed_enabled: false,
                 worker_count: 0,
@@ -249,5 +325,39 @@ mod tests {
             )
             .await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn password_reset_log_mode_accepts_valid_input_without_exposing_a_result() {
+        let service = EmailService::Log {
+            from: "noreply@lilly.app".to_string(),
+        };
+        let result = service
+            .send_password_reset_email(
+                "user@example.com",
+                "<b>Collector</b>",
+                "secret-reset-token",
+                "https://lilly.test",
+                3_600,
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn password_reset_rejects_an_invalid_recipient_in_every_mode() {
+        let service = EmailService::Log {
+            from: "noreply@lilly.app".to_string(),
+        };
+        let result = service
+            .send_password_reset_email(
+                "not-an-email",
+                "Collector",
+                "secret-reset-token",
+                "https://lilly.test",
+                3_600,
+            )
+            .await;
+        assert!(result.is_err());
     }
 }

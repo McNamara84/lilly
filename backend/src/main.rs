@@ -5,7 +5,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use axum::Router;
+use axum::{Router, middleware};
 use sqlx::mysql::MySqlPoolOptions;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -122,6 +122,11 @@ async fn main() {
         config.google_oauth.clone(),
         config.github_oauth.clone(),
     );
+    let request_security = services::rate_limit::RequestSecurity::new(
+        config.rate_limits.clone(),
+        config.trusted_proxy_cidrs.clone(),
+        &config.jwt_secret,
+    );
 
     let adapter_registry = build_adapter_registry(config.e2e.fixture_adapter_enabled);
 
@@ -138,6 +143,7 @@ async fn main() {
             jwt_secret: config.jwt_secret,
             jwt_access_expiry: config.jwt_access_token_expiry,
             jwt_refresh_expiry: config.jwt_refresh_token_expiry,
+            password_reset_ttl_seconds: config.password_reset_ttl_seconds,
             email_service,
             app_base_url: config.app_base_url,
             cookie_secure: config.cookie_secure,
@@ -149,6 +155,7 @@ async fn main() {
             photo_upload_config: config.photo_upload,
             media_storage,
             import_scheduler_config: import_scheduler_config.clone(),
+            request_security,
         }),
     };
 
@@ -158,8 +165,7 @@ async fn main() {
     )
     .expect("Invalid import scheduler configuration");
 
-    let app = Router::new()
-        .merge(routes::health::router())
+    let rate_limited_api = Router::new()
         .merge(routes::auth::router())
         .merge(routes::oauth::router())
         .merge(routes::series::router())
@@ -170,6 +176,14 @@ async fn main() {
         .merge(routes::media::router())
         .merge(routes::notifications::router())
         .merge(routes::admin::router())
+        .layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            services::rate_limit::enforce_general_api_rate_limit,
+        ));
+
+    let app = Router::new()
+        .merge(routes::health::router())
+        .merge(rate_limited_api)
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer());

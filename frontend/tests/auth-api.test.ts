@@ -11,7 +11,9 @@ import {
 	fetchMe,
 	refreshToken,
 	logout,
-	resendVerification
+	resendVerification,
+	requestPasswordReset,
+	confirmPasswordReset
 } from '../src/lib/api/auth';
 
 // Mock global fetch
@@ -94,6 +96,64 @@ describe('Auth API Client', () => {
 					email: 'Invalid email format'
 				});
 			}
+		});
+
+		it('preserves rate-limit retry metadata', async () => {
+			mockFetch.mockResolvedValue({
+				ok: false,
+				json: () =>
+					Promise.resolve({
+						error: 'Too many requests',
+						code: 'RATE_LIMITED',
+						retry_after_seconds: 42
+					})
+			});
+
+			try {
+				await login({ email: 'test@test.com', password: 'pwd' });
+			} catch (error) {
+				expect((error as Error & { retry_after_seconds?: number }).retry_after_seconds).toBe(42);
+			}
+		});
+	});
+
+	describe('password reset', () => {
+		it('requests a reset without exposing account state in the payload', async () => {
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve({ message: 'generic response' })
+			});
+
+			const response = await requestPasswordReset('collector@example.com');
+
+			expect(response.message).toBe('generic response');
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/auth/password-reset/request', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'same-origin',
+				body: JSON.stringify({ email: 'collector@example.com' })
+			});
+		});
+
+		it('confirms a reset with token and matching password fields', async () => {
+			mockFetch.mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve({ message: 'Password reset successful' })
+			});
+			const payload = {
+				token: 'secure-token',
+				password: 'new password',
+				password_confirmation: 'new password'
+			};
+
+			await confirmPasswordReset(payload);
+
+			expect(mockFetch).toHaveBeenCalledWith('/api/v1/auth/password-reset/confirm', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'same-origin',
+				body: JSON.stringify(payload)
+			});
 		});
 	});
 

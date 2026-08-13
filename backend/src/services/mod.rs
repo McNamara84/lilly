@@ -7,5 +7,6 @@ pub mod media;
 pub mod messaging;
 pub mod oauth;
 pub mod publication;
+pub mod rate_limit;
 pub mod trade_matching;
 pub mod trades;

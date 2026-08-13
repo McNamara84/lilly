@@ -7,6 +7,7 @@ pub mod media;
 pub mod messaging;
 pub mod notifications;
 pub mod oauth;
+pub mod password_reset_tokens;
 pub mod privacy_consents;
 pub mod profiles;
 pub mod refresh_tokens;

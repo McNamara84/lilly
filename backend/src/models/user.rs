@@ -32,7 +32,7 @@ pub struct User {
 pub struct LoginRequest {
     #[validate(email(message = "Invalid email format"))]
     pub email: String,
-    #[validate(length(min = 1, message = "Password is required"))]
+    #[validate(length(min = 1, max = 128, message = "Password must be 1–128 characters"))]
     pub password: String,
 }
 
@@ -47,7 +47,7 @@ pub struct RegisterRequest {
     pub display_name: String,
     #[validate(email(message = "Invalid email format"))]
     pub email: String,
-    #[validate(length(min = 8, message = "Password must be at least 8 characters"))]
+    #[validate(length(min = 8, max = 128, message = "Password must be 8–128 characters"))]
     pub password: String,
     pub password_confirmation: String,
     pub privacy_consent: bool,
@@ -78,6 +78,21 @@ pub struct MessageResponse {
 pub struct ResendVerificationRequest {
     #[validate(email(message = "Invalid email format"))]
     pub email: String,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct PasswordResetRequest {
+    #[validate(email(message = "Invalid email format"))]
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct PasswordResetConfirmRequest {
+    #[validate(length(min = 43, max = 128, message = "Reset token is invalid"))]
+    pub token: String,
+    #[validate(length(min = 8, max = 128, message = "Password must be 8–128 characters"))]
+    pub password: String,
+    pub password_confirmation: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +167,39 @@ mod tests {
             privacy_policy_version: "test-v1".to_string(),
         };
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn password_reset_requests_validate_email_token_and_password_bounds() {
+        assert!(
+            PasswordResetRequest {
+                email: "collector@example.com".to_string()
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            PasswordResetRequest {
+                email: "invalid".to_string()
+            }
+            .validate()
+            .is_err()
+        );
+        let valid = PasswordResetConfirmRequest {
+            token: "a".repeat(43),
+            password: "strong-password".to_string(),
+            password_confirmation: "strong-password".to_string(),
+        };
+        assert!(valid.validate().is_ok());
+        assert!(
+            PasswordResetConfirmRequest {
+                token: "short".to_string(),
+                password: "short".to_string(),
+                password_confirmation: "short".to_string(),
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

@@ -186,6 +186,20 @@ describe('Login Page', () => {
 		expect(link).toHaveAttribute('href', '/register');
 	});
 
+	it('links to password recovery', () => {
+		render(LoginPage);
+		expect(screen.getByRole('link', { name: /passwort vergessen/i })).toHaveAttribute(
+			'href',
+			'/forgot-password'
+		);
+	});
+
+	it('shows reset confirmation from the redirect', () => {
+		pageState.url = new URL('http://localhost/login?reset=true');
+		render(LoginPage);
+		expect(screen.getByRole('status')).toHaveTextContent(/Passwort erfolgreich geändert/i);
+	});
+
 	it('shows email validation error on blur with empty field', async () => {
 		render(LoginPage);
 		const user = userEvent.setup();

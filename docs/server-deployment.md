@@ -43,6 +43,12 @@ sudo /opt/lilly/releases/<RELEASE>/scripts/configure-environment.py \
 
 Copy only the SMTP host, port, username, password and suitable sender from the club website's server-side environment into the LILLY environment. Map an existing implicit SSL/TLS setup on port 465 to `SMTP_TLS_MODE=tls`; use `SMTP_TLS_MODE=starttls` for a submission server on port 587. Do not source the other application's file at LILLY runtime and do not copy any unrelated value. Leave OAuth values and `ADMIN_EMAIL` empty until their intended values are available.
 
+The generated environment also sets a one-hour password-reset lifetime, the documented rate-limit
+defaults and `TRUSTED_PROXY_CIDRS=172.16.0.0/12` for the private Docker bridge. Do not add public
+client networks to that trust list. The public Nginx configuration overwrites incoming
+`X-Forwarded-For`; Caddy and the backend then parse the chain from right to left. If the Docker
+network changes to a non-matching subnet, update the CIDR narrowly before enabling public traffic.
+
 For the temporary test phase, use:
 
 ```dotenv
@@ -136,7 +142,8 @@ Verify a backup in a disposable environment before relying on it for production 
    LILLY_BIND_ADDRESS=127.0.0.1
    ```
 
-7. Recreate only the LILLY stack and verify HTTPS, secure cookies, registration, API calls and media access.
+7. Recreate only the LILLY stack and verify HTTPS, secure cookies, registration, password reset,
+   `Retry-After`, client-IP handling, API calls and media access.
 8. Confirm that public access to `<SERVER_IP>:8091` is closed and repeat all baseline checks for the existing domains.
 9. Run `certbot renew --dry-run`.
 

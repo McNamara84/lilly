@@ -199,6 +199,21 @@ OAuth-Identitäten und Einwilligungen sind normalisiert:
   Zustände. State, Browserbindung und Link-Token werden nur gehasht gespeichert und nach Ablauf
   bereinigt.
 
+#### 4.3.1 Tabelle: `password_reset_tokens`
+
+| Spalte | Typ | Constraint | Beschreibung |
+| --- | --- | --- | --- |
+| `id` | BIGINT UNSIGNED | PK, AUTO_INC | Technischer Schlüssel |
+| `user_id` | INT UNSIGNED | FK, NOT NULL, CASCADE | Zugehöriges Passwortkonto |
+| `token_hash` | CHAR(64) | NOT NULL, UNIQUE | SHA-256-Hash; der rohe Token wird nicht persistiert |
+| `created_at` | DATETIME(6) | NOT NULL | Ausstellungszeitpunkt |
+| `expires_at` | DATETIME(6) | NOT NULL, INDEX | Ablaufzeitpunkt |
+| `used_at` | DATETIME(6) | NULL | Verbrauch beziehungsweise Invalidierung |
+
+Das Ersetzen und Verbrauchen erfolgt transaktional. Beim erfolgreichen Verbrauch werden alle noch
+aktiven Reset-Tokens des Nutzers markiert, sein Passwort aktualisiert und sämtliche Refresh-Tokens
+widerrufen.
+
 ### 4.4 Tabelle: `collection_entries`
 
 | Spalte            | Typ              | Constraint      | Beschreibung                                                                                                                            |
@@ -286,7 +301,7 @@ Die verbleibenden Tabellen folgen demselben Muster. Hier eine kompakte Übersich
 
 ## 5. API-Design
 
-Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte Endpunkte erfordern einen gültigen JWT im Authorization-Header (Bearer Token).
+Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte Endpunkte erfordern einen gültigen JWT im `HttpOnly`-Access-Cookie.
 
 ### 5.1 Endpunkt-Übersicht
 
@@ -303,6 +318,8 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **POST**     | `/api/v1/auth/logout`                             | Ja      | Logout (Cookies löschen)                                                                |
 | **GET**      | `/api/v1/auth/verify`                             | Nein    | E-Mail-Verifizierung per Token                                                          |
 | **POST**     | `/api/v1/auth/resend-verification`                | Nein    | Verifizierungs-E-Mail erneut senden                                                     |
+| **POST**     | `/api/v1/auth/password-reset/request`              | Nein    | Generische Reset-Anfrage ohne Offenlegung des Kontostatus                               |
+| **POST**     | `/api/v1/auth/password-reset/confirm`              | Nein    | Einmaligen Reset-Token verbrauchen und neues Passwort setzen                            |
 | **GET**      | `/api/v1/me/privacy-consents`                     | Ja      | Private, versionierte Einwilligungshistorie des eigenen Kontos                          |
 | **GET**      | `/api/v1/series`                                  | Nein    | Alle **aktiven** Serien auflisten                                                       |
 | **GET**      | `/api/v1/series/{slug}/issues`                    | Nein    | Alle Hefte einer aktiven Serie (paginiert)                                              |
@@ -406,6 +423,11 @@ Die Authentifizierung basiert auf einem JWT-Paar:
   Zeitpunkt und Registrierungsweg atomar mit dem Konto. Eine zwischen Anzeige und Abschluss
   geänderte Version wird mit `PRIVACY_POLICY_CHANGED` zurückgewiesen.
 - **Passwort-Hashing:** argon2id mit empfohlenen Parametern (m=19456, t=2, p=1).
+- **Passwort-Wiederherstellung:** Ein 256-Bit-Token wird ausschließlich als SHA-256-Hash
+  gespeichert und ist standardmäßig 60 Minuten gültig. Nur das jüngste Token eines verifizierten
+  Passwortkontos ist aktiv. Ein erfolgreicher Reset setzt das Passwort und widerruft alle
+  Refresh-Sessions in derselben Transaktion; vorhandene Access-Tokens enden spätestens nach ihrer
+  kurzen TTL von standardmäßig 15 Minuten.
 
 ---
 
@@ -510,6 +532,9 @@ Sensible Konfigurationswerte werden über eine `.env`-Datei injiziert:
 
 - `DATABASE_URL` – MariaDB-Verbindungsstring
 - `JWT_SECRET` – Signaturschlüssel für JWT-Tokens
+- `PASSWORD_RESET_TTL_SECONDS` – Gültigkeit eines Passwort-Reset-Links (Standard: 3600 Sekunden)
+- `TRUSTED_PROXY_CIDRS` – einzige Netze, deren Forwarding-Header das Backend auswertet
+- `RATE_LIMIT_*` – Policy-Grenzen im Format `MAX_REQUESTS/WINDOW_SECONDS`
 - `ADMIN_EMAIL` – normalisierte E-Mail-Adresse eines bestehenden Kontos; beim Serverstart wird eine echte Beförderung transaktional auditiert
 - `MEDIA_PATH` – Pfad zum Media-Volume für Cover-Bilder und Nutzer-Uploads (Standard: `/media`)
 - `OAUTH_GOOGLE_CLIENT_ID` / `SECRET`
@@ -589,17 +614,34 @@ lilly/
 
 - **TLS:** Caddy erzwingt HTTPS für alle Verbindungen. HTTP wird automatisch auf HTTPS umgeleitet.
 - **CORS:** Strikte CORS-Policy – nur die eigene Domain ist als Origin erlaubt.
-- **Rate Limiting:** Tower-Middleware im Axum-Backend: 10 Requests/Minute für Auth-Endpunkte, 100 Requests/Minute für allgemeine API-Nutzung.
+- **Rate Limiting:** Ein zentraler Sliding-Window-Limiter schützt die gesamte API. Öffentliche
+  Aufrufe sind standardmäßig auf 120/Minute je Client begrenzt, authentifizierte Aufrufe auf
+  600/Minute je Client und Nutzer. Login, Registrierung, OAuth, Refresh, Verifikationsmail und
+  Passwort-Reset besitzen engere, separat konfigurierbare Policies. `429` liefert sowohl
+  `Retry-After` als auch `retry_after_seconds`. Der In-Memory-Speicher ist für eine einzelne
+  Backend-Instanz vorgesehen; mehrere Instanzen benötigen später einen gemeinsamen Store.
+- **Proxy-Vertrauen:** `Forwarded`, `X-Forwarded-For` und `X-Real-IP` werden nur akzeptiert, wenn
+  der unmittelbare Socket-Peer in `TRUSTED_PROXY_CIDRS` liegt. Die Referenzkonfiguration
+  überschreibt die Kette am öffentlichen Nginx-Eingang und wertet sie danach von rechts aus.
 - **Input-Validierung:** Alle Eingaben werden serverseitig validiert (serde + validator-Crate). SQL Injection wird durch SQLx-Prepared-Statements verhindert.
 - **XSS:** SvelteKit escaped Output automatisch. User-generierte Notizen werden ausschließlich als Text gespeichert und gerendert; ungeprüftes HTML wird nicht ausgegeben.
-- **CSRF:** API-Calls sind durch JWT im Authorization-Header geschützt (kein Cookie). Der Refresh-Token wird jedoch als httpOnly-Cookie übertragen, daher ist der Endpunkt `/api/v1/auth/refresh` prinzipiell CSRF-anfällig. Schutzmaßnahmen: `SameSite=Strict` auf dem Refresh-Cookie, serverseitige Validierung des `Origin`-Headers, und Beschränkung des Refresh-Endpunkts auf das Ausstellen neuer Tokens (keine zustandsändernde Geschäftslogik).
+- **CSRF:** Access- und Refresh-Token liegen in `HttpOnly`-Cookies mit `SameSite=Lax`; mutierende
+  Browseraufrufe verwenden JSON und die CORS-Policy erlaubt nur die eigene Origin. OAuth nutzt
+  zusätzlich einmaligen State, PKCE und eine gebundene Browserkennung.
+- **Passwort-Reset:** Unbekannte, unbestätigte, reine OAuth- und berechtigte Adressen erhalten
+  denselben Status und Body. Rohe Reset-Tokens werden weder gespeichert noch protokolliert,
+  parallele Bestätigungen werden per Zeilensperre auf genau einen Erfolg begrenzt und alle
+  Refresh-Tokens werden atomar widerrufen.
 - **Upload-Sicherheit:** Nur erfolgreich dekodierbare JPEG-, PNG- und WebP-Inhalte sind erlaubt;
   Dateiname und Client-MIME-Typ werden nicht vertraut. Maximale Eingabegröße: 5 MiB. Container,
   Abmessungen und Pixelzahl werden vor teurer Verarbeitung begrenzt. Das Backend korrigiert die
   Orientierung, skaliert ohne Hochskalierung auf maximal 2048 px, entfernt Metadaten und erzeugt
   ein kanonisches JPEG-Derivat. Caddy veröffentlicht ausschließlich Referenzcover unter
   `/media/covers/*`; Nutzerfotos werden nach Owner-/Privacy-Prüfung durch die API gestreamt.
-- **Datenschutz:** E-Mail-Adressen werden verschlüsselt gespeichert (AES-256-GCM). Beim Löschen eines Accounts entfernt die Datenbankkaskade die Fotozuordnungen; der idempotente Storage-Abgleich beseitigt die danach verwaisten Dateien.
+- **Datenschutz:** E-Mail-Adressen werden normalisiert und nur für notwendige Kontofunktionen
+  verwendet. Rate-Limit-Schlüssel für Account, Token, Client und Nutzer sind geheime
+  SHA-256-Fingerprints. Beim Löschen eines Accounts entfernt die Datenbankkaskade die
+  Fotozuordnungen; der idempotente Storage-Abgleich beseitigt die danach verwaisten Dateien.
 
 ---
 
