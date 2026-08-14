@@ -81,12 +81,14 @@ test.describe('Admin Import Flow', () => {
 			await expect(page.getByTestId('issue-row')).toHaveCount(1);
 			await expect(page.getByTestId('issue-row')).toContainText('Deterministic E2E Issue');
 			await expect(page.getByTestId('issue-row')).toContainText('LILLY Test Suite');
+			const reviewCover = page.getByTestId('issue-row').locator('img');
+			await expect(reviewCover).toBeVisible();
+			await expect(reviewCover).toHaveAttribute(
+				'src',
+				/\/media\/covers\/series-\d+\/1-e2e0{37}\.png$/
+			);
 
-			const acknowledgement = page.getByTestId('warning-acknowledgement').getByRole('checkbox');
 			const activateButton = page.getByTestId('activate-series-button');
-			await expect(acknowledgement).toBeVisible();
-			await expect(activateButton).toBeDisabled();
-			await acknowledgement.check();
 			await expect(activateButton).toBeEnabled();
 			await activateButton.click();
 
@@ -109,7 +111,13 @@ test.describe('Admin Import Flow', () => {
 			);
 			expect(publicIssuesResponse.ok()).toBe(true);
 			const publicIssues = (await publicIssuesResponse.json()) as {
-				data: Array<{ issue_number: number; title: string; authors: string[] }>;
+				data: Array<{
+					id: number;
+					issue_number: number;
+					title: string;
+					authors: string[];
+					cover_local_path: string | null;
+				}>;
 				total: number;
 			};
 			expect(publicIssues.total).toBe(1);
@@ -117,9 +125,15 @@ test.describe('Admin Import Flow', () => {
 				expect.objectContaining({
 					issue_number: 1,
 					title: 'Deterministic E2E Issue',
-					authors: ['LILLY Test Suite']
+					authors: ['LILLY Test Suite'],
+					cover_local_path: expect.stringMatching(/\/media\/covers\/series-\d+\/1-e2e0{37}\.png$/)
 				})
 			]);
+
+			await page.goto(`/issues/${publicIssues.data[0].id}`);
+			const publicCover = page.getByTestId('issue-detail-cover');
+			await expect(publicCover).toBeVisible();
+			await expect(publicCover).toHaveAttribute('src', publicIssues.data[0].cover_local_path!);
 		} finally {
 			const cleanupResponse = await page.request.post(
 				'/api/v1/admin/series/e2e-fixture-series/deactivate'

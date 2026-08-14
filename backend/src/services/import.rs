@@ -1,18 +1,19 @@
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use lilly_importer_core::{
-    AdapterError, IssueData, SourceDescriptor, WikiAdapter, normalize_and_validate_issue,
-    normalize_and_validate_series, validate_reference_record, validate_source_reference,
+    AdapterError, CoverData, CoverFetchResult, CoverIdentity, IssueData, SourceDescriptor,
+    WikiAdapter, normalize_and_validate_issue, normalize_and_validate_series,
+    validate_reference_record, validate_source_reference,
 };
 
 use crate::db::import_jobs::ImportProgress;
 use crate::db::{import_jobs, import_review, issues, series};
 use crate::error::AppError;
-use crate::models::series::{ImportJobResponse, IssueResponse};
+use crate::models::series::{ImportJobResponse, Issue, IssueResponse};
 use crate::routes::AppStateInner;
 
 const MAX_FETCH_ATTEMPTS: u8 = 3;
@@ -62,30 +63,118 @@ struct CoverImportResult {
     status: &'static str,
     local_path: Option<String>,
     reason: Option<String>,
+    persistence: CoverPersistence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CoverPersistence {
+    Keep,
+    Set {
+        local_path: String,
+        identity: CoverIdentity,
+        created_file: Option<PathBuf>,
+    },
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StoredCover {
+    local_path: Option<String>,
+    remote_url: Option<String>,
+    source_file: Option<String>,
+    source_sha1: Option<String>,
+    source_updated_at: Option<chrono::NaiveDateTime>,
+}
+
+impl StoredCover {
+    fn preferred_path(&self) -> Option<String> {
+        self.local_path.clone().or_else(|| self.remote_url.clone())
+    }
+
+    fn matches(&self, identity: &CoverIdentity) -> bool {
+        self.source_file.as_deref() == Some(identity.file_name.as_str())
+            && self.source_sha1.as_deref() == Some(identity.source_sha1.as_str())
+            && self.source_updated_at == Some(identity.source_updated_at.naive_utc())
+    }
+
+    fn has_persisted_value(&self) -> bool {
+        self.local_path.is_some()
+            || self.remote_url.is_some()
+            || self.source_file.is_some()
+            || self.source_sha1.is_some()
+            || self.source_updated_at.is_some()
+    }
+}
+
+impl From<&Issue> for StoredCover {
+    fn from(issue: &Issue) -> Self {
+        Self {
+            local_path: issue.cover_local_path.clone(),
+            remote_url: issue.cover_url.clone(),
+            source_file: issue.cover_source_file.clone(),
+            source_sha1: issue.cover_source_sha1.clone(),
+            source_updated_at: issue.cover_source_updated_at,
+        }
+    }
 }
 
 impl CoverImportResult {
-    fn imported(local_path: String) -> Self {
+    fn imported(local_path: String, identity: CoverIdentity, created_file: PathBuf) -> Self {
         Self {
             status: "imported",
-            local_path: Some(local_path),
+            local_path: Some(local_path.clone()),
             reason: None,
+            persistence: CoverPersistence::Set {
+                local_path,
+                identity,
+                created_file: Some(created_file),
+            },
         }
     }
 
-    fn reused(local_path: Option<String>) -> Self {
+    fn reused(existing: Option<&StoredCover>, identity: Option<CoverIdentity>) -> Self {
+        let local_path = existing.and_then(StoredCover::preferred_path);
+        let persistence = match (existing, identity) {
+            (Some(existing), Some(identity)) if !existing.matches(&identity) => {
+                if let Some(local_path) = existing.local_path.clone() {
+                    CoverPersistence::Set {
+                        local_path,
+                        identity,
+                        created_file: None,
+                    }
+                } else {
+                    CoverPersistence::Keep
+                }
+            }
+            _ => CoverPersistence::Keep,
+        };
         Self {
             status: "reused",
             local_path,
             reason: None,
+            persistence,
         }
     }
 
-    fn warning(status: &'static str, reason: String) -> Self {
+    fn warning_keep(status: &'static str, reason: String, existing: Option<&StoredCover>) -> Self {
         Self {
             status,
+            local_path: existing.and_then(StoredCover::preferred_path),
+            reason: Some(reason),
+            persistence: CoverPersistence::Keep,
+        }
+    }
+
+    fn missing(existing: Option<&StoredCover>, reason: String) -> Self {
+        Self {
+            status: "missing_at_source",
             local_path: None,
             reason: Some(reason),
+            persistence: if existing.is_some_and(StoredCover::has_persisted_value) {
+                CoverPersistence::Clear
+            } else {
+                CoverPersistence::Keep
+            },
         }
     }
 
@@ -97,6 +186,20 @@ impl CoverImportResult {
             "warning"
         } else {
             "info"
+        }
+    }
+
+    fn requires_persistence(&self) -> bool {
+        !matches!(self.persistence, CoverPersistence::Keep)
+    }
+
+    fn created_file(&self) -> Option<&Path> {
+        match &self.persistence {
+            CoverPersistence::Set {
+                created_file: Some(path),
+                ..
+            } => Some(path),
+            _ => None,
         }
     }
 }
@@ -499,6 +602,10 @@ async fn execute_import(
         .await?;
 
     let stored_rows = issues::find_all_issues_by_series(&state.pool, series_id).await?;
+    let stored_covers: HashMap<u32, StoredCover> = stored_rows
+        .iter()
+        .map(|issue| (issue.issue_number, StoredCover::from(issue)))
+        .collect();
     let stored_responses = issues::build_issue_responses(&state.pool, &stored_rows).await?;
     let stored: HashMap<u32, IssueResponse> = stored_responses
         .into_iter()
@@ -593,6 +700,7 @@ async fn execute_import(
                         status: "not_checked",
                         local_path: None,
                         reason: Some("Cover was not checked for a future issue".to_string()),
+                        persistence: CoverPersistence::Keep,
                     },
                 )
                 .await?;
@@ -640,46 +748,20 @@ async fn execute_import(
         }
 
         let existing = stored.get(&issue_number);
+        let existing_cover = stored_covers.get(&issue_number);
         let outcome = classify_issue(&details, existing);
-        let needs_cover = existing.is_none_or(|issue| issue.cover_local_path.is_none());
-        if outcome == IssueOutcome::Unchanged && !needs_cover {
-            if let Some(existing) = existing {
-                issues::mark_issue_checked(&state.pool, existing.id).await?;
-                let cover = CoverImportResult::reused(existing.cover_local_path.clone());
-                record_review_result(
-                    &state,
-                    job_id,
-                    descriptor.source_key,
-                    &details,
-                    Some(existing.id),
-                    outcome.as_str(),
-                    cover.severity(),
-                    "complete",
-                    None,
-                    &cover,
-                )
-                .await?;
-            }
-            progress.unchanged = progress.unchanged.saturating_add(1);
-            import_jobs::update_import_progress(&state.pool, job_id, progress).await?;
-            continue;
+        if cancel_if_requested(&state, job_id).await? {
+            return Ok(());
         }
-
-        let cover_result = if needs_cover {
-            if cancel_if_requested(&state, job_id).await? {
-                return Ok(());
-            }
-            fetch_and_store_cover(
-                adapter,
-                issue_number,
-                &cover_dir,
-                &state.media_url_prefix,
-                series_id,
-            )
-            .await
-        } else {
-            CoverImportResult::reused(existing.and_then(|issue| issue.cover_local_path.clone()))
-        };
+        let cover_result = fetch_and_store_cover(
+            adapter,
+            issue_number,
+            &cover_dir,
+            &state.media_url_prefix,
+            series_id,
+            existing_cover,
+        )
+        .await;
         if cover_result.severity() == "warning" {
             let message = cover_result
                 .reason
@@ -699,37 +781,56 @@ async fn execute_import(
             .await?;
         }
         if cancel_if_requested(&state, job_id).await? {
+            discard_created_cover(&cover_result).await;
             return Ok(());
         }
 
-        let issue_id = match persist_issue(
-            &state,
-            series_id,
-            &details,
-            cover_result.local_path.as_deref(),
-        )
-        .await
-        {
-            Ok(issue_id) => issue_id,
-            Err(error) => {
-                record_issue_failure(
+        if outcome == IssueOutcome::Unchanged && !cover_result.requires_persistence() {
+            if let Some(existing) = existing {
+                issues::mark_issue_checked(&state.pool, existing.id).await?;
+                record_review_result(
                     &state,
                     job_id,
-                    IssueFailure {
-                        source_key: descriptor.source_key,
-                        issue_number,
-                        source_record_id: Some(&details.source.source_record_id),
-                        processing_stage: "persist",
-                        message: &error.to_string(),
-                        details: Some(&details),
-                    },
-                    &mut progress,
-                    &mut error_messages,
+                    descriptor.source_key,
+                    &details,
+                    Some(existing.id),
+                    outcome.as_str(),
+                    cover_result.severity(),
+                    "complete",
+                    cover_result.reason.as_deref(),
+                    &cover_result,
                 )
                 .await?;
-                continue;
             }
-        };
+            progress.unchanged = progress.unchanged.saturating_add(1);
+            import_jobs::update_import_progress(&state.pool, job_id, progress).await?;
+            continue;
+        }
+
+        let issue_id =
+            match persist_issue(&state, series_id, &details, &cover_result.persistence).await {
+                Ok(issue_id) => issue_id,
+                Err(error) => {
+                    discard_created_cover(&cover_result).await;
+                    record_issue_failure(
+                        &state,
+                        job_id,
+                        IssueFailure {
+                            source_key: descriptor.source_key,
+                            issue_number,
+                            source_record_id: Some(&details.source.source_record_id),
+                            processing_stage: "persist",
+                            message: &error.to_string(),
+                            details: Some(&details),
+                        },
+                        &mut progress,
+                        &mut error_messages,
+                    )
+                    .await?;
+                    continue;
+                }
+            };
+        cleanup_replaced_cover(existing_cover, &cover_result.persistence, &cover_dir).await;
 
         record_review_result(
             &state,
@@ -971,76 +1072,203 @@ fn is_transient(error: &AdapterError) -> bool {
 async fn fetch_and_store_cover(
     adapter: &dyn WikiAdapter,
     issue_number: u32,
-    cover_dir: &std::path::Path,
+    cover_dir: &Path,
     media_url_prefix: &str,
     series_id: u32,
+    existing: Option<&StoredCover>,
 ) -> CoverImportResult {
-    let cover = match adapter.fetch_cover(issue_number).await {
-        Ok(Some(cover)) => cover,
-        Ok(None) => {
-            return CoverImportResult::warning(
-                "missing_at_source",
-                "The source does not provide a cover".to_string(),
+    let known_source_sha1 = if let Some(existing) = existing
+        && let (Some(local_path), Some(source_sha1)) = (
+            existing.local_path.as_deref(),
+            existing.source_sha1.as_deref(),
+        )
+        && let Some(stored_file) = stored_cover_file(cover_dir, local_path)
+        && tokio::fs::try_exists(stored_file).await.unwrap_or(false)
+    {
+        Some(source_sha1)
+    } else {
+        None
+    };
+    let (cover, identity) = match adapter.fetch_cover(issue_number, known_source_sha1).await {
+        Ok(CoverFetchResult::Missing) => {
+            return CoverImportResult::missing(
+                existing,
+                "The source does not provide an unambiguous canonical cover".to_string(),
             );
         }
+        Ok(CoverFetchResult::Unchanged(identity)) => {
+            if existing
+                .and_then(|cover| cover.local_path.as_ref())
+                .is_none()
+            {
+                return CoverImportResult::warning_keep(
+                    "fetch_failed",
+                    "The adapter reported an unchanged cover without a stored local file"
+                        .to_string(),
+                    existing,
+                );
+            }
+            return CoverImportResult::reused(existing, Some(identity));
+        }
+        Ok(CoverFetchResult::Downloaded { data, identity }) => (data, identity),
         Err(AdapterError::NotFound(_)) => {
-            return CoverImportResult::warning(
-                "missing_at_source",
+            return CoverImportResult::missing(
+                existing,
                 "The source cover was not found".to_string(),
             );
         }
         Err(error) => {
             let message = format!("Failed to fetch cover: {error}");
-            let status = if message.to_ascii_lowercase().contains("permission")
+            let status = if matches!(error, AdapterError::Parse(_)) {
+                "invalid"
+            } else if message.to_ascii_lowercase().contains("permission")
                 || message.to_ascii_lowercase().contains("copyright")
             {
                 "not_permitted"
             } else {
                 "fetch_failed"
             };
-            return CoverImportResult::warning(status, message);
+            return CoverImportResult::warning_keep(status, message, existing);
         }
     };
 
+    store_downloaded_cover(
+        cover,
+        identity,
+        issue_number,
+        cover_dir,
+        media_url_prefix,
+        series_id,
+        existing,
+    )
+    .await
+}
+
+async fn store_downloaded_cover(
+    cover: CoverData,
+    identity: CoverIdentity,
+    issue_number: u32,
+    cover_dir: &Path,
+    media_url_prefix: &str,
+    series_id: u32,
+    existing: Option<&StoredCover>,
+) -> CoverImportResult {
     let Some(extension) = cover_extension(&cover.content_type) else {
-        return CoverImportResult::warning(
+        return CoverImportResult::warning_keep(
             "invalid",
             format!("Unsupported cover content type '{}'", cover.content_type),
+            existing,
         );
     };
     if let Err(error) = tokio::fs::create_dir_all(cover_dir).await {
-        return CoverImportResult::warning(
+        return CoverImportResult::warning_keep(
             "storage_failed",
             format!("Failed to create cover directory: {error}"),
+            existing,
         );
     }
-    let target = cover_dir.join(format!("{issue_number}.{extension}"));
-    let temporary = temporary_cover_path(cover_dir, issue_number, extension);
-    if let Err(error) = tokio::fs::write(&temporary, &cover.bytes).await {
-        return CoverImportResult::warning(
-            "storage_failed",
-            format!("Failed to write temporary cover: {error}"),
-        );
-    }
-    if let Err(error) = tokio::fs::rename(&temporary, &target).await {
-        let _ = tokio::fs::remove_file(&temporary).await;
-        return CoverImportResult::warning(
-            "storage_failed",
-            format!("Failed to atomically store cover: {error}"),
-        );
-    }
+    let file_name = format!("{issue_number}-{}.{}", identity.source_sha1, extension);
+    let target = cover_dir.join(&file_name);
+    let created_file = if tokio::fs::try_exists(&target).await.unwrap_or(false) {
+        None
+    } else {
+        let temporary =
+            temporary_cover_path(cover_dir, issue_number, &identity.source_sha1, extension);
+        if let Err(error) = tokio::fs::write(&temporary, &cover.bytes).await {
+            return CoverImportResult::warning_keep(
+                "storage_failed",
+                format!("Failed to write temporary cover: {error}"),
+                existing,
+            );
+        }
+        if let Err(error) = tokio::fs::rename(&temporary, &target).await {
+            let _ = tokio::fs::remove_file(&temporary).await;
+            return CoverImportResult::warning_keep(
+                "storage_failed",
+                format!("Failed to atomically store cover: {error}"),
+                existing,
+            );
+        }
+        Some(target)
+    };
 
-    CoverImportResult::imported(format!(
-        "{media_url_prefix}/covers/series-{series_id}/{issue_number}.{extension}"
-    ))
+    let local_path = format!("{media_url_prefix}/covers/series-{series_id}/{file_name}");
+    match created_file {
+        Some(created_file) => CoverImportResult::imported(local_path, identity, created_file),
+        None => CoverImportResult {
+            status: "imported",
+            local_path: Some(local_path.clone()),
+            reason: None,
+            persistence: CoverPersistence::Set {
+                local_path,
+                identity,
+                created_file: None,
+            },
+        },
+    }
+}
+
+async fn discard_created_cover(cover: &CoverImportResult) {
+    if let Some(path) = cover.created_file()
+        && let Err(error) = tokio::fs::remove_file(path).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(path = %path.display(), %error, "Failed to discard uncommitted cover file");
+    }
+}
+
+async fn cleanup_replaced_cover(
+    existing: Option<&StoredCover>,
+    update: &CoverPersistence,
+    cover_dir: &Path,
+) {
+    let Some(old_local_path) = existing.and_then(|cover| cover.local_path.as_deref()) else {
+        return;
+    };
+    let replacement = match update {
+        CoverPersistence::Keep => return,
+        CoverPersistence::Set { local_path, .. } => Some(local_path.as_str()),
+        CoverPersistence::Clear => None,
+    };
+    if replacement == Some(old_local_path) {
+        return;
+    }
+    let Some(old_file) = stored_cover_file(cover_dir, old_local_path) else {
+        return;
+    };
+    if let Err(error) = tokio::fs::remove_file(&old_file).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(path = %old_file.display(), %error, "Failed to remove replaced cover file");
+    }
+}
+
+fn stored_cover_file(cover_dir: &Path, local_path: &str) -> Option<PathBuf> {
+    Path::new(local_path)
+        .file_name()
+        .map(|file_name| cover_dir.join(file_name))
 }
 
 async fn persist_issue(
     state: &AppStateInner,
     series_id: u32,
     details: &IssueData,
-    cover_local_path: Option<&str>,
+    cover: &CoverPersistence,
 ) -> Result<u32, anyhow::Error> {
+    let cover = match cover {
+        CoverPersistence::Keep => issues::CoverUpdate::Keep,
+        CoverPersistence::Set {
+            local_path,
+            identity,
+            ..
+        } => issues::CoverUpdate::Set {
+            local_path,
+            source_file: &identity.file_name,
+            source_sha1: &identity.source_sha1,
+            source_updated_at: identity.source_updated_at.naive_utc(),
+        },
+        CoverPersistence::Clear => issues::CoverUpdate::Clear,
+    };
     let issue_id = issues::replace_issue_metadata(
         &state.pool,
         &issues::IssueMetadataUpdate {
@@ -1051,8 +1279,7 @@ async fn persist_issue(
             part_number: details.part_number,
             part_total: details.part_total,
             cycle: details.cycle.as_deref(),
-            cover_url: None,
-            cover_local_path,
+            cover,
             source_key: &details.source.source_key,
             source_record_id: &details.source.source_record_id,
             source_wiki_url: Some(&details.source.source_url),
@@ -1103,11 +1330,12 @@ fn cover_extension(content_type: &str) -> Option<&'static str> {
 }
 
 fn temporary_cover_path(
-    cover_dir: &std::path::Path,
+    cover_dir: &Path,
     issue_number: u32,
+    source_sha1: &str,
     extension: &str,
 ) -> PathBuf {
-    cover_dir.join(format!(".{issue_number}.{extension}.tmp"))
+    cover_dir.join(format!(".{issue_number}-{source_sha1}.{extension}.tmp"))
 }
 
 fn summarize_errors(errors: &[String]) -> Option<String> {
@@ -1186,7 +1414,8 @@ mod tests {
 
     use async_trait::async_trait;
     use lilly_importer_core::{
-        AdapterRegistry, CoverData, ReferenceRecord, SeriesData, SeriesStatus, SourceReference,
+        AdapterRegistry, CoverData, CoverFetchResult, CoverIdentity, ReferenceRecord, SeriesData,
+        SeriesStatus, SourceReference,
     };
     use sqlx::mysql::MySqlPoolOptions;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1315,8 +1544,12 @@ mod tests {
             })
         }
 
-        async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
-            Ok(None)
+        async fn fetch_cover(
+            &self,
+            _issue_number: u32,
+            _known_source_sha1: Option<&str>,
+        ) -> Result<CoverFetchResult, AdapterError> {
+            Ok(CoverFetchResult::Missing)
         }
     }
 
@@ -1400,7 +1633,11 @@ mod tests {
             )))
         }
 
-        async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+        async fn fetch_cover(
+            &self,
+            issue_number: u32,
+            _known_source_sha1: Option<&str>,
+        ) -> Result<CoverFetchResult, AdapterError> {
             Err(AdapterError::Other(format!(
                 "unexpected cover fetch for {issue_number}"
             )))
@@ -1454,20 +1691,27 @@ mod tests {
             )))
         }
 
-        async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
-            Ok(None)
+        async fn fetch_cover(
+            &self,
+            _issue_number: u32,
+            _known_source_sha1: Option<&str>,
+        ) -> Result<CoverFetchResult, AdapterError> {
+            Ok(CoverFetchResult::Missing)
         }
     }
+
+    type SyncCover = Result<(Vec<u8>, String, String), String>;
 
     #[derive(Clone)]
     struct SyncScenario {
         issue_list_error: Option<String>,
         issues: BTreeMap<u32, Result<IssueData, String>>,
-        covers: BTreeMap<u32, (Vec<u8>, String)>,
+        covers: BTreeMap<u32, SyncCover>,
     }
 
     struct SyncAdapter {
         scenario: Arc<RwLock<SyncScenario>>,
+        cover_downloads: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -1522,15 +1766,35 @@ mod tests {
             }
         }
 
-        async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+        async fn fetch_cover(
+            &self,
+            issue_number: u32,
+            known_source_sha1: Option<&str>,
+        ) -> Result<CoverFetchResult, AdapterError> {
             let scenario = self.scenario.read().expect("sync scenario lock poisoned");
-            Ok(scenario
-                .covers
-                .get(&issue_number)
-                .map(|(bytes, content_type)| CoverData {
-                    bytes: bytes.clone(),
-                    content_type: content_type.clone(),
-                }))
+            let Some(cover) = scenario.covers.get(&issue_number) else {
+                return Ok(CoverFetchResult::Missing);
+            };
+            let (bytes, content_type, source_sha1) = cover
+                .as_ref()
+                .map_err(|error| AdapterError::Other(error.clone()))?;
+            let identity = CoverIdentity {
+                file_name: format!("{issue_number:03}tibi.png"),
+                source_sha1: source_sha1.clone(),
+                source_updated_at: "2026-08-14T12:00:00Z".parse().unwrap(),
+            };
+            if known_source_sha1 == Some(source_sha1.as_str()) {
+                Ok(CoverFetchResult::Unchanged(identity))
+            } else {
+                self.cover_downloads.fetch_add(1, Ordering::SeqCst);
+                Ok(CoverFetchResult::Downloaded {
+                    data: CoverData {
+                        bytes: bytes.clone(),
+                        content_type: content_type.clone(),
+                    },
+                    identity,
+                })
+            }
         }
     }
 
@@ -2267,17 +2531,16 @@ mod tests {
             issues: source_issues,
             covers: BTreeMap::new(),
         }));
+        let cover_downloads = Arc::new(AtomicUsize::new(0));
         let mut adapter_registry = AdapterRegistry::new();
         adapter_registry
             .register(Box::new(SyncAdapter {
                 scenario: scenario.clone(),
+                cover_downloads: cover_downloads.clone(),
             }))
             .unwrap();
-        let state = test_state(
-            pool.clone(),
-            adapter_registry,
-            "/tmp/lilly-synchronization-import-test",
-        );
+        let media_path = format!("/tmp/lilly-synchronization-import-test-{suffix}");
+        let state = test_state(pool.clone(), adapter_registry, &media_path);
 
         let first = start_import(
             state.clone(),
@@ -2320,6 +2583,26 @@ mod tests {
         assert_eq!(first_review.created, 1);
         assert_eq!(first_review.skipped, 1);
         assert_eq!(first_review.failed, 1);
+
+        let original_issue_id: u32 =
+            sqlx::query_scalar("SELECT id FROM issues WHERE series_id = ? AND issue_number = 1")
+                .bind(first.series_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let collection_entry_id: u32 = sqlx::query(
+            "INSERT INTO collection_entries \
+             (user_id, issue_id, copy_number, condition_grade, status, notes) \
+             VALUES (?, ?, 1, 'Z1', 'owned', 'must survive cover backfill')",
+        )
+        .bind(user_id)
+        .bind(original_issue_id)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
 
         series::set_series_active(&pool, first.series_id, true)
             .await
@@ -2379,7 +2662,14 @@ mod tests {
             .write()
             .expect("sync scenario lock poisoned")
             .covers
-            .insert(1, (vec![0x89, b'P', b'N', b'G'], "image/png".to_string()));
+            .insert(
+                1,
+                Ok((
+                    vec![0x89, b'P', b'N', b'G'],
+                    "image/png".to_string(),
+                    "1111111111111111111111111111111111111111".to_string(),
+                )),
+            );
         let third = start_import(
             state.clone(),
             "sync-test",
@@ -2403,13 +2693,150 @@ mod tests {
         .unwrap();
         assert_eq!(
             recovered_cover.0.as_deref(),
-            Some(format!("/media/covers/series-{}/1.png", third.series_id).as_str())
+            Some(
+                format!(
+                    "/media/covers/series-{}/1-1111111111111111111111111111111111111111.png",
+                    third.series_id
+                )
+                .as_str()
+            )
+        );
+        assert_eq!(cover_downloads.load(Ordering::SeqCst), 1);
+        let stored_identity: (u32, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT id, cover_source_file, cover_source_sha1 FROM issues \
+             WHERE series_id = ? AND issue_number = 1",
+        )
+        .bind(third.series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_identity.0, original_issue_id);
+        assert_eq!(stored_identity.1.as_deref(), Some("001tibi.png"));
+        assert_eq!(
+            stored_identity.2.as_deref(),
+            Some("1111111111111111111111111111111111111111")
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, u32>("SELECT issue_id FROM collection_entries WHERE id = ?")
+                .bind(collection_entry_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            original_issue_id
         );
         assert_eq!(
             issues::count_issues_by_series(&pool, third.series_id)
                 .await
                 .unwrap(),
             2
+        );
+
+        let idempotent_cover = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("cover identity synchronization must start");
+        let idempotent_cover = wait_for_terminal_job(&pool, idempotent_cover.id).await;
+        assert_eq!(idempotent_cover.unchanged_issues, 2);
+        assert_eq!(cover_downloads.load(Ordering::SeqCst), 1);
+
+        scenario
+            .write()
+            .expect("sync scenario lock poisoned")
+            .covers
+            .insert(
+                1,
+                Ok((
+                    vec![b'R', b'I', b'F', b'F'],
+                    "image/webp".to_string(),
+                    "2222222222222222222222222222222222222222".to_string(),
+                )),
+            );
+        let changed_cover = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("changed cover synchronization must start");
+        let changed_cover = wait_for_terminal_job(&pool, changed_cover.id).await;
+        assert_eq!(changed_cover.unchanged_issues, 2);
+        assert_eq!(cover_downloads.load(Ordering::SeqCst), 2);
+        let old_cover_file = Path::new(&media_path)
+            .join("covers")
+            .join(format!("series-{}", changed_cover.series_id))
+            .join("1-1111111111111111111111111111111111111111.png");
+        let changed_cover_file = Path::new(&media_path)
+            .join("covers")
+            .join(format!("series-{}", changed_cover.series_id))
+            .join("1-2222222222222222222222222222222222222222.webp");
+        assert!(!tokio::fs::try_exists(old_cover_file).await.unwrap());
+        assert!(tokio::fs::try_exists(&changed_cover_file).await.unwrap());
+
+        scenario
+            .write()
+            .expect("sync scenario lock poisoned")
+            .covers
+            .insert(1, Err("temporary cover transport failure".to_string()));
+        let failed_cover = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("cover failure synchronization must start");
+        let failed_cover = wait_for_terminal_job(&pool, failed_cover.id).await;
+        assert_eq!(failed_cover.unchanged_issues, 2);
+        let retained_cover: (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT cover_local_path, cover_source_sha1 FROM issues \
+             WHERE series_id = ? AND issue_number = 1",
+        )
+        .bind(failed_cover.series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(retained_cover.0.as_deref().is_some_and(|path| {
+            path.ends_with("/1-2222222222222222222222222222222222222222.webp")
+        }));
+        assert_eq!(
+            retained_cover.1.as_deref(),
+            Some("2222222222222222222222222222222222222222")
+        );
+        assert!(tokio::fs::try_exists(&changed_cover_file).await.unwrap());
+
+        scenario
+            .write()
+            .expect("sync scenario lock poisoned")
+            .covers
+            .remove(&1);
+        let missing_cover = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("missing cover synchronization must start");
+        let missing_cover = wait_for_terminal_job(&pool, missing_cover.id).await;
+        assert_eq!(missing_cover.unchanged_issues, 2);
+        let cleared_cover: (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT cover_local_path, cover_source_sha1 FROM issues \
+             WHERE series_id = ? AND issue_number = 1",
+        )
+        .bind(missing_cover.series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(cleared_cover, (None, None));
+        assert!(!tokio::fs::try_exists(&changed_cover_file).await.unwrap());
+        assert_eq!(
+            sqlx::query_scalar::<_, u32>("SELECT issue_id FROM collection_entries WHERE id = ?")
+                .bind(collection_entry_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            original_issue_id
         );
 
         {
@@ -2491,5 +2918,6 @@ mod tests {
             .execute(&pool)
             .await
             .expect("user fixture must be deleted");
+        let _ = tokio::fs::remove_dir_all(media_path).await;
     }
 }

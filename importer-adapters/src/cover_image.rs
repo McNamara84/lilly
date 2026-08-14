@@ -3,7 +3,13 @@ use std::io::Cursor;
 use image::{ImageFormat, ImageReader, Limits};
 use reqwest::Client;
 
-use lilly_importer_core::{AdapterError, CoverData};
+use lilly_importer_core::{AdapterError, CoverData, CoverIdentity};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CoverReference {
+    pub(crate) download_url: String,
+    pub(crate) identity: CoverIdentity,
+}
 
 pub(crate) const MAX_COVER_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 const MAX_COVER_IMAGE_DIMENSION: u32 = 10_000;
@@ -31,6 +37,54 @@ pub(crate) async fn download_cover_image(
     }
 
     sanitize_cover_image(&bytes)
+}
+
+pub(crate) fn cover_reference_from_page(
+    page: &serde_json::Value,
+) -> Result<CoverReference, AdapterError> {
+    let title = page["title"]
+        .as_str()
+        .ok_or_else(|| AdapterError::Parse("Cover image page has no title".to_string()))?;
+    let file_name = title.rsplit(':').next().unwrap_or(title).trim();
+    if file_name.is_empty() {
+        return Err(AdapterError::Parse(
+            "Cover image page has an empty file name".to_string(),
+        ));
+    }
+
+    let image_info = page["imageinfo"]
+        .as_array()
+        .and_then(|items| items.first())
+        .ok_or_else(|| AdapterError::Parse(format!("Cover '{title}' has no imageinfo")))?;
+    let download_url = image_info["url"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AdapterError::Parse(format!("Cover '{title}' has no download URL")))?;
+    let source_sha1 = image_info["sha1"]
+        .as_str()
+        .filter(|value| value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| AdapterError::Parse(format!("Cover '{title}' has an invalid SHA-1")))?;
+    let source_updated_at = image_info["timestamp"]
+        .as_str()
+        .ok_or_else(|| AdapterError::Parse(format!("Cover '{title}' has no timestamp")))
+        .and_then(|value| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .map(|timestamp| timestamp.with_timezone(&chrono::Utc))
+                .map_err(|error| {
+                    AdapterError::Parse(format!(
+                        "Cover '{title}' has an invalid timestamp: {error}"
+                    ))
+                })
+        })?;
+
+    Ok(CoverReference {
+        download_url: download_url.to_string(),
+        identity: CoverIdentity {
+            file_name: file_name.to_string(),
+            source_sha1: source_sha1.to_ascii_lowercase(),
+            source_updated_at,
+        },
+    })
 }
 
 fn append_limited(buffer: &mut Vec<u8>, chunk: &[u8]) -> Result<(), AdapterError> {
@@ -115,6 +169,58 @@ mod tests {
         let mut bytes = Cursor::new(Vec::new());
         image.write_to(&mut bytes, format).unwrap();
         bytes.into_inner()
+    }
+
+    #[test]
+    fn parses_structured_cover_reference() {
+        let page = serde_json::json!({
+            "title": "Datei:005tibi.jpg",
+            "imageinfo": [{
+                "url": "https://example.test/images/005tibi.jpg",
+                "sha1": "A2CD7AFC8BC68E58CAFBCDD30C947BB9AD44F04E",
+                "timestamp": "2012-11-25T10:07:13Z"
+            }]
+        });
+
+        let reference = cover_reference_from_page(&page).unwrap();
+        assert_eq!(reference.identity.file_name, "005tibi.jpg");
+        assert_eq!(
+            reference.identity.source_sha1,
+            "a2cd7afc8bc68e58cafbcdd30c947bb9ad44f04e"
+        );
+        assert_eq!(
+            reference.download_url,
+            "https://example.test/images/005tibi.jpg"
+        );
+    }
+
+    #[test]
+    fn rejects_incomplete_structured_cover_reference() {
+        for page in [
+            serde_json::json!({ "imageinfo": [] }),
+            serde_json::json!({ "title": "Datei:005tibi.jpg", "imageinfo": [] }),
+            serde_json::json!({
+                "title": "Datei:005tibi.jpg",
+                "imageinfo": [{
+                    "url": "https://example.test/cover.jpg",
+                    "sha1": "not-a-sha1",
+                    "timestamp": "2012-11-25T10:07:13Z"
+                }]
+            }),
+            serde_json::json!({
+                "title": "Datei:005tibi.jpg",
+                "imageinfo": [{
+                    "url": "https://example.test/cover.jpg",
+                    "sha1": "a2cd7afc8bc68e58cafbcdd30c947bb9ad44f04e",
+                    "timestamp": "not-a-timestamp"
+                }]
+            }),
+        ] {
+            assert!(matches!(
+                cover_reference_from_page(&page),
+                Err(AdapterError::Parse(_))
+            ));
+        }
     }
 
     async fn serve_once(headers: &str, body: Vec<u8>) -> (String, JoinHandle<()>) {

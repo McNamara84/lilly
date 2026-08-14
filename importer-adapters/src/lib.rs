@@ -101,6 +101,9 @@ mod tests {
             })
             .to_string();
         }
+        if request.contains("generator=images") {
+            return serde_json::json!({ "query": { "pages": [] } }).to_string();
+        }
         if request.contains("action=query") {
             let issue_pattern = regex::Regex::new(r"Quelle%3AMX(\d+)").unwrap();
             let requested_numbers = issue_pattern
@@ -156,7 +159,7 @@ mod tests {
 
     fn john_sinclair_response(request: &str, mode: FixtureMode) -> String {
         if request.contains("action=query") {
-            return serde_json::json!({ "query": { "pages": {} } }).to_string();
+            return serde_json::json!({ "query": { "pages": [] } }).to_string();
         }
         if request.contains("page=JS_Romanhefte") {
             let overview = if mode == FixtureMode::InvalidMandatoryFields {
