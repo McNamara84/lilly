@@ -32,11 +32,12 @@ Cover werden bei jedem Vollabgleich über strukturierte MediaWiki-Daten geprüft
 gespeicherte technische Dateiidentität besteht aus Dateiname, MediaWiki-SHA-1 und
 Quellzeitstempel. Stimmt die bekannte SHA-1 mit der Quelle überein, wird die Bilddatei nicht
 erneut geladen. Bestehende Cover ohne diese Identität werden beim ersten Lauf nach dem
-Deployment einmalig neu geprüft und damit gegebenenfalls korrigiert. Ein eindeutig nicht
-mehr vorhandenes kanonisches Cover entfernt die alte gemeinsame Referenz; bei einem
-Transport-, Format- oder Speicherfehler bleibt das zuletzt funktionierende Cover erhalten.
-Coverfehler werden mit Quellenkontext gespeichert, verhindern aber nicht das Schreiben
-valider bibliografischer Metadaten.
+Deployment einmalig neu geprüft und damit gegebenenfalls korrigiert. Nur ein erfolgreicher
+Quellabruf mit `CoverFetchResult::Missing` bestätigt, dass kein kanonisches Cover vorhanden
+ist, und entfernt die alte gemeinsame Referenz. Bei jedem Adapterfehler – einschließlich
+`NotFound`, MediaWiki-API-, Transport-, Format- und Speicherfehlern – bleibt das zuletzt
+funktionierende Cover erhalten. Coverfehler werden mit Quellenkontext gespeichert,
+verhindern aber nicht das Schreiben valider bibliografischer Metadaten.
 
 Für Maddrax ist ausschließlich ein auf der aufgelösten Heftseite eingebundenes Bild mit dem
 exakten Basisnamen `<dreistellige Heftnummer>tibi` und der Endung JPEG, PNG oder WebP ein

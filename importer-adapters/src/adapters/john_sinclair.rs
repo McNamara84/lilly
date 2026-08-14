@@ -8,7 +8,7 @@ use chrono::Utc;
 use reqwest::Client;
 
 use crate::cover_image::{CoverReference, cover_reference_from_page, download_cover_image};
-use crate::http::parse_json;
+use crate::http::{parse_json, validate_mediawiki_response};
 use lilly_importer_core::{
     AdapterError, CoverFetchResult, IssueData, SeriesData, SeriesStatus, SourceDescriptor,
     SourceReference, WikiAdapter,
@@ -513,6 +513,7 @@ fn extract_cover_reference(
     json: &serde_json::Value,
     issue_number: u32,
 ) -> Result<Option<CoverReference>, AdapterError> {
+    validate_mediawiki_response(json)?;
     let pages = &json["query"]["pages"];
     let candidates = if let Some(pages) = pages.as_array() {
         pages

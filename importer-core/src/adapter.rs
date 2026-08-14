@@ -93,11 +93,12 @@ pub trait WikiAdapter: Send + Sync {
 
     /// Resolve and conditionally fetch an optional, sanitized reference cover.
     ///
-    /// [`CoverFetchResult::Missing`] means the source has no unambiguous cover.
-    /// When `known_source_sha1` matches the current source revision, adapters
-    /// return [`CoverFetchResult::Unchanged`] without downloading the image body.
-    /// Transport or invalid image failures must be returned explicitly and are
-    /// handled as warnings without discarding valid bibliographic metadata.
+    /// [`CoverFetchResult::Missing`] is reserved for a successful source response
+    /// that authoritatively contains no canonical cover. When `known_source_sha1`
+    /// matches the current source revision, adapters return
+    /// [`CoverFetchResult::Unchanged`] without downloading the image body. Every
+    /// adapter error, including [`AdapterError::NotFound`], must be returned
+    /// explicitly and is handled without discarding a previously stored cover.
     async fn fetch_cover(
         &self,
         issue_number: u32,

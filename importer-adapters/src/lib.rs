@@ -44,6 +44,7 @@ mod tests {
         Valid,
         InvalidMandatoryFields,
         InvalidJson,
+        MediaWikiCoverError,
         TruncatedBody,
         ServerError,
         Slow,
@@ -102,6 +103,15 @@ mod tests {
             .to_string();
         }
         if request.contains("generator=images") {
+            if mode == FixtureMode::MediaWikiCoverError {
+                return serde_json::json!({
+                    "error": {
+                        "code": "badvalue",
+                        "info": "Invalid cover query"
+                    }
+                })
+                .to_string();
+            }
             return serde_json::json!({ "query": { "pages": [] } }).to_string();
         }
         if request.contains("action=query") {
@@ -159,6 +169,15 @@ mod tests {
 
     fn john_sinclair_response(request: &str, mode: FixtureMode) -> String {
         if request.contains("action=query") {
+            if mode == FixtureMode::MediaWikiCoverError {
+                return serde_json::json!({
+                    "error": {
+                        "code": "badvalue",
+                        "info": "Invalid cover query"
+                    }
+                })
+                .to_string();
+            }
             return serde_json::json!({ "query": { "pages": [] } }).to_string();
         }
         if request.contains("page=JS_Romanhefte") {
@@ -305,6 +324,39 @@ mod tests {
         assert!(matches!(
             sinclair.fetch_issue_list().await,
             Err(AdapterError::Parse(message)) if message.contains("Invalid JSON response")
+        ));
+        sinclair_server.abort();
+    }
+
+    #[tokio::test]
+    async fn every_adapter_rejects_mediawiki_cover_errors_in_successful_http_responses() {
+        let (maddrax_url, maddrax_server) =
+            spawn_fixture_server(FixtureSource::Maddrax, FixtureMode::MediaWikiCoverError).await;
+        let maddrax = MaddraxAdapter::new()
+            .unwrap()
+            .with_delay(Duration::ZERO)
+            .with_request_base_url(maddrax_url);
+        assert!(matches!(
+            maddrax.fetch_cover(5, None).await,
+            Err(AdapterError::Parse(message))
+                if message == "MediaWiki API error 'badvalue': Invalid cover query"
+        ));
+        maddrax_server.abort();
+
+        let (sinclair_url, sinclair_server) = spawn_fixture_server(
+            FixtureSource::JohnSinclair,
+            FixtureMode::MediaWikiCoverError,
+        )
+        .await;
+        let sinclair = JohnSinclairAdapter::new()
+            .unwrap()
+            .with_delay(Duration::ZERO)
+            .with_request_base_url(sinclair_url);
+        sinclair.fetch_issue_list().await.unwrap();
+        assert!(matches!(
+            sinclair.fetch_cover(1, None).await,
+            Err(AdapterError::Parse(message))
+                if message == "MediaWiki API error 'badvalue': Invalid cover query"
         ));
         sinclair_server.abort();
     }

@@ -1111,12 +1111,6 @@ async fn fetch_and_store_cover(
             return CoverImportResult::reused(existing, Some(identity));
         }
         Ok(CoverFetchResult::Downloaded { data, identity }) => (data, identity),
-        Err(AdapterError::NotFound(_)) => {
-            return CoverImportResult::missing(
-                existing,
-                "The source cover was not found".to_string(),
-            );
-        }
         Err(error) => {
             let message = format!("Failed to fetch cover: {error}");
             let status = if matches!(error, AdapterError::Parse(_)) {
@@ -1406,7 +1400,7 @@ async fn validate_review_progress(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, RwLock};
@@ -1707,6 +1701,7 @@ mod tests {
         issue_list_error: Option<String>,
         issues: BTreeMap<u32, Result<IssueData, String>>,
         covers: BTreeMap<u32, SyncCover>,
+        cover_not_found: BTreeSet<u32>,
     }
 
     struct SyncAdapter {
@@ -1772,6 +1767,11 @@ mod tests {
             known_source_sha1: Option<&str>,
         ) -> Result<CoverFetchResult, AdapterError> {
             let scenario = self.scenario.read().expect("sync scenario lock poisoned");
+            if scenario.cover_not_found.contains(&issue_number) {
+                return Err(AdapterError::NotFound(format!(
+                    "issue index unavailable for {issue_number}"
+                )));
+            }
             let Some(cover) = scenario.covers.get(&issue_number) else {
                 return Ok(CoverFetchResult::Missing);
             };
@@ -2530,6 +2530,7 @@ mod tests {
             issue_list_error: None,
             issues: source_issues,
             covers: BTreeMap::new(),
+            cover_not_found: BTreeSet::new(),
         }));
         let cover_downloads = Arc::new(AtomicUsize::new(0));
         let mut adapter_registry = AdapterRegistry::new();
@@ -2809,8 +2810,41 @@ mod tests {
         scenario
             .write()
             .expect("sync scenario lock poisoned")
-            .covers
-            .remove(&1);
+            .cover_not_found
+            .insert(1);
+        let not_found_cover = start_import(
+            state.clone(),
+            "sync-test",
+            ImportTrigger::Manual { user_id },
+        )
+        .await
+        .expect("not-found cover failure synchronization must start");
+        let not_found_cover = wait_for_terminal_job(&pool, not_found_cover.id).await;
+        assert_eq!(not_found_cover.unchanged_issues, 2);
+        let retained_after_not_found: (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT cover_local_path, cover_source_sha1 FROM issues \
+             WHERE series_id = ? AND issue_number = 1",
+        )
+        .bind(not_found_cover.series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(retained_after_not_found, retained_cover);
+        assert!(tokio::fs::try_exists(&changed_cover_file).await.unwrap());
+        let not_found_findings = import_jobs::find_import_errors(&pool, not_found_cover.id, 1, 50)
+            .await
+            .unwrap();
+        assert!(not_found_findings.iter().any(|finding| {
+            finding.stage == "cover"
+                && finding.code == "fetch_failed"
+                && finding.message.contains("issue index unavailable")
+        }));
+
+        {
+            let mut scenario = scenario.write().expect("sync scenario lock poisoned");
+            scenario.cover_not_found.remove(&1);
+            scenario.covers.remove(&1);
+        }
         let missing_cover = start_import(
             state.clone(),
             "sync-test",

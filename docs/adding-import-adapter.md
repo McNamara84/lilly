@@ -70,10 +70,12 @@ impl WikiAdapter for ExampleAdapter {
 }
 ```
 
-Der Cover-Abruf löst zuerst die technische Dateiidentität auf. Ohne eindeutigen Kandidaten
-liefert er `CoverFetchResult::Missing`; bei passender `known_source_sha1`
-`CoverFetchResult::Unchanged`; andernfalls `Downloaded` mit Bilddaten und Identität. So kann
-die Orchestrierung Altbestände korrigieren, ohne unveränderte Bilddateien erneut zu laden.
+Der Cover-Abruf löst zuerst die technische Dateiidentität auf. Nur eine erfolgreiche,
+eindeutige Quellantwort ohne kanonischen Kandidaten liefert `CoverFetchResult::Missing`; bei
+passender `known_source_sha1` folgt `CoverFetchResult::Unchanged`, andernfalls `Downloaded`
+mit Bilddaten und Identität. Mehrdeutige Antworten und alle Abruffehler müssen als
+`AdapterError` zurückgegeben werden, damit die Orchestrierung ein vorhandenes Cover behält.
+So kann sie Altbestände korrigieren, ohne unveränderte Bilddateien erneut zu laden.
 
 Pflichtfelder eines Hefts sind positive Heftnummer, Titel, mindestens ein Autor,
 Erscheinungsdatum und vollständige Provenienz. Adapter liefern Transportfehler als
