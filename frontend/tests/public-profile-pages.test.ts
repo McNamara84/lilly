@@ -269,6 +269,19 @@ describe('Public Collection Page', () => {
 		expect(screen.getByTestId('collection-note')).toHaveClass('whitespace-pre-wrap');
 	});
 
+	it('shows edition and copy details when they are public', async () => {
+		mocks.fetchPublicCollection.mockResolvedValue({
+			data: [collectionEntry({ edition_label: '1. Auflage', copy_number: 2 })],
+			page: 1,
+			per_page: 100,
+			total: 1
+		});
+
+		render(PublicCollectionPage);
+
+		expect(await screen.findByText('1. Auflage · Exemplar 2')).toBeInTheDocument();
+	});
+
 	it('loads every public collection page', async () => {
 		mocks.fetchPublicCollection
 			.mockResolvedValueOnce({

@@ -125,11 +125,15 @@ describe('Trade detail page', () => {
 	});
 
 	it('renders the immutable proposal snapshot and message thread', async () => {
+		mocks.fetchTrade.mockResolvedValue({
+			...proposedTrade,
+			my_offers: [{ ...item, edition_label: '1. Auflage' }]
+		});
 		const view = render(TradeDetailPage);
 
 		await waitFor(() => expect(screen.getByText('Tausch mit Mira')).toBeInTheDocument());
 		expect(mocks.fetchTrade).toHaveBeenCalledWith(8);
-		expect(screen.getByText('Maddrax #42: Dunkle Zukunft · Z2')).toBeInTheDocument();
+		expect(screen.getByText('Maddrax #42: Dunkle Zukunft · Z2 · 1. Auflage')).toBeInTheDocument();
 		expect(screen.getByText('Maddrax #7: Die Gruft · Z2')).toBeInTheDocument();
 		expect(screen.getByTestId('message-thread')).toBeInTheDocument();
 		view.unmount();

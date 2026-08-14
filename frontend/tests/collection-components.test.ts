@@ -332,6 +332,27 @@ describe('CoverCard', () => {
 		expect(card.getAttribute('aria-label')).toContain('#42');
 	});
 
+	it('shows the edition and copy number in the card and accessible name', () => {
+		render(CoverCard, {
+			props: {
+				entry: makeEntry({ edition_label: 'Variantcover 2024', copy_number: null })
+			}
+		});
+
+		const edition = screen.getByTestId('edition-label');
+		expect(edition).toHaveTextContent('Variantcover 2024 · Exemplar –');
+		expect(edition).toHaveAttribute('title', 'Variantcover 2024 · Exemplar –');
+		expect(screen.getByTestId('cover-card')).toHaveAccessibleName(/Variantcover 2024/);
+	});
+
+	it('shows a persisted copy number for an edition', () => {
+		render(CoverCard, {
+			props: { entry: makeEntry({ edition_label: '1. Auflage', copy_number: 3 }) }
+		});
+
+		expect(screen.getByTestId('edition-label')).toHaveTextContent('1. Auflage · Exemplar 3');
+	});
+
 	it('uses medium size class by default', () => {
 		render(CoverCard, { props: { entry: makeEntry() } });
 

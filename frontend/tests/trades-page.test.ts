@@ -242,9 +242,12 @@ describe('Trades hub', () => {
 		mocks.fetchMatches.mockResolvedValue(page([]));
 		mocks.fetchOpenTrades.mockResolvedValue(page([]));
 		const empty = render(TradesPage);
+		const user = userEvent.setup();
 		await waitFor(() =>
 			expect(screen.getByText('Noch keine Tauschvorschläge')).toBeInTheDocument()
 		);
+		await user.click(screen.getByTestId('trade-history-tab'));
+		expect(screen.getByText('Noch keine abgeschlossenen Tausche')).toBeInTheDocument();
 		empty.unmount();
 
 		mocks.fetchMatches.mockRejectedValueOnce(new Error('Matching nicht erreichbar'));
@@ -401,6 +404,21 @@ describe('Trade cards', () => {
 		view.unmount();
 	});
 
+	it('renders matches whose offered copies have no edition label', () => {
+		const view = render(TradeMatchCard, {
+			match: {
+				...match,
+				my_offers: [{ ...myOffer, edition_label: null }],
+				partner_offers: [{ ...partnerOffer, edition_label: null }]
+			}
+		});
+
+		expect(screen.getByText('Dunkle Zukunft · Z2')).toBeInTheDocument();
+		expect(screen.getByText('Gesuchtes Heft · Z1')).toBeInTheDocument();
+		expect(screen.queryByText('1. Auflage', { exact: false })).not.toBeInTheDocument();
+		view.unmount();
+	});
+
 	it('guards invalid and duplicate proposal submissions', async () => {
 		let resolveProposal!: (value: typeof trade) => void;
 		mocks.createTradeProposal.mockReturnValue(
@@ -487,6 +505,20 @@ describe('Trade list management pages', () => {
 
 		await waitFor(() => expect(mocks.deleteWantedEntry).toHaveBeenCalledWith(20));
 		expect(screen.getByText('Deine Wunschliste ist leer.')).toBeInTheDocument();
+	});
+
+	it('renders offer and wanted cards without optional edition labels', async () => {
+		mocks.fetchTradeOffers.mockResolvedValue(page([{ ...offer, edition_label: null }]));
+		const offersView = render(OffersPage);
+		await waitFor(() => expect(screen.getByTestId('offer-card')).toBeInTheDocument());
+		expect(screen.queryByText('1. Auflage', { exact: false })).not.toBeInTheDocument();
+		offersView.unmount();
+
+		mocks.fetchWantedEntries.mockResolvedValue(page([{ ...wanted, edition_label: null }]));
+		const wantedView = render(WantedPage);
+		await waitFor(() => expect(screen.getByTestId('wanted-card')).toBeInTheDocument());
+		expect(screen.queryByText(/Gewünschte Edition/)).not.toBeInTheDocument();
+		wantedView.unmount();
 	});
 
 	it('keeps entries visible and reports mutation failures', async () => {

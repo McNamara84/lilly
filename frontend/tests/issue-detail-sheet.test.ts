@@ -209,6 +209,29 @@ describe('IssueDetailSheet', () => {
 		expect(onaddcopy).toHaveBeenCalledOnce();
 	});
 
+	it('renders edition fallbacks and tolerates an absent selection callback', async () => {
+		const entryWithoutEdition = {
+			...sampleEntry,
+			edition_label: null,
+			copy_number: null
+		};
+		render(IssueDetailSheet, {
+			props: {
+				issue: sampleIssue,
+				collection_entry: entryWithoutEdition,
+				collection_entries: [entryWithoutEdition],
+				onclose,
+				onsave
+			}
+		});
+
+		const option = screen.getByTestId('edition-entry-option');
+		expect(option).toHaveTextContent('Edition nicht angegeben');
+		expect(option).toHaveTextContent('Exemplar –');
+		await userEvent.setup().click(option);
+		expect(screen.queryByTestId('add-copy-button')).not.toBeInTheDocument();
+	});
+
 	it('saves and Unicode-limits an edition label', async () => {
 		render(IssueDetailSheet, {
 			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }

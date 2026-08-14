@@ -276,6 +276,27 @@ describe('Collection Add Page', () => {
 		expect(screen.getAllByTestId('series-status-cell')[0]).toHaveAttribute('data-status', 'wanted');
 	});
 
+	it('selects another existing copy and can start an additional one', async () => {
+		const firstEntry = makeEntry();
+		const secondEntry = makeEntry({
+			id: 11,
+			copy_number: 2,
+			edition_label: 'Variantcover 2024'
+		});
+		mockFetchAllCollectionEntries.mockResolvedValue([firstEntry, secondEntry]);
+		render(AddPage);
+		const user = userEvent.setup();
+		await selectMaddrax(user);
+
+		await user.click(screen.getAllByTestId('series-status-cell')[0]);
+		await user.click(screen.getByRole('button', { name: /Variantcover 2024/ }));
+		expect(screen.getByTestId('edition-input')).toHaveValue('Variantcover 2024');
+
+		await user.click(screen.getByTestId('add-copy-button'));
+		expect(screen.getByTestId('save-button')).toHaveTextContent('Hinzufügen');
+		expect(screen.getByTestId('edition-input')).toHaveValue('');
+	});
+
 	it('keeps unrelated entries while updating and replaces an active toast', async () => {
 		const firstEntry = makeEntry();
 		const secondEntry = makeEntry({ id: 11, issue_id: 101, issue_number: 2 });

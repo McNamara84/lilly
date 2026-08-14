@@ -220,6 +220,37 @@ describe('Collection Page', () => {
 		});
 	});
 
+	it('selects another copy and switches to adding an additional copy', async () => {
+		const secondEntry = {
+			...sampleEntry,
+			id: 2,
+			copy_number: 2,
+			edition_label: 'Variantcover 2024'
+		};
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({
+			data: [sampleEntry],
+			page: 1,
+			per_page: 20,
+			total: 1
+		});
+		mockFetchCollectionEntriesByIssue.mockResolvedValue([sampleEntry, secondEntry]);
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		render(CollectionPage);
+
+		await screen.findByTestId('cover-card');
+		await screen.getByTestId('cover-card').click();
+		await screen.findByTestId('edition-entry-list');
+		await screen.getByRole('button', { name: /Variantcover 2024/ }).click();
+		await waitFor(() =>
+			expect(screen.getByTestId('edition-input')).toHaveValue('Variantcover 2024')
+		);
+
+		await screen.getByTestId('add-copy-button').click();
+		await waitFor(() => expect(screen.getByTestId('save-button')).toHaveTextContent('Hinzufügen'));
+		expect(screen.getByTestId('edition-input')).toHaveValue('');
+	});
+
 	it('calls updateCollectionEntry on save from detail sheet', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchCollection.mockResolvedValue({

@@ -283,6 +283,48 @@ describe('Issue Detail Page', () => {
 		expect(screen.getByRole('button', { name: 'Entfernen' })).toBeInTheDocument();
 	});
 
+	it('switches between physical copies and starts a new copy', async () => {
+		const firstEntry = { ...sampleEntry, copy_number: null };
+		const secondEntry = {
+			...sampleEntry,
+			id: 2,
+			copy_number: 2,
+			edition_label: 'Variantcover 2024',
+			condition_grade: 'Z3',
+			notes: 'Zweites Exemplar'
+		};
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntryByIssue.mockResolvedValue([firstEntry, secondEntry]);
+		render(IssueDetailPage);
+		const user = userEvent.setup();
+
+		const editionList = await screen.findByTestId('issue-edition-list');
+		expect(editionList).toHaveTextContent('Edition nicht angegeben');
+		expect(editionList).toHaveTextContent('Exemplar –');
+		await user.click(screen.getByRole('button', { name: /Variantcover 2024/ }));
+		expect(screen.getByTestId('detail-edition-input')).toHaveValue('Variantcover 2024');
+		expect(screen.getByLabelText('Notizen')).toHaveValue('Zweites Exemplar');
+
+		await user.click(screen.getByRole('button', { name: /Weiteres Exemplar/ }));
+		expect(screen.getByRole('heading', { name: 'Zur Sammlung hinzufügen' })).toBeInTheDocument();
+		expect(screen.getByTestId('detail-edition-input')).toHaveValue('');
+	});
+
+	it('Unicode-limits edition labels while accepting labels within the limit', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		render(IssueDetailPage);
+
+		const input = await screen.findByTestId('detail-edition-input');
+		await fireEvent.input(input, { target: { value: '1. Auflage' } });
+		expect(input).toHaveValue('1. Auflage');
+		await fireEvent.input(input, { target: { value: '📚'.repeat(121) } });
+
+		expect(Array.from((input as HTMLInputElement).value)).toHaveLength(120);
+		expect(screen.getByText(/120\/120/)).toBeInTheDocument();
+	});
+
 	it('normalizes incomplete and virtual collection data to editable defaults', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchIssue.mockResolvedValue(sampleIssue);
