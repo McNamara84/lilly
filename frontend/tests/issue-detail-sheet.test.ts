@@ -34,6 +34,7 @@ const sampleEntry: CollectionEntry = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 1,
+	edition_label: '1. Auflage',
 	condition_grade: 'Z3',
 	status: 'duplicate',
 	notes: 'My note',
@@ -48,6 +49,7 @@ describe('IssueDetailSheet', () => {
 		condition_grade?: string;
 		status?: string;
 		notes?: string;
+		edition_label?: string;
 	}) => void;
 	let ondelete: () => void;
 
@@ -162,7 +164,8 @@ describe('IssueDetailSheet', () => {
 			issue_id: 42,
 			condition_grade: 'Z2',
 			status: 'owned',
-			notes: ''
+			notes: '',
+			edition_label: ''
 		});
 	});
 
@@ -173,6 +176,75 @@ describe('IssueDetailSheet', () => {
 
 		const notesTextarea = screen.getByTestId('notes-textarea') as HTMLTextAreaElement;
 		expect(notesTextarea.value).toBe('My note');
+		expect(screen.getByTestId('edition-input')).toHaveValue('1. Auflage');
+	});
+
+	it('selects existing editions and starts another copy', async () => {
+		const secondEntry = {
+			...sampleEntry,
+			id: 2,
+			copy_number: 2,
+			edition_label: 'Variantcover 2024'
+		};
+		const onselectentry = vi.fn();
+		const onaddcopy = vi.fn();
+		render(IssueDetailSheet, {
+			props: {
+				issue: sampleIssue,
+				collection_entry: sampleEntry,
+				collection_entries: [sampleEntry, secondEntry],
+				onselectentry,
+				onaddcopy,
+				onclose,
+				onsave
+			}
+		});
+		const user = userEvent.setup();
+
+		expect(screen.getByTestId('edition-entry-list')).toHaveTextContent('1. Auflage');
+		expect(screen.getByTestId('edition-entry-list')).toHaveTextContent('Variantcover 2024');
+		await user.click(screen.getByRole('button', { name: /Variantcover 2024/ }));
+		expect(onselectentry).toHaveBeenCalledWith(secondEntry);
+		await user.click(screen.getByRole('button', { name: /Weiteres Exemplar/ }));
+		expect(onaddcopy).toHaveBeenCalledOnce();
+	});
+
+	it('renders edition fallbacks and tolerates an absent selection callback', async () => {
+		const entryWithoutEdition = {
+			...sampleEntry,
+			edition_label: null,
+			copy_number: null
+		};
+		render(IssueDetailSheet, {
+			props: {
+				issue: sampleIssue,
+				collection_entry: entryWithoutEdition,
+				collection_entries: [entryWithoutEdition],
+				onclose,
+				onsave
+			}
+		});
+
+		const option = screen.getByTestId('edition-entry-option');
+		expect(option).toHaveTextContent('Edition nicht angegeben');
+		expect(option).toHaveTextContent('Exemplar –');
+		await userEvent.setup().click(option);
+		expect(screen.queryByTestId('add-copy-button')).not.toBeInTheDocument();
+	});
+
+	it('saves and Unicode-limits an edition label', async () => {
+		render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }
+		});
+		const input = screen.getByTestId('edition-input') as HTMLInputElement;
+		await fireEvent.input(input, { target: { value: '📚'.repeat(121) } });
+
+		expect(Array.from(input.value)).toHaveLength(120);
+		expect(screen.getByText(/120\/120/)).toBeInTheDocument();
+		await userEvent.setup().click(screen.getByTestId('save-button'));
+		expect(onsave).toHaveBeenCalledWith(
+			expect.objectContaining({ edition_label: '📚'.repeat(120) })
+		);
 	});
 
 	it('normalizes a virtual entry with absent editable values to defaults', () => {

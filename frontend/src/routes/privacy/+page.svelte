@@ -44,8 +44,14 @@
 				<li>E-Mail-Adresse</li>
 				<li>Passwort-Hash (Argon2id; das Klartextpasswort wird nicht gespeichert)</li>
 				<li>Version und Zeitpunkt der Datenschutz-Einwilligung sowie Registrierungsweg</li>
-				<li>Sammlungsdaten (Serien, Hefte, Tauschangebote und persönliche Heftnotizen)</li>
-				<li>Tausch-Matches, Tauschvorschläge und zugehörige interne Nachrichten</li>
+				<li>
+					Sammlungsdaten (Serien, Hefte, Editionen, Tauschangebote, persönliche Heftnotizen und
+					hochgeladene Fotos)
+				</li>
+				<li>
+					Tausch-Matches, Tauschvorschläge, Abschlussbestätigungen und zugehörige interne
+					Nachrichten
+				</li>
 			</ul>
 		</section>
 
@@ -107,9 +113,10 @@
 			<p>
 				Ihre Daten werden so lange gespeichert, wie Ihr Benutzerkonto besteht. Nach Löschung des
 				Kontos werden alle personenbezogenen Daten entfernt, sofern keine gesetzlichen
-				Aufbewahrungspflichten bestehen. Nachrichten bleiben unabhängig vom Tauschstatus bis zur
-				Löschung eines beteiligten Kontos erhalten; dann wird der gemeinsame Tausch- und
-				Nachrichtenkontext gelöscht.
+				Aufbewahrungspflichten bestehen. Beim Abschluss eines Tauschs werden persönliche Notizen und
+				Fotos eines abgegebenen Exemplars nicht an den Empfänger übertragen; dessen Fotos werden
+				gelöscht. Nachrichten bleiben unabhängig vom Tauschstatus bis zur Löschung eines beteiligten
+				Kontos erhalten; dann wird der gemeinsame Tausch- und Nachrichtenkontext gelöscht.
 			</p>
 		</section>
 

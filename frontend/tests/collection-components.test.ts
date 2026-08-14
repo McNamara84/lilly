@@ -25,7 +25,8 @@ function makeEntry(overrides: Partial<CollectionEntry> = {}): CollectionEntry {
 		notes: null,
 		created_at: '2026-03-22T10:00:00Z',
 		updated_at: '2026-03-22T10:00:00Z',
-		...overrides
+		...overrides,
+		edition_label: overrides.edition_label ?? null
 	};
 }
 
@@ -329,6 +330,40 @@ describe('CoverCard', () => {
 		const card = screen.getByTestId('cover-card');
 		expect(card.getAttribute('aria-label')).toContain('Dunkle Zukunft');
 		expect(card.getAttribute('aria-label')).toContain('#42');
+		expect(card.getAttribute('aria-label')).toContain('Exemplar 1');
+	});
+
+	it('gives otherwise identical physical copies distinct accessible names', () => {
+		const entries = [
+			makeEntry({ id: 1, edition_label: '1. Auflage', copy_number: 1 }),
+			makeEntry({ id: 2, edition_label: '1. Auflage', copy_number: 2 })
+		];
+		render(CoverGrid, { props: { items: entries, loading: false } });
+
+		const cards = screen.getAllByTestId('cover-card');
+		expect(cards[0]).toHaveAccessibleName(/1\. Auflage, Exemplar 1/);
+		expect(cards[1]).toHaveAccessibleName(/1\. Auflage, Exemplar 2/);
+	});
+
+	it('shows the edition and copy number in the card and accessible name', () => {
+		render(CoverCard, {
+			props: {
+				entry: makeEntry({ edition_label: 'Variantcover 2024', copy_number: null })
+			}
+		});
+
+		const edition = screen.getByTestId('edition-label');
+		expect(edition).toHaveTextContent('Variantcover 2024 · Exemplar –');
+		expect(edition).toHaveAttribute('title', 'Variantcover 2024 · Exemplar –');
+		expect(screen.getByTestId('cover-card')).toHaveAccessibleName(/Variantcover 2024/);
+	});
+
+	it('shows a persisted copy number for an edition', () => {
+		render(CoverCard, {
+			props: { entry: makeEntry({ edition_label: '1. Auflage', copy_number: 3 }) }
+		});
+
+		expect(screen.getByTestId('edition-label')).toHaveTextContent('1. Auflage · Exemplar 3');
 	});
 
 	it('uses medium size class by default', () => {

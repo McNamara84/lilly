@@ -9,12 +9,14 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 }));
 
 const mockFetchCollection = vi.fn();
+const mockFetchCollectionEntriesByIssue = vi.fn();
 const mockAddToCollection = vi.fn();
 const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
 vi.mock('$lib/api/collection', () => ({
 	fetchCollection: (...args: unknown[]) => mockFetchCollection(...args),
+	fetchCollectionEntriesByIssue: (...args: unknown[]) => mockFetchCollectionEntriesByIssue(...args),
 	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
 	updateCollectionEntry: (...args: unknown[]) => mockUpdateCollectionEntry(...args),
 	deleteCollectionEntry: (...args: unknown[]) => mockDeleteCollectionEntry(...args)
@@ -61,6 +63,7 @@ const sampleEntry = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 1,
+	edition_label: null,
 	condition_grade: 'Z2',
 	status: 'owned',
 	notes: null,
@@ -89,6 +92,7 @@ describe('Collection Page', () => {
 		vi.clearAllMocks();
 		mockFetchSeries.mockResolvedValue([]);
 		mockFetchCollection.mockResolvedValue({ data: [], page: 1, per_page: 20, total: 0 });
+		mockFetchCollectionEntriesByIssue.mockResolvedValue([sampleEntry]);
 	});
 
 	it('sets the page title', () => {
@@ -216,6 +220,37 @@ describe('Collection Page', () => {
 		});
 	});
 
+	it('selects another copy and switches to adding an additional copy', async () => {
+		const secondEntry = {
+			...sampleEntry,
+			id: 2,
+			copy_number: 2,
+			edition_label: 'Variantcover 2024'
+		};
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({
+			data: [sampleEntry],
+			page: 1,
+			per_page: 20,
+			total: 1
+		});
+		mockFetchCollectionEntriesByIssue.mockResolvedValue([sampleEntry, secondEntry]);
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		render(CollectionPage);
+
+		await screen.findByTestId('cover-card');
+		await screen.getByTestId('cover-card').click();
+		await screen.findByTestId('edition-entry-list');
+		await screen.getByRole('button', { name: /Variantcover 2024/ }).click();
+		await waitFor(() =>
+			expect(screen.getByTestId('edition-input')).toHaveValue('Variantcover 2024')
+		);
+
+		await screen.getByTestId('add-copy-button').click();
+		await waitFor(() => expect(screen.getByTestId('save-button')).toHaveTextContent('Hinzufügen'));
+		expect(screen.getByTestId('edition-input')).toHaveValue('');
+	});
+
 	it('calls updateCollectionEntry on save from detail sheet', async () => {
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchCollection.mockResolvedValue({
@@ -264,6 +299,7 @@ describe('Collection Page', () => {
 			total: 1
 		});
 		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntriesByIssue.mockResolvedValue([]);
 		mockAddToCollection.mockResolvedValue(sampleEntry);
 		render(CollectionPage);
 

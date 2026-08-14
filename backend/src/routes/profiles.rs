@@ -236,6 +236,7 @@ async fn get_public_collection(
     // filters silently: reject them so the public contract cannot accidentally
     // expose virtual missing entries or unsupported query behavior.
     if params.series_slug.is_some()
+        || params.issue_id.is_some()
         || params.status.is_some()
         || params.issue_number.is_some()
         || params.condition.is_some()

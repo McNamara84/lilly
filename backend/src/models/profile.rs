@@ -162,6 +162,7 @@ pub struct PublicCollectionEntryResponse {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
     pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
@@ -179,6 +180,7 @@ impl From<&CollectionEntryRow> for PublicCollectionEntryResponse {
             cover_url: row.cover_url.clone(),
             cover_local_path: row.cover_local_path.clone(),
             copy_number: row.copy_number,
+            edition_label: row.edition_label.clone(),
             condition_grade: row.condition_grade.clone(),
             status: row.status.clone(),
             notes: row.notes.clone(),
@@ -289,6 +291,7 @@ mod tests {
             cover_url: None,
             cover_local_path: None,
             copy_number: 1,
+            edition_label: Some("1. Auflage".to_string()),
             condition_grade: Some("Z2".to_string()),
             status: "owned".to_string(),
             notes: Some("Public note".to_string()),
@@ -296,6 +299,7 @@ mod tests {
 
         let value = serde_json::to_value(response).unwrap();
         assert_eq!(value["notes"], "Public note");
+        assert_eq!(value["edition_label"], "1. Auflage");
         assert!(value.get("id").is_none());
         assert!(value.get("user_id").is_none());
         assert!(value.get("email").is_none());

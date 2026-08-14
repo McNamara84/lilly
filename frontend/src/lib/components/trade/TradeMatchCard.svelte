@@ -101,7 +101,9 @@
 						<span class="min-w-0 text-sm">
 							<span class="block truncate">{item.series_name} #{item.issue_number}</span>
 							<span class="block text-xs" style="color: var(--text-secondary);">
-								{item.title} · {item.condition_grade}
+								{item.title} · {item.condition_grade}{item.edition_label
+									? ` · ${item.edition_label}`
+									: ''}
 							</span>
 						</span>
 					</label>
@@ -128,7 +130,9 @@
 						<span class="min-w-0 text-sm">
 							<span class="block truncate">{item.series_name} #{item.issue_number}</span>
 							<span class="block text-xs" style="color: var(--text-secondary);">
-								{item.title} · {item.condition_grade}
+								{item.title} · {item.condition_grade}{item.edition_label
+									? ` · ${item.edition_label}`
+									: ''}
 							</span>
 						</span>
 					</label>

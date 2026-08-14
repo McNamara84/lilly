@@ -38,6 +38,7 @@ function entry(id: number, issueId: number, status: CollectionEntry['status']): 
 		cover_url: null,
 		cover_local_path: null,
 		copy_number: 1,
+		edition_label: null,
 		condition_grade: 'Z2',
 		status,
 		notes: null,

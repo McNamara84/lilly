@@ -5,11 +5,15 @@
 	let { trade }: { trade: Trade } = $props();
 
 	const label = $derived(
-		trade.status === 'accepted'
-			? 'Aktiv'
-			: trade.role === 'responder'
-				? 'Vorschlag erhalten'
-				: 'Vorgeschlagen'
+		trade.status === 'completed'
+			? 'Abgeschlossen'
+			: trade.status === 'cancelled'
+				? 'Abgebrochen'
+				: trade.status === 'accepted'
+					? 'Aktiv'
+					: trade.role === 'responder'
+						? 'Vorschlag erhalten'
+						: 'Vorgeschlagen'
 	);
 </script>
 

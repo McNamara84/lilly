@@ -15,7 +15,7 @@
 
 LILLY is an open-source web application (PWA) for managing and trading paperback novel collections in German-speaking countries. It is built for collectors of German _Heftromane_ (also known as _Groschenromane_ or _Groschenhefte_ – serialized pulp fiction novellas) and provides a central platform for cataloging, showcasing, and trading issues.
 
-> **Status:** Under active development – Login, collection management, reciprocal trade matching, proposals, notifications, and trade-scoped messaging are functional. Completing a trade and transferring collection entries follows in issue #34.
+> **Status:** Under active development – Login, collection management with multiple editions, reciprocal trade matching, proposals, notifications, trade-scoped messaging, and two-party trade completion are functional.
 
 ---
 
@@ -71,6 +71,7 @@ While generic book managers and general-purpose collector software exist, there 
 - Add issues from available series to your personal collection
 - Condition grading using the established collector scale (Z0–Z4)
 - Mark issues as _Owned_, _Duplicate/Tradeable_, or _Wanted_
+- Track multiple physical copies and optional edition labels for the same issue independently
 - Collection progress per series as progress bar and percentage
 - Grid view of all issues in a series with color-coded ownership status
 - Filter and sort by series, issue number, condition, title, and author
@@ -83,7 +84,9 @@ While generic book managers and general-purpose collector software exist, there 
 - Keep offers and wishes synchronized automatically with collection status changes
 - Receive reciprocal matches when both collectors can fulfil each other's wishes
 - Select items, propose or accept a trade, and coordinate it in a private message thread
-- See deduplicated match, proposal, acceptance, cancellation, and message notifications
+- Confirm receipt from both sides to transfer the agreed copies atomically between collections
+- Review completed and cancelled trades without losing their private message threads
+- See deduplicated match, proposal, acceptance, completion, cancellation, and message notifications
 - Deliberately **no** buy/sell system – LILLY is a pure trading platform
 
 ### Series Data and Import
@@ -226,7 +229,7 @@ GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
 GITHUB_OAUTH_CLIENT_ID=
 GITHUB_OAUTH_CLIENT_SECRET=
-PRIVACY_POLICY_VERSION=2026-03-06
+PRIVACY_POLICY_VERSION=2026-08-14
 ```
 
 Google uses `openid email profile`; GitHub uses `read:user user:email`. LILLY accepts only a

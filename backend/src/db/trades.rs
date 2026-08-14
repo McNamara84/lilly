@@ -17,7 +17,8 @@ pub async fn find_trade_list_entries(
     sqlx::query_as::<_, TradeListEntryRow>(
         "SELECT ce.id AS entry_id, ce.issue_id, i.issue_number, i.title,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug,
-                i.cover_url, i.cover_local_path, ce.copy_number, ce.condition_grade,
+                i.cover_url, i.cover_local_path, ce.copy_number, ce.edition_label,
+                ce.condition_grade,
                 u.id AS owner_id, u.display_name AS owner_display_name
          FROM collection_entries ce
          JOIN issues i ON i.id = ce.issue_id

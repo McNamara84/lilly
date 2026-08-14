@@ -102,6 +102,7 @@ function makeEntry(overrides: Record<string, unknown> = {}) {
 		cover_url: null,
 		cover_local_path: null,
 		copy_number: 1,
+		edition_label: null,
 		condition_grade: 'Z2',
 		status: 'owned',
 		notes: null,
@@ -239,7 +240,8 @@ describe('Collection Add Page', () => {
 				issue_id: 100,
 				condition_grade: 'Z2',
 				status: 'owned',
-				notes: 'Signierte Ausgabe'
+				notes: 'Signierte Ausgabe',
+				edition_label: ''
 			});
 		});
 		expect(firstCell).toHaveAttribute('data-status', 'owned');
@@ -267,10 +269,32 @@ describe('Collection Add Page', () => {
 			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(10, {
 				condition_grade: 'Z4',
 				status: 'wanted',
-				notes: 'Neu'
+				notes: 'Neu',
+				edition_label: ''
 			})
 		);
 		expect(screen.getAllByTestId('series-status-cell')[0]).toHaveAttribute('data-status', 'wanted');
+	});
+
+	it('selects another existing copy and can start an additional one', async () => {
+		const firstEntry = makeEntry();
+		const secondEntry = makeEntry({
+			id: 11,
+			copy_number: 2,
+			edition_label: 'Variantcover 2024'
+		});
+		mockFetchAllCollectionEntries.mockResolvedValue([firstEntry, secondEntry]);
+		render(AddPage);
+		const user = userEvent.setup();
+		await selectMaddrax(user);
+
+		await user.click(screen.getAllByTestId('series-status-cell')[0]);
+		await user.click(screen.getByRole('button', { name: /Variantcover 2024/ }));
+		expect(screen.getByTestId('edition-input')).toHaveValue('Variantcover 2024');
+
+		await user.click(screen.getByTestId('add-copy-button'));
+		expect(screen.getByTestId('save-button')).toHaveTextContent('Hinzufügen');
+		expect(screen.getByTestId('edition-input')).toHaveValue('');
 	});
 
 	it('keeps unrelated entries while updating and replaces an active toast', async () => {

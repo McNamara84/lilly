@@ -4,7 +4,7 @@
 	import { getAuthState } from '$lib/stores/auth.svelte';
 	import { fetchIssue, type Issue } from '$lib/api/series';
 	import {
-		fetchCollectionEntryByIssue,
+		fetchCollectionEntriesByIssue,
 		addToCollection,
 		updateCollectionEntry,
 		deleteCollectionEntry,
@@ -19,11 +19,17 @@
 	} from '$lib/collection/notes';
 	import ConditionChips from '$lib/components/collection/ConditionChips.svelte';
 	import PhotoUploader from '$lib/components/media/PhotoUploader.svelte';
+	import {
+		MAX_EDITION_LABEL_LENGTH,
+		countEditionLabelCharacters,
+		limitEditionLabel
+	} from '$lib/collection/editions';
 
 	const auth = getAuthState();
 
 	let issue = $state<Issue | null>(null);
 	let entry = $state<CollectionEntry | null>(null);
+	let entries = $state<CollectionEntry[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let saving = $state(false);
@@ -32,12 +38,22 @@
 	let conditionGrade = $state<ConditionGrade>('Z2');
 	let status = $state<PersistedCollectionStatus>('owned');
 	let notes = $state('');
+	let editionLabel = $state('');
 	const ENTRY_STATUSES = ['owned', 'duplicate', 'wanted'] as const;
 
 	const issueId = $derived(Number($page.params.id));
 	const isInCollection = $derived(entry !== null && entry.id > 0);
 	const needsCondition = $derived(status !== 'wanted' || entry?.condition_grade != null);
 	const noteLength = $derived(countCollectionNoteCharacters(notes));
+	const editionLabelLength = $derived(countEditionLabelCharacters(editionLabel));
+
+	function selectEntry(selected: CollectionEntry | null) {
+		entry = selected;
+		conditionGrade = selected?.condition_grade ?? 'Z2';
+		status = selected?.status === 'missing' || !selected ? 'owned' : selected.status;
+		notes = selected?.notes ?? '';
+		editionLabel = selected?.edition_label ?? '';
+	}
 
 	$effect(() => {
 		const currentIssueId = issueId;
@@ -62,22 +78,19 @@
 		issue = null;
 		// Reset collection state before lookup to avoid stale data
 		entry = null;
+		entries = [];
 		conditionGrade = 'Z2';
 		status = 'owned';
 		notes = '';
+		editionLabel = '';
 		try {
 			issue = await fetchIssue(currentIssueId);
 
 			// Try to load collection entry for this issue (if authenticated)
 			if (authenticated) {
 				try {
-					const found = await fetchCollectionEntryByIssue(currentIssueId);
-					if (found) {
-						entry = found;
-						conditionGrade = found.condition_grade ?? 'Z2';
-						status = found.status === 'missing' ? 'owned' : found.status;
-						notes = found.notes ?? '';
-					}
+					entries = await fetchCollectionEntriesByIssue(currentIssueId);
+					selectEntry(entries[0] ?? null);
 				} catch {
 					// Not critical if collection lookup fails
 				}
@@ -93,12 +106,15 @@
 		if (!issue) return;
 		saving = true;
 		try {
-			entry = await addToCollection({
+			const created = await addToCollection({
 				issue_id: issue.id,
 				condition_grade: needsCondition ? conditionGrade : undefined,
 				status,
-				notes
+				notes,
+				edition_label: editionLabel
 			});
+			entries = [...entries, created];
+			selectEntry(created);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Fehler beim Hinzufügen';
 		} finally {
@@ -110,11 +126,14 @@
 		if (!entry || entry.id <= 0) return;
 		saving = true;
 		try {
-			entry = await updateCollectionEntry(entry.id, {
+			const updated = await updateCollectionEntry(entry.id, {
 				condition_grade: needsCondition ? conditionGrade : undefined,
 				status,
-				notes
+				notes,
+				edition_label: editionLabel
 			});
+			entries = entries.map((candidate) => (candidate.id === updated.id ? updated : candidate));
+			selectEntry(updated);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Fehler beim Speichern';
 		} finally {
@@ -127,10 +146,8 @@
 		saving = true;
 		try {
 			await deleteCollectionEntry(entry.id);
-			entry = null;
-			conditionGrade = 'Z2';
-			status = 'owned';
-			notes = '';
+			entries = entries.filter((candidate) => candidate.id !== entry?.id);
+			selectEntry(entries[0] ?? null);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Fehler beim Entfernen';
 		} finally {
@@ -142,6 +159,12 @@
 		const textarea = event.currentTarget as HTMLTextAreaElement;
 		notes = limitCollectionNote(textarea.value);
 		if (textarea.value !== notes) textarea.value = notes;
+	}
+
+	function handleEditionInput(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		editionLabel = limitEditionLabel(input.value);
+		if (input.value !== editionLabel) input.value = editionLabel;
 	}
 </script>
 
@@ -224,6 +247,38 @@
 						{isInCollection ? 'In deiner Sammlung' : 'Zur Sammlung hinzufügen'}
 					</h2>
 
+					{#if entries.length > 0}
+						<div class="mb-5" data-testid="issue-edition-list">
+							<h3 class="mb-2 text-sm font-semibold">Exemplare und Editionen</h3>
+							<div class="flex flex-wrap gap-2">
+								{#each entries as candidate (candidate.id)}
+									<button
+										type="button"
+										aria-pressed={entry?.id === candidate.id}
+										onclick={() => selectEntry(candidate)}
+										class="cursor-pointer rounded-lg px-3 py-2 text-left text-xs"
+										style={entry?.id === candidate.id
+											? 'background: var(--color-brand-500); color: #000;'
+											: 'background: var(--glass); color: var(--text-secondary);'}
+									>
+										<span class="block font-semibold">
+											{candidate.edition_label ?? 'Edition nicht angegeben'}
+										</span>
+										<span>Exemplar {candidate.copy_number ?? '–'}</span>
+									</button>
+								{/each}
+								<button
+									type="button"
+									onclick={() => selectEntry(null)}
+									class="cursor-pointer rounded-lg px-3 py-2 text-xs"
+									style="border: 1px dashed var(--glass-border); color: var(--text-secondary);"
+								>
+									+ Weiteres Exemplar
+								</button>
+							</div>
+						</div>
+					{/if}
+
 					<!-- Status toggle -->
 					<div class="flex gap-2 mb-4" role="radiogroup" aria-label="Status">
 						{#each ENTRY_STATUSES as s (s)}
@@ -259,6 +314,27 @@
 							Ein Zustand wird erst benötigt, sobald du ein Exemplar besitzt oder anbietest.
 						</p>
 					{/if}
+
+					<label
+						for="detail-edition"
+						class="block text-xs mt-4 mb-1"
+						style="color: var(--text-tertiary);"
+					>
+						Edition oder Auflage
+					</label>
+					<input
+						id="detail-edition"
+						value={editionLabel}
+						oninput={handleEditionInput}
+						aria-describedby="detail-edition-hint"
+						class="w-full rounded-lg p-2 text-sm"
+						style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
+						placeholder="z. B. 1. Auflage oder Variantcover 2024"
+						data-testid="detail-edition-input"
+					/>
+					<p id="detail-edition-hint" class="mt-1 text-[10px]" style="color: var(--text-tertiary);">
+						Optional; leer lassen für eine beliebige oder unbekannte Edition. {editionLabelLength}/{MAX_EDITION_LABEL_LENGTH}
+					</p>
 
 					<!-- Notes -->
 					<label

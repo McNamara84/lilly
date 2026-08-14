@@ -17,6 +17,7 @@ export interface CollectionEntry {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number | null;
+	edition_label: string | null;
 	condition_grade: ConditionGrade | null;
 	status: CollectionStatus;
 	notes: string | null;
@@ -58,12 +59,14 @@ export interface AddCollectionEntryRequest {
 	status?: PersistedCollectionStatus;
 	notes?: string;
 	copy_number?: number;
+	edition_label?: string;
 }
 
 export interface UpdateCollectionEntryRequest {
 	condition_grade?: ConditionGrade;
 	status?: PersistedCollectionStatus;
 	notes?: string;
+	edition_label?: string;
 }
 
 export type PersistedCollectionStatus = 'owned' | 'duplicate' | 'wanted';
@@ -71,6 +74,7 @@ export type CollectionStatus = PersistedCollectionStatus | 'missing';
 
 export interface CollectionQueryParams {
 	series_slug?: string;
+	issue_id?: number;
 	status?: string;
 	issue_number?: number;
 	condition?: string;
@@ -130,13 +134,15 @@ export async function fetchCollection(
 	return handleResponse<PaginatedCollection>(response);
 }
 
-export async function fetchAllCollectionEntries(seriesSlug: string): Promise<CollectionEntry[]> {
+async function fetchAllCollectionPages(
+	params: Omit<CollectionQueryParams, 'page' | 'per_page'>
+): Promise<CollectionEntry[]> {
 	const allEntries: CollectionEntry[] = [];
 	let page = 1;
 	let total = Infinity;
 
 	while (allEntries.length < total) {
-		const result = await fetchCollection({ series_slug: seriesSlug, per_page: 100, page });
+		const result = await fetchCollection({ ...params, page, per_page: 100 });
 		allEntries.push(...result.data);
 		total = result.total;
 		if (result.data.length === 0) break;
@@ -144,6 +150,10 @@ export async function fetchAllCollectionEntries(seriesSlug: string): Promise<Col
 	}
 
 	return allEntries;
+}
+
+export async function fetchAllCollectionEntries(seriesSlug: string): Promise<CollectionEntry[]> {
+	return fetchAllCollectionPages({ series_slug: seriesSlug });
 }
 
 export async function addToCollection(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
@@ -200,4 +210,8 @@ export async function fetchCollectionEntryByIssue(
 		credentials: 'same-origin'
 	});
 	return handleResponse<CollectionEntry | null>(response);
+}
+
+export async function fetchCollectionEntriesByIssue(issueId: number): Promise<CollectionEntry[]> {
+	return fetchAllCollectionPages({ issue_id: issueId });
 }

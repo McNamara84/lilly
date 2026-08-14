@@ -37,6 +37,7 @@ export interface PublicCollectionEntry {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number;
+	edition_label: string | null;
 	condition_grade: ConditionGrade | null;
 	status: PersistedCollectionStatus;
 	notes: string | null;

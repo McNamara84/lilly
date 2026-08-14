@@ -235,7 +235,7 @@ Alle Screens sind in `screens.json` vollständig spezifiziert. Hier eine Übersi
 
 **Hefte verwalten (`/collection/add`):** Serienauswahl, dann responsives Nummern-Grid mit den vier farblich und textlich gekennzeichneten Zuständen „Vorhanden“, „Doppelt/Tauschbar“, „Gesucht“ und „Fehlend“. Ein Tap beziehungsweise Tastendruck öffnet die Heftdetails; Status, Zustand und persönliche Notiz werden dort bewusst gespeichert. Ein Rasterklick fügt nichts unmittelbar hinzu und löscht nichts unmittelbar.
 
-**Tausch (`/trades`):** Zwei-Tab-Ansicht mit "Vorschläge" (TradeMatchCards) und "Aktive Tausche". Semi-automatisches Matching wird visuell durch Match-Score-Ringe dargestellt. Die privaten Projektionen der tauschbaren Hefte und Wünsche werden über `/trades/offers` und `/trades/wanted` separat verwaltet.
+**Tausch (`/trades`):** Drei-Tab-Ansicht mit "Vorschläge" (TradeMatchCards), "Aktive Tausche" und "Historie" für abgeschlossene beziehungsweise abgebrochene Tausche. Semi-automatisches Matching wird visuell durch Match-Score-Ringe dargestellt. Die privaten Projektionen der tauschbaren Hefte und Wünsche werden über `/trades/offers` und `/trades/wanted` separat verwaltet.
 
 **Nachrichten (`/messages`):** Responsive Inbox aller tauschbezogenen Threads. Ein Eintrag öffnet `/messages/[id]`; derselbe Thread bleibt zusätzlich in `/trades/[id]` erreichbar. Neue Nachrichten werden während eines geöffneten Threads regelmäßig nachgeladen.
 

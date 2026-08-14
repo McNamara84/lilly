@@ -2,14 +2,21 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { getAuthState } from '$lib/stores/auth.svelte';
-	import { fetchMatches, fetchOpenTrades, type Trade, type TradeMatch } from '$lib/api/trades';
+	import {
+		fetchClosedTrades,
+		fetchMatches,
+		fetchOpenTrades,
+		type Trade,
+		type TradeMatch
+	} from '$lib/api/trades';
 	import TradeMatchCard from '$lib/components/trade/TradeMatchCard.svelte';
 	import TradeSummaryCard from '$lib/components/trade/TradeSummaryCard.svelte';
 
 	const auth = getAuthState();
-	let activeTab = $state<'matches' | 'trades'>('matches');
+	let activeTab = $state<'matches' | 'trades' | 'history'>('matches');
 	let matches = $state<TradeMatch[]>([]);
 	let trades = $state<Trade[]>([]);
+	let history = $state<Trade[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let loaded = false;
@@ -27,17 +34,37 @@
 		loading = true;
 		error = null;
 		try {
-			const [matchResult, tradeResult] = await Promise.all([
+			const [matchResult, tradeResult, historyResult] = await Promise.all([
 				fetchMatches({ per_page: 50 }),
-				fetchOpenTrades({ per_page: 50 })
+				fetchOpenTrades({ per_page: 50 }),
+				fetchAllClosedTrades()
 			]);
 			matches = matchResult.data;
 			trades = tradeResult.data;
+			history = historyResult;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Tauschdaten konnten nicht geladen werden.';
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function fetchAllClosedTrades(): Promise<Trade[]> {
+		const allTrades: Trade[] = [];
+		let page = 1;
+		let total = Infinity;
+
+		while (allTrades.length < total) {
+			const result = await fetchClosedTrades(
+				page === 1 ? { per_page: 50 } : { page, per_page: 50 }
+			);
+			allTrades.push(...result.data);
+			total = result.total;
+			if (result.data.length === 0) break;
+			page++;
+		}
+
+		return allTrades;
 	}
 
 	function proposed(trade: Trade) {
@@ -104,6 +131,18 @@
 		>
 			Aktive Tausche ({trades.length})
 		</button>
+		<button
+			type="button"
+			aria-pressed={activeTab === 'history'}
+			onclick={() => (activeTab = 'history')}
+			class="cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold"
+			style={activeTab === 'history'
+				? 'background: var(--color-brand-500); color: #000;'
+				: 'background: var(--glass);'}
+			data-testid="trade-history-tab"
+		>
+			Historie ({history.length})
+		</button>
 	</nav>
 
 	{#if error}
@@ -128,7 +167,7 @@
 				{/each}
 			{/if}
 		</div>
-	{:else}
+	{:else if activeTab === 'trades'}
 		<div class="grid gap-4 sm:grid-cols-2" data-testid="active-trades-panel">
 			{#if trades.length === 0}
 				<div class="glass-elevated rounded-xl p-8 text-center sm:col-span-2">
@@ -139,6 +178,21 @@
 				</div>
 			{:else}
 				{#each trades as trade (trade.id)}
+					<TradeSummaryCard {trade} />
+				{/each}
+			{/if}
+		</div>
+	{:else}
+		<div class="grid gap-4 sm:grid-cols-2" data-testid="trade-history-panel">
+			{#if history.length === 0}
+				<div class="glass-elevated rounded-xl p-8 text-center sm:col-span-2">
+					<h2 class="text-lg font-semibold">Noch keine abgeschlossenen Tausche</h2>
+					<p class="mt-2 text-sm" style="color: var(--text-secondary);">
+						Abgeschlossene und abgebrochene Tausche erscheinen hier.
+					</p>
+				</div>
+			{:else}
+				{#each history as trade (trade.id)}
 					<TradeSummaryCard {trade} />
 				{/each}
 			{/if}

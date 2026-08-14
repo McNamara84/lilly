@@ -6,7 +6,8 @@ import {
 	updateCollectionEntry,
 	deleteCollectionEntry,
 	fetchCollectionStats,
-	fetchCollectionEntryByIssue
+	fetchCollectionEntryByIssue,
+	fetchCollectionEntriesByIssue
 } from '../src/lib/api/collection';
 
 const mockFetch = vi.fn();
@@ -31,6 +32,7 @@ const sampleEntry = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 1,
+	edition_label: null,
 	condition_grade: 'Z2',
 	status: 'owned',
 	notes: null,
@@ -95,6 +97,7 @@ describe('Collection API', () => {
 			mockFetch.mockResolvedValue(jsonResponse(data));
 
 			await fetchCollection({
+				issue_id: 123,
 				issue_number: 42,
 				condition: 'Z2',
 				title: 'Dunkle Zukunft',
@@ -104,6 +107,7 @@ describe('Collection API', () => {
 
 			const url = mockFetch.mock.calls[0][0] as string;
 			expect(url).toContain('issue_number=42');
+			expect(url).toContain('issue_id=123');
 			expect(url).toContain('condition=Z2');
 			expect(url).toContain('title=Dunkle+Zukunft');
 			expect(url).toContain('author=Jo+Zybell');
@@ -188,12 +192,14 @@ describe('Collection API', () => {
 				issue_id: 42,
 				condition_grade: 'Z0',
 				notes: 'First edition',
-				copy_number: 2
+				copy_number: 2,
+				edition_label: 'Variantcover 2024'
 			});
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1].body);
 			expect(body.notes).toBe('First edition');
 			expect(body.copy_number).toBe(2);
+			expect(body.edition_label).toBe('Variantcover 2024');
 		});
 
 		it('throws on validation error', async () => {
@@ -247,6 +253,14 @@ describe('Collection API', () => {
 			expect(body.status).toBe('wanted');
 			expect(body.notes).toBe('Looking for this');
 			expect(result.status).toBe('wanted');
+		});
+
+		it('updates and explicitly clears an edition label', async () => {
+			mockFetch.mockResolvedValue(jsonResponse({ ...sampleEntry, edition_label: null }));
+
+			await updateCollectionEntry(1, { edition_label: '' });
+
+			expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ edition_label: '' });
 		});
 
 		it('throws on not found', async () => {
@@ -379,6 +393,40 @@ describe('Collection API', () => {
 			mockFetch.mockResolvedValue(jsonResponse({ error: 'Unauthorized' }, 401));
 
 			await expect(fetchCollectionEntryByIssue(42)).rejects.toThrow('Unauthorized');
+		});
+	});
+
+	describe('fetchCollectionEntriesByIssue', () => {
+		it('fetches every page of copies through the persisted issue filter', async () => {
+			const firstPage = Array.from({ length: 100 }, (_, index) => ({
+				...sampleEntry,
+				id: index + 1,
+				copy_number: index + 1
+			}));
+			const secondPage = Array.from({ length: 55 }, (_, index) => ({
+				...sampleEntry,
+				id: index + 101,
+				copy_number: index + 101
+			}));
+			mockFetch
+				.mockResolvedValueOnce(
+					jsonResponse({ data: firstPage, page: 1, per_page: 100, total: 155 })
+				)
+				.mockResolvedValueOnce(
+					jsonResponse({ data: secondPage, page: 2, per_page: 100, total: 155 })
+				);
+
+			await expect(fetchCollectionEntriesByIssue(42)).resolves.toHaveLength(155);
+			expect(mockFetch).toHaveBeenNthCalledWith(
+				1,
+				'/api/v1/me/collection?issue_id=42&page=1&per_page=100',
+				{ credentials: 'same-origin' }
+			);
+			expect(mockFetch).toHaveBeenNthCalledWith(
+				2,
+				'/api/v1/me/collection?issue_id=42&page=2&per_page=100',
+				{ credentials: 'same-origin' }
+			);
 		});
 	});
 

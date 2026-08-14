@@ -221,14 +221,15 @@ widerrufen.
 | `id`              | INT UNSIGNED     | PK, AUTO_INC    | Primärschlüssel                                                                                                                         |
 | `user_id`         | INT UNSIGNED     | FK, NOT NULL    | Fremdschlüssel auf users.id (ON DELETE CASCADE)                                                                                         |
 | `issue_id`        | INT UNSIGNED     | FK, NOT NULL    | Fremdschlüssel auf issues.id                                                                                                            |
-| `copy_number`     | TINYINT UNSIGNED | NOT NULL, DEF 1 | Exemplarnummer (1 = Erstexemplar, 2+ = weitere Auflagen/Kopien, vgl. SV-009)                                                            |
+| `copy_number`     | TINYINT UNSIGNED | NOT NULL, DEF 1 | Technische Exemplarnummer; bei automatischer Vergabe die kleinste freie Nummer von 1 bis 255                                            |
+| `edition_label`   | VARCHAR(120)     | NULL            | Optionale, getrimmte Editionsbezeichnung; leerer Text wird als `NULL` gespeichert                                                       |
 | `condition_grade` | ENUM             | NULL            | 'Z0' \| 'Z1' \| 'Z2' \| 'Z3' \| 'Z4'; nur bei `wanted` optional, bei `owned` und `duplicate` durch die Domänenvalidierung verpflichtend |
 | `status`          | ENUM             | NOT NULL        | 'owned' \| 'duplicate' \| 'wanted'                                                                                                      |
 | `notes`           | TEXT             | NULL            | Persönliche Notizen                                                                                                                     |
 | `created_at`      | TIMESTAMP        | NOT NULL        | Zeitpunkt der Erfassung                                                                                                                 |
 | `updated_at`      | TIMESTAMP        | NOT NULL        | Letzte Änderung                                                                                                                         |
 
-_Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe Heft mehrfach erfassen (verschiedene Auflagen/Kopien gemäß SV-009), aber jede Kopie ist eindeutig identifiziert. Der zusätzliche Index `(status, issue_id, user_id)` beschleunigt Angebots-, Wunsch- und spätere Matching-Abfragen._
+_Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe Heft mehrfach erfassen, aber jedes physische Exemplar ist unabhängig von seiner optionalen Editionsbezeichnung eindeutig identifiziert. Der zusätzliche Index `(status, issue_id, user_id)` beschleunigt Angebots-, Wunsch- und Matching-Abfragen._
 
 ### 4.5 Tabelle: `collection_photos`
 
@@ -283,11 +284,15 @@ Die verbleibenden Tabellen folgen demselben Muster. Hier eine kompakte Übersich
 
 **trades**
 
-- `id`, `initiator_id` (FK users), `responder_id` (FK users), `status` ENUM('proposed', 'accepted', 'completed', 'cancelled'), `created_at`, `updated_at`
+- `id`, `initiator_id` (FK users), `responder_id` (FK users), `status` ENUM('proposed', 'accepted', 'completed', 'cancelled'), `completed_at`, `created_at`, `updated_at`
 
 **trade_items**
 
-- `id`, `trade_id` (FK trades), `entry_id` (FK collection_entries), `direction` ENUM('offered', 'requested')
+- Unveränderliche Snapshots der vereinbarten Ausgabe, Zustandsnote und angebotenen/gewünschten Edition; die Referenz auf den abgegebenen Sammlungseintrag darf beim Abschluss durch `ON DELETE SET NULL` entfallen.
+
+**trade_completion_confirmations**
+
+- `trade_id`, `user_id`, `confirmed_at`; der zusammengesetzte Primärschlüssel erlaubt genau eine Abschlussbestätigung je Teilnehmer.
 
 **messages**
 
@@ -326,7 +331,7 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **GET**             | `/api/v1/issues/{id}`                             | Nein        | Heft-Details + Community-Kommentare                                                     |
 | **GET**             | `/api/v1/me/collection`                           | Ja          | Eigene Sammlung (Filter, Paginierung)                                                   |
 | **POST**            | `/api/v1/me/collection`                           | Ja          | Heft zur Sammlung hinzufügen                                                            |
-| **PATCH**           | `/api/v1/me/collection/{id}`                      | Ja          | Eintrag ändern (Zustand, Status, Notizen)                                               |
+| **PATCH**           | `/api/v1/me/collection/{id}`                      | Ja          | Eintrag ändern (Zustand, Status, Edition, Notizen)                                      |
 | **DELETE**          | `/api/v1/me/collection/{id}`                      | Ja          | Eintrag entfernen                                                                       |
 | **POST**            | `/api/v1/me/collection/{id}/photos`               | Ja          | Foto hochladen (multipart/form-data)                                                    |
 | **GET**             | `/api/v1/me/collection/{id}/photos`               | Ja          | Eigene Fotos des exakten Sammlungsexemplars auflisten                                   |
@@ -341,9 +346,10 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 | **GET**             | `/api/v1/me/matches`                              | Ja          | Aktive wechselseitige Matches (paginiert)                                               |
 | **GET**             | `/api/v1/me/matches/{match_id}`                   | Ja          | Eigenes Match mit datenschutzsicherer Partner- und Itemprojektion                       |
 | **POST**            | `/api/v1/me/matches/{match_id}/proposals`         | Ja          | Aus ausgewählten Match-Items einen Tausch und Thread erzeugen                           |
-| **GET**             | `/api/v1/me/trades`                               | Ja          | Eigene vorgeschlagene und angenommene Tausche                                           |
+| **GET**             | `/api/v1/me/trades`                               | Ja          | Eigene offene oder geschlossene Tausche (`scope=open/closed`)                           |
 | **GET**             | `/api/v1/me/trades/{trade_id}`                    | Ja          | Tausch-Snapshot einschließlich Thread-ID                                                |
 | **POST**            | `/api/v1/me/trades/{trade_id}/accept`             | Ja          | Vorschlag als Empfänger annehmen                                                        |
+| **POST**            | `/api/v1/me/trades/{trade_id}/complete`           | Ja          | Erhalt bestätigen; zweite Bestätigung überträgt die Sammlung atomar                     |
 | **POST**            | `/api/v1/me/trades/{trade_id}/cancel`             | Ja          | Offenen Tausch als Teilnehmer abbrechen                                                 |
 | **GET**             | `/api/v1/me/messages`                             | Ja          | Thread-Inbox mit Vorschau und Ungelesen-Zähler                                          |
 | **GET/POST**        | `/api/v1/me/messages/{thread_id}`                 | Ja          | Nachrichten lesen oder idempotent senden                                                |
@@ -428,9 +434,11 @@ berücksichtigt sowohl Sammlungsfotos als auch aktive Avatare.
 
 Tauschangebote und Wünsche verwenden `collection_entries` als einzige Datenquelle. Ein Eintrag mit Status `duplicate` ist automatisch ein aktives Angebot; `wanted` ist automatisch ein aktiver Wunsch. Statuswechsel und Löschungen benötigen daher weder Synchronisationsjobs noch zusätzliche Listentabellen.
 
-Neue Wünsche werden ohne Zustandsbewertung gespeichert, weil noch kein physisches Exemplar vorliegt. Beim Wechsel eines solchen Eintrags auf `owned` oder `duplicate` muss die Anfrage einen gültigen Zustand Z0–Z4 enthalten. Ein vorhandener Zustand sowie Notizen und Fotos bleiben bei Statuswechseln erhalten.
+Neue Wünsche werden ohne Zustandsbewertung gespeichert, weil noch kein physisches Exemplar vorliegt. Beim Wechsel eines solchen Eintrags auf `owned` oder `duplicate` muss die Anfrage einen gültigen Zustand Z0–Z4 enthalten. Ein vorhandener Zustand sowie Notizen und Fotos bleiben bei Statuswechseln erhalten. Ein Wunsch ohne Edition ist ein Platzhalter für jede Edition; mit `edition_label` wird nur eine gleich bezeichnete angebotene Edition berücksichtigt.
 
 Die Kandidatenabfrage verlangt `series_slug`, berücksichtigt nur aktive Serien und schließt eigene `owned`- und `duplicate`-Einträge aus. Bereits gesuchte Hefte bleiben mit `is_wanted = true` sichtbar. Die Bulk-Anlage dedupliziert höchstens 100 positive Heft-IDs, sperrt Hefte in stabiler Reihenfolge und meldet pro ID `created`, `unchanged` oder `rejected`. Alle neuen Listenendpunkte sind privat; öffentliche Freigaben sind eine separate Ausbaustufe.
+
+Ein angenommener Tausch wird erst nach Bestätigung beider Teilnehmer abgeschlossen. Die zweite Bestätigung validiert die reservierten Sammlungseinträge gegen die unveränderlichen Item-Snapshots und überträgt beide Richtungen innerhalb derselben Transaktion. Empfangene Exemplare werden `owned`; persönliche Absendernotizen und -fotos wechseln nicht den Besitzer. Abgeschlossene und abgebrochene Tausche sind über `scope=closed` weiterhin mit ihrem Nachrichten-Thread abrufbar.
 
 ### 5.4 Authentifizierung
 

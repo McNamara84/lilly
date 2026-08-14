@@ -9,6 +9,9 @@ macro_rules! bind_filters {
         if let Some(ref slug) = $params.series_slug {
             q = q.bind(slug.as_str());
         }
+        if let Some(issue_id) = $params.issue_id {
+            q = q.bind(issue_id);
+        }
         if let Some(ref status) = $params.status {
             if status != "missing" {
                 q = q.bind(status.as_str());
@@ -49,6 +52,9 @@ macro_rules! bind_filters {
 macro_rules! bind_missing_filters {
     ($query:expr, $params:expr) => {{
         let mut q = $query;
+        if let Some(issue_id) = $params.issue_id {
+            q = q.bind(issue_id);
+        }
         if let Some(issue_number) = $params.issue_number {
             q = q.bind(issue_number);
         }
@@ -76,54 +82,73 @@ macro_rules! bind_missing_filters {
 // CRUD
 // ---------------------------------------------------------------------------
 
+pub struct NewCollectionEntry<'a> {
+    pub user_id: u32,
+    pub issue_id: u32,
+    pub copy_number: u8,
+    pub condition_grade: Option<&'a str>,
+    pub status: &'a str,
+    pub notes: Option<&'a str>,
+    pub edition_label: Option<&'a str>,
+}
+
 #[allow(dead_code)]
 pub async fn add_entry(
     pool: &MySqlPool,
-    user_id: u32,
-    issue_id: u32,
-    copy_number: u8,
-    condition_grade: Option<&str>,
-    status: &str,
-    notes: Option<&str>,
+    entry: NewCollectionEntry<'_>,
 ) -> Result<u32, sqlx::Error> {
     let mut connection = pool.acquire().await?;
-    add_entry_on_connection(
-        &mut connection,
-        user_id,
-        issue_id,
-        copy_number,
-        condition_grade,
-        status,
-        notes,
-    )
-    .await
+    add_entry_on_connection(&mut connection, entry).await
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn add_entry_on_connection(
     connection: &mut MySqlConnection,
-    user_id: u32,
-    issue_id: u32,
-    copy_number: u8,
-    condition_grade: Option<&str>,
-    status: &str,
-    notes: Option<&str>,
+    entry: NewCollectionEntry<'_>,
 ) -> Result<u32, sqlx::Error> {
     let result = sqlx::query(
-        "INSERT INTO collection_entries (user_id, issue_id, copy_number, condition_grade, status, notes)
-         VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO collection_entries
+            (user_id, issue_id, copy_number, edition_label, condition_grade, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(user_id)
-    .bind(issue_id)
-    .bind(copy_number)
-    .bind(condition_grade)
-    .bind(status)
-    .bind(notes)
+    .bind(entry.user_id)
+    .bind(entry.issue_id)
+    .bind(entry.copy_number)
+    .bind(entry.edition_label)
+    .bind(entry.condition_grade)
+    .bind(entry.status)
+    .bind(entry.notes)
     .execute(connection)
     .await?;
 
     #[allow(clippy::cast_possible_truncation)]
     Ok(result.last_insert_id() as u32)
+}
+
+/// Allocate the smallest free physical copy number for one user's issue.
+/// Locking the user row serializes concurrent allocations even when no entry
+/// exists yet and therefore no collection row can be locked.
+pub async fn next_copy_number_on_connection(
+    connection: &mut MySqlConnection,
+    user_id: u32,
+    issue_id: u32,
+) -> Result<Option<u8>, sqlx::Error> {
+    sqlx::query_scalar::<_, u32>("SELECT id FROM users WHERE id = ? FOR UPDATE")
+        .bind(user_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+    let occupied = sqlx::query_scalar::<_, u8>(
+        "SELECT copy_number FROM collection_entries
+         WHERE user_id = ? AND issue_id = ? ORDER BY copy_number FOR UPDATE",
+    )
+    .bind(user_id)
+    .bind(issue_id)
+    .fetch_all(connection)
+    .await?;
+    Ok(smallest_free_copy_number(&occupied))
+}
+
+fn smallest_free_copy_number(occupied: &[u8]) -> Option<u8> {
+    (1..=u8::MAX).find(|copy_number| !occupied.contains(copy_number))
 }
 
 #[allow(dead_code)]
@@ -132,7 +157,8 @@ pub async fn find_entry_by_id(
     entry_id: u32,
 ) -> Result<Option<CollectionEntry>, sqlx::Error> {
     sqlx::query_as::<_, CollectionEntry>(
-        "SELECT id, user_id, issue_id, copy_number, condition_grade, status, notes, created_at, updated_at
+        "SELECT id, user_id, issue_id, copy_number, edition_label, condition_grade,
+                status, notes, created_at, updated_at
          FROM collection_entries WHERE id = ?",
     )
     .bind(entry_id)
@@ -146,7 +172,8 @@ pub async fn find_entry_by_id_and_user(
     user_id: u32,
 ) -> Result<Option<CollectionEntry>, sqlx::Error> {
     sqlx::query_as::<_, CollectionEntry>(
-        "SELECT id, user_id, issue_id, copy_number, condition_grade, status, notes, created_at, updated_at
+        "SELECT id, user_id, issue_id, copy_number, edition_label, condition_grade,
+                status, notes, created_at, updated_at
          FROM collection_entries WHERE id = ? AND user_id = ?",
     )
     .bind(entry_id)
@@ -171,7 +198,8 @@ pub async fn find_entry_row_by_id_and_user_on_connection(
     user_id: u32,
 ) -> Result<Option<CollectionEntryRow>, sqlx::Error> {
     sqlx::query_as::<_, CollectionEntryRow>(
-        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.condition_grade,
+        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
+                ce.condition_grade,
                 ce.status, ce.notes, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug
@@ -192,7 +220,8 @@ pub async fn find_entry_row_by_issue_and_user(
     user_id: u32,
 ) -> Result<Option<CollectionEntryRow>, sqlx::Error> {
     sqlx::query_as::<_, CollectionEntryRow>(
-        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.condition_grade,
+        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
+                ce.condition_grade,
                 ce.status, ce.notes, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug
@@ -217,6 +246,7 @@ pub async fn update_entry(
     condition_grade: Option<&str>,
     status: Option<&str>,
     notes: Option<Option<&str>>,
+    edition_label: Option<Option<&str>>,
 ) -> Result<bool, sqlx::Error> {
     let mut connection = pool.acquire().await?;
     update_entry_on_connection(
@@ -226,6 +256,7 @@ pub async fn update_entry(
         condition_grade,
         status,
         notes,
+        edition_label,
     )
     .await
 }
@@ -238,6 +269,7 @@ pub async fn update_entry_on_connection(
     condition_grade: Option<&str>,
     status: Option<&str>,
     notes: Option<Option<&str>>,
+    edition_label: Option<Option<&str>>,
 ) -> Result<bool, sqlx::Error> {
     let mut set_clauses = Vec::new();
 
@@ -249,6 +281,9 @@ pub async fn update_entry_on_connection(
     }
     if notes.is_some() {
         set_clauses.push("notes = ?");
+    }
+    if edition_label.is_some() {
+        set_clauses.push("edition_label = ?");
     }
 
     if set_clauses.is_empty() {
@@ -270,6 +305,9 @@ pub async fn update_entry_on_connection(
     }
     if let Some(n) = notes {
         query = query.bind(n);
+    }
+    if let Some(label) = edition_label {
+        query = query.bind(label);
     }
 
     query = query.bind(entry_id).bind(user_id);
@@ -319,7 +357,8 @@ pub async fn find_collection_entries(
     let (where_clause, order_clause) = build_filter_clauses(params);
 
     let sql = format!(
-        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.condition_grade,
+        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
+                ce.condition_grade,
                 ce.status, ce.notes, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug
@@ -543,6 +582,10 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
         where_parts.push("AND s.slug = ?".to_string());
     }
 
+    if params.issue_id.is_some() {
+        where_parts.push("AND ce.issue_id = ?".to_string());
+    }
+
     if let Some(ref status) = params.status
         && status != "missing"
     {
@@ -626,6 +669,10 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
 fn build_missing_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
     let mut where_parts = Vec::new();
 
+    if params.issue_id.is_some() {
+        where_parts.push("AND i.id = ?".to_string());
+    }
+
     if params.issue_number.is_some() {
         where_parts.push("AND i.issue_number = ?".to_string());
     }
@@ -690,6 +737,7 @@ mod tests {
     fn collection_filters_are_combined_and_sorted_stably() {
         let params = CollectionQueryParams {
             series_slug: Some("maddrax".to_string()),
+            issue_id: Some(123),
             status: Some("owned".to_string()),
             issue_number: Some(42),
             condition: Some("Z2".to_string()),
@@ -703,6 +751,7 @@ mod tests {
         let (where_clause, order_clause) = build_filter_clauses(&params);
 
         assert!(where_clause.contains("s.slug = ?"));
+        assert!(where_clause.contains("ce.issue_id = ?"));
         assert!(where_clause.contains("ce.status = ?"));
         assert!(where_clause.contains("i.issue_number = ?"));
         assert!(where_clause.contains("ce.condition_grade = ?"));
@@ -753,6 +802,7 @@ mod tests {
     #[test]
     fn missing_filters_support_issue_metadata_but_not_collection_fields() {
         let params = CollectionQueryParams {
+            issue_id: Some(123),
             issue_number: Some(7),
             title: Some("Nacht".to_string()),
             author: Some("Dark".to_string()),
@@ -763,10 +813,21 @@ mod tests {
         };
 
         let (where_clause, order_clause) = build_missing_filter_clauses(&params);
+        assert!(where_clause.contains("i.id = ?"));
         assert!(where_clause.contains("i.issue_number = ?"));
         assert!(where_clause.contains("i.title LIKE"));
         assert!(where_clause.contains("ip.role = 'author'"));
         assert!(!where_clause.contains("condition_grade"));
         assert!(order_clause.starts_with("i.title DESC"));
+    }
+
+    #[test]
+    fn copy_number_allocation_fills_holes_and_reports_capacity() {
+        assert_eq!(smallest_free_copy_number(&[]), Some(1));
+        assert_eq!(smallest_free_copy_number(&[1, 3, 4]), Some(2));
+        assert_eq!(
+            smallest_free_copy_number(&(1..=u8::MAX).collect::<Vec<_>>()),
+            None
+        );
     }
 }

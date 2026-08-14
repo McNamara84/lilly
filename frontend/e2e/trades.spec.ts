@@ -1,6 +1,64 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
+
+type TradeFixtureItem = {
+	entry_id: number;
+	wanted_entry_id: number;
+	issue_id: number;
+	condition_grade: string;
+	edition_label: string | null;
+	wanted_edition_label: string | null;
+};
+
+type AcceptedTradeFixture = {
+	thread_id: number;
+	my_offers: TradeFixtureItem[];
+	partner_offers: TradeFixtureItem[];
+};
+
+async function requireSuccessful(response: APIResponse) {
+	if (!response.ok()) {
+		throw new Error(`Fixture restoration failed (${response.status()}): ${await response.text()}`);
+	}
+}
+
+async function restoreCompletedTradeFixture(
+	request: APIRequestContext,
+	received: TradeFixtureItem,
+	offered: TradeFixtureItem,
+	wantedNotes: string,
+	offerNotes: string
+) {
+	const removeReceived = await request.delete(`/api/v1/me/collection/${received.wanted_entry_id}`);
+	if (!removeReceived.ok()) {
+		throw new Error(
+			`Could not remove the received E2E entry (${removeReceived.status()}): ${await removeReceived.text()}`
+		);
+	}
+
+	await requireSuccessful(
+		await request.post('/api/v1/me/collection', {
+			data: {
+				issue_id: received.issue_id,
+				status: 'wanted',
+				edition_label: received.wanted_edition_label ?? '',
+				notes: wantedNotes
+			}
+		})
+	);
+	await requireSuccessful(
+		await request.post('/api/v1/me/collection', {
+			data: {
+				issue_id: offered.issue_id,
+				status: 'duplicate',
+				condition_grade: offered.condition_grade,
+				edition_label: offered.edition_label ?? '',
+				notes: offerNotes
+			}
+		})
+	);
+}
 
 async function firstMaddraxIssueId(page: Page): Promise<number> {
 	return page.evaluate(async () => {
@@ -101,7 +159,9 @@ test.describe('Trade lists', () => {
 		playwright
 	}, testInfo) => {
 		let tradeId: number | undefined;
+		let completed = false;
 		let partner: APIRequestContext | undefined;
+		let acceptedTrade: AcceptedTradeFixture | undefined;
 		try {
 			await page.goto('/trades');
 			const match = page
@@ -139,7 +199,18 @@ test.describe('Trade lists', () => {
 			expect(login.ok()).toBe(true);
 			const accepted = await partner.post(`/api/v1/me/trades/${tradeId}/accept`);
 			expect(accepted.ok()).toBe(true);
-			const trade = (await accepted.json()) as { thread_id: number };
+			const trade = (await accepted.json()) as AcceptedTradeFixture;
+			acceptedTrade = trade;
+			expect(trade.my_offers[0]).toMatchObject({
+				condition_grade: 'Z2',
+				edition_label: 'E2E-Variantcover',
+				wanted_edition_label: 'E2E-Variantcover'
+			});
+			expect(trade.partner_offers[0]).toMatchObject({
+				condition_grade: 'Z1',
+				edition_label: 'E2E-Erstauflage',
+				wanted_edition_label: 'E2E-Erstauflage'
+			});
 			const message = await partner.post(`/api/v1/me/messages/${trade.thread_id}`, {
 				data: {
 					client_message_id: crypto.randomUUID(),
@@ -158,12 +229,109 @@ test.describe('Trade lists', () => {
 			const history = await partner.get(`/api/v1/me/messages/${trade.thread_id}`);
 			expect(history.ok()).toBe(true);
 			expect(await history.text()).toContain('Perfekt, danke!');
+
+			const firstCompletionResponse = page.waitForResponse(
+				(response) =>
+					response.request().method() === 'POST' &&
+					new URL(response.url()).pathname === `/api/v1/me/trades/${tradeId}/complete`
+			);
+			await page.getByRole('button', { name: 'Tausch als erhalten bestätigen' }).click();
+			const firstCompletion = await firstCompletionResponse;
+			expect(firstCompletion.ok()).toBe(true);
+			const awaitingPartner = (await firstCompletion.json()) as {
+				status: string;
+				my_completion_confirmed_at: string | null;
+				partner_completion_confirmed_at: string | null;
+			};
+			expect(awaitingPartner.status).toBe('accepted');
+			expect(awaitingPartner.my_completion_confirmed_at).not.toBeNull();
+			expect(awaitingPartner.partner_completion_confirmed_at).toBeNull();
+			await expect(page.getByTestId('completion-waiting')).toBeVisible();
+
+			const secondCompletion = await partner.post(`/api/v1/me/trades/${tradeId}/complete`);
+			completed = secondCompletion.ok();
+			expect(completed).toBe(true);
+			const completedTrade = (await secondCompletion.json()) as {
+				status: string;
+				completed_at: string | null;
+			};
+			expect(completedTrade.status).toBe('completed');
+			expect(completedTrade.completed_at).not.toBeNull();
+
+			// The accepted response is viewed as the partner: their `my_offers`
+			// are the issues received by the browser user.
+			const receivedIssueId = trade.my_offers[0].issue_id;
+			const sentIssueId = trade.partner_offers[0].issue_id;
+			const receivedCollection = await page.request.get(
+				`/api/v1/me/collection?issue_id=${receivedIssueId}`
+			);
+			expect(receivedCollection.ok()).toBe(true);
+			const receivedBody = (await receivedCollection.json()) as {
+				data: Array<{
+					id: number;
+					status: string;
+					condition_grade: string | null;
+					edition_label: string | null;
+				}>;
+			};
+			expect(receivedBody.data).toContainEqual(
+				expect.objectContaining({
+					id: trade.my_offers[0].wanted_entry_id,
+					status: 'owned',
+					condition_grade: trade.my_offers[0].condition_grade,
+					edition_label: trade.my_offers[0].edition_label
+				})
+			);
+			const sentCollection = await page.request.get(
+				`/api/v1/me/collection?issue_id=${sentIssueId}`
+			);
+			expect(sentCollection.ok()).toBe(true);
+			expect(
+				((await sentCollection.json()) as { data: Array<{ id: number }> }).data
+			).not.toContainEqual(expect.objectContaining({ id: trade.partner_offers[0].entry_id }));
+
+			await page.reload();
+			await expect(page.getByText('Abgeschlossen', { exact: true })).toBeVisible();
+			await expect(page.getByTestId('completion-finished')).toBeVisible();
+			await expect(page.getByText('Perfekt, danke!')).toBeVisible();
+			await page.goto('/trades');
+			await page.getByTestId('trade-history-tab').click();
+			await expect(
+				page.getByTestId('trade-summary-card').filter({ hasText: 'Abgeschlossen' })
+			).toBeVisible();
 		} finally {
-			if (tradeId !== undefined) {
-				const cancelled = await page.request.post(`/api/v1/me/trades/${tradeId}/cancel`);
-				expect(cancelled.ok()).toBe(true);
+			try {
+				if (completed && acceptedTrade && partner) {
+					// The response is from the partner's perspective: their offers were
+					// received by the browser user and vice versa.
+					const restorations = await Promise.allSettled([
+						restoreCompletedTradeFixture(
+							page.request,
+							acceptedTrade.my_offers[0],
+							acceptedTrade.partner_offers[0],
+							'Deterministic worker wish',
+							'Deterministic worker offer'
+						),
+						restoreCompletedTradeFixture(
+							partner,
+							acceptedTrade.partner_offers[0],
+							acceptedTrade.my_offers[0],
+							'Deterministic partner wish',
+							'Deterministic partner offer'
+						)
+					]);
+					const failedRestoration = restorations.find((result) => result.status === 'rejected');
+					expect(
+						failedRestoration,
+						'Both completed-trade fixtures must be restored'
+					).toBeUndefined();
+				} else if (tradeId !== undefined) {
+					const cancelled = await page.request.post(`/api/v1/me/trades/${tradeId}/cancel`);
+					expect(cancelled.ok()).toBe(true);
+				}
+			} finally {
+				await partner?.dispose();
 			}
-			await partner?.dispose();
 		}
 	});
 

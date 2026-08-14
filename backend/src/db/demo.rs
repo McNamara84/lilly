@@ -160,11 +160,11 @@ pub async fn seed_demo_data(pool: &MySqlPool, e2e_worker_count: u16) -> Result<(
 
         sqlx::query(
             "INSERT INTO collection_entries \
-             (user_id, issue_id, copy_number, condition_grade, status, notes) \
-             VALUES (?, ?, 1, 'Z1', 'duplicate', ?), \
-                    (?, ?, 1, NULL, 'wanted', ?), \
-                    (?, ?, 1, NULL, 'wanted', ?), \
-                    (?, ?, 1, 'Z2', 'duplicate', ?)",
+             (user_id, issue_id, copy_number, edition_label, condition_grade, status, notes) \
+             VALUES (?, ?, 1, 'E2E-Erstauflage', 'Z1', 'duplicate', ?), \
+                    (?, ?, 1, 'E2E-Variantcover', NULL, 'wanted', ?), \
+                    (?, ?, 1, 'E2E-Erstauflage', NULL, 'wanted', ?), \
+                    (?, ?, 1, 'E2E-Variantcover', 'Z2', 'duplicate', ?)",
         )
         .bind(e2e_user_id)
         .bind(worker_offer_issue_id)

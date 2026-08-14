@@ -9,7 +9,7 @@ use crate::db::trades;
 use crate::error::AppError;
 use crate::models::trade_matching::{
     CreateTradeProposalRequest, PageParams, PaginatedMatchesResponse, PaginatedTradesResponse,
-    TradeMatchResponse, TradeResponse,
+    TradeMatchResponse, TradePageParams, TradeResponse,
 };
 use crate::models::trades::{
     BulkWantedRequest, BulkWantedResponse, PaginatedTradeOffersResponse,
@@ -35,6 +35,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/me/trades/{trade_id}", get(get_trade))
         .route("/api/v1/me/trades/{trade_id}/accept", post(accept_trade))
         .route("/api/v1/me/trades/{trade_id}/cancel", post(cancel_trade))
+        .route(
+            "/api/v1/me/trades/{trade_id}/complete",
+            post(complete_trade),
+        )
 }
 
 async fn list_matches(
@@ -71,10 +75,10 @@ async fn create_trade_proposal(
 async fn list_open_trades(
     State(state): State<AppState>,
     auth: AuthUser,
-    Query(params): Query<PageParams>,
+    Query(params): Query<TradePageParams>,
 ) -> Result<Json<PaginatedTradesResponse>, AppError> {
     Ok(Json(
-        trade_service::list_open_trades(&state.inner.pool, auth.user_id, &params).await?,
+        trade_service::list_trades(&state.inner.pool, auth.user_id, &params).await?,
     ))
 }
 
@@ -105,6 +109,30 @@ async fn cancel_trade(
 ) -> Result<StatusCode, AppError> {
     trade_service::cancel_trade(&state.inner.pool, auth.user_id, trade_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn complete_trade(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(trade_id): Path<u32>,
+) -> Result<Json<TradeResponse>, AppError> {
+    let result = trade_service::complete_trade(&state.inner.pool, auth.user_id, trade_id).await?;
+    for storage_key in result.photo_storage_keys {
+        if let Err(error) = crate::services::media::process_deletion_key(
+            &state.inner.pool,
+            &state.inner.media_storage,
+            &storage_key,
+        )
+        .await
+        {
+            tracing::warn!(
+                trade_id,
+                error = %error,
+                "Transferred collection photo deletion queued for retry"
+            );
+        }
+    }
+    Ok(Json(result.trade))
 }
 
 async fn list_trade_offers(
@@ -314,6 +342,7 @@ mod tests {
             request(Method::GET, "/api/v1/me/trades/1", "", None),
             request(Method::POST, "/api/v1/me/trades/1/accept", "", None),
             request(Method::POST, "/api/v1/me/trades/1/cancel", "", None),
+            request(Method::POST, "/api/v1/me/trades/1/complete", "", None),
         ];
 
         for request in requests {
@@ -392,9 +421,16 @@ mod tests {
                 Some(1),
             ),
             request(Method::GET, "/api/v1/me/trades/not-a-number", "", Some(1)),
+            request(Method::GET, "/api/v1/me/trades?scope=all", "", Some(1)),
             request(
                 Method::POST,
                 "/api/v1/me/trades/not-a-number/accept",
+                "",
+                Some(1),
+            ),
+            request(
+                Method::POST,
+                "/api/v1/me/trades/not-a-number/complete",
                 "",
                 Some(1),
             ),

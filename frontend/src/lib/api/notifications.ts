@@ -8,7 +8,9 @@ export type NotificationKind =
 	| 'trade_proposed'
 	| 'trade_accepted'
 	| 'trade_cancelled'
-	| 'trade_message';
+	| 'trade_message'
+	| 'trade_completion_confirmed'
+	| 'trade_completed';
 
 export interface AppNotification {
 	id: number;
