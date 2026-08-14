@@ -222,7 +222,7 @@ pub async fn enqueue_entry_photo_deletions(
     Ok(storage_keys)
 }
 
-async fn enqueue_storage_key(
+pub(crate) async fn enqueue_storage_key(
     connection: &mut MySqlConnection,
     storage_key: &str,
 ) -> Result<(), sqlx::Error> {
@@ -309,11 +309,12 @@ pub async fn mark_deletion_failed(
 }
 
 pub async fn active_storage_keys(pool: &MySqlPool) -> Result<HashSet<String>, sqlx::Error> {
-    Ok(
-        sqlx::query_scalar::<_, String>("SELECT storage_key FROM collection_photos")
-            .fetch_all(pool)
-            .await?
-            .into_iter()
-            .collect(),
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT storage_key FROM collection_photos \
+             UNION SELECT avatar_path FROM users WHERE avatar_path IS NOT NULL",
     )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect())
 }

@@ -1,6 +1,8 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
+use crate::models::profile::avatar_content_url;
+
 pub const MAX_PROPOSAL_ENTRIES_PER_DIRECTION: usize = 100;
 
 #[derive(Debug, Deserialize, Default)]
@@ -110,7 +112,7 @@ impl From<&MatchListRow> for TradePartnerResponse {
             display_name: row.partner_display_name.clone(),
             avatar_path: row
                 .partner_profile_public
-                .then(|| row.partner_avatar_path.clone())
+                .then(|| avatar_content_url(row.partner_id, row.partner_avatar_path.is_some()))
                 .flatten(),
             location: row
                 .partner_profile_public
@@ -393,5 +395,27 @@ mod tests {
         let partner = TradePartnerResponse::from(&row);
         assert!(partner.avatar_path.is_none());
         assert!(partner.location.is_none());
+    }
+
+    #[test]
+    fn public_partner_avatar_uses_a_controlled_content_url() {
+        let row = MatchListRow {
+            id: 1,
+            status: "active".to_string(),
+            revision: 1,
+            changed_at: NaiveDateTime::default(),
+            partner_id: 2,
+            partner_display_name: "Public".to_string(),
+            partner_profile_public: true,
+            partner_avatar_path: Some("internal-storage-key.jpg".to_string()),
+            partner_location: None,
+            open_trade_id: None,
+            open_trade_status: None,
+        };
+
+        assert_eq!(
+            TradePartnerResponse::from(&row).avatar_path.as_deref(),
+            Some("/api/v1/users/2/avatar")
+        );
     }
 }

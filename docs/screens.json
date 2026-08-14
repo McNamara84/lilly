@@ -422,7 +422,7 @@
           "id": "profile_stats",
           "component": "SeriesProgressBar",
           "repeat": { "kind": "dynamic", "per": "series" },
-          "description": "Collection progress for each series. Visible if profile is public."
+          "description": "Physical issue total and distinct collection progress for each series. Public statistics require both profile_public and collection_public."
         },
         {
           "id": "public_lists",
@@ -486,7 +486,7 @@
       "file": "src/routes/users/[id]/+page.svelte",
       "title": "Sammler-Profil",
       "auth_required": false,
-      "description": "Public view of a collector's profile when profile_public is true. Collection statistics appear only when collection_public is independently true. A private profile uses the same 404-style state as an absent profile.",
+      "description": "Public view of a collector's profile when profile_public is true. Collection statistics require both profile_public and collection_public; the direct public collection remains independently available with collection_public alone. A private profile uses the same 404-style state as an absent profile.",
       "reuses": "profile (sections: profile_header, profile_stats, public_lists)"
     },
 

@@ -430,6 +430,7 @@ async fn collection_stats(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Ok(Json(CollectionStatsResponse {
         total_issues,
+        total_physical_owned: stats.total_physical_owned as u32,
         total_owned,
         total_duplicate: stats.total_duplicate as u32,
         total_wanted: stats.total_wanted as u32,
@@ -449,7 +450,7 @@ fn resolve_series_total(declared_total: Option<u32>, imported_total: u32) -> Opt
 fn calculate_progress(owned: u32, total: Option<u32>) -> Option<f64> {
     total
         .filter(|total| *total > 0)
-        .map(|total| (f64::from(owned) / f64::from(total)) * 100.0)
+        .map(|total| (f64::from(owned.min(total)) / f64::from(total)) * 100.0)
 }
 
 fn calculate_overall_stats(series_stats: &[SeriesStatsEntry]) -> (Option<u32>, Option<f64>) {
@@ -546,6 +547,7 @@ mod tests {
     #[test]
     fn progress_handles_known_unknown_and_zero_totals() {
         assert_eq!(calculate_progress(50, Some(200)), Some(25.0));
+        assert_eq!(calculate_progress(250, Some(200)), Some(100.0));
         assert_eq!(calculate_progress(0, Some(0)), None);
         assert_eq!(calculate_progress(0, None), None);
     }

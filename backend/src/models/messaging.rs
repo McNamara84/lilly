@@ -2,6 +2,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
 use super::trade_matching::{PageParams, TradePartnerResponse};
+use crate::models::profile::avatar_content_url;
 
 pub const MAX_MESSAGE_LENGTH: usize = 4_000;
 
@@ -144,7 +145,7 @@ impl From<&ThreadListRow> for ThreadSummaryResponse {
                 display_name: row.partner_display_name.clone(),
                 avatar_path: row
                     .partner_profile_public
-                    .then(|| row.partner_avatar_path.clone())
+                    .then(|| avatar_content_url(row.partner_id, row.partner_avatar_path.is_some()))
                     .flatten(),
                 location: row
                     .partner_profile_public
@@ -199,5 +200,44 @@ mod tests {
         let mut invalid = request("ok");
         invalid.client_message_id = "not-a-uuid".to_string();
         assert!(invalid.validate().is_err());
+    }
+
+    fn thread_row(profile_public: bool) -> ThreadListRow {
+        ThreadListRow {
+            thread_id: 3,
+            trade_id: 5,
+            trade_status: "accepted".to_string(),
+            partner_id: 7,
+            partner_display_name: "Sammlerin".to_string(),
+            partner_profile_public: profile_public,
+            partner_avatar_path: Some("internal-storage-key.jpg".to_string()),
+            partner_location: Some("Berlin".to_string()),
+            last_message: Some("Hallo".to_string()),
+            last_message_at: Some(NaiveDateTime::default()),
+            unread_count: 1,
+            updated_at: NaiveDateTime::default(),
+        }
+    }
+
+    #[test]
+    fn public_message_partner_uses_controlled_avatar_url() {
+        let response = ThreadSummaryResponse::from(&thread_row(true));
+
+        assert_eq!(
+            response.partner.avatar_path.as_deref(),
+            Some("/api/v1/users/7/avatar")
+        );
+        assert_ne!(
+            response.partner.avatar_path.as_deref(),
+            Some("internal-storage-key.jpg")
+        );
+    }
+
+    #[test]
+    fn private_message_partner_hides_avatar_and_location() {
+        let response = ThreadSummaryResponse::from(&thread_row(false));
+
+        assert!(response.partner.avatar_path.is_none());
+        assert!(response.partner.location.is_none());
     }
 }

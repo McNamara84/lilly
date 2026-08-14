@@ -269,7 +269,12 @@ fn build_trade(
             display_name: row.partner_display_name,
             avatar_path: row
                 .partner_profile_public
-                .then_some(row.partner_avatar_path)
+                .then(|| {
+                    crate::models::profile::avatar_content_url(
+                        row.partner_id,
+                        row.partner_avatar_path.is_some(),
+                    )
+                })
                 .flatten(),
             location: row
                 .partner_profile_public

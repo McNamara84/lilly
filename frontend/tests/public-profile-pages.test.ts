@@ -21,13 +21,14 @@ vi.mock('$lib/api/profile', () => ({
 const publicProfile = {
 	id: 7,
 	display_name: 'Sammler',
-	avatar_path: null,
+	avatar_url: null,
 	location: 'Berlin',
 	created_at: '2026-01-15T00:00:00'
 };
 
 const stats = {
 	total_issues: 10,
+	total_physical_owned: 3,
 	total_owned: 2,
 	total_duplicate: 1,
 	total_wanted: 3,
@@ -84,6 +85,66 @@ describe('Public Profile Page', () => {
 			'/users/7/collection'
 		);
 		expect(screen.getByText(/2 von 10/)).toBeInTheDocument();
+		expect(screen.getByTestId('public-physical-total')).toHaveTextContent('3 physische Hefte');
+		expect(screen.getByTestId('public-physical-total')).toHaveTextContent(
+			'2 unterschiedliche Ausgaben'
+		);
+	});
+
+	it('renders a controlled avatar URL and falls back to initials', async () => {
+		mocks.fetchPublicProfile.mockResolvedValue({
+			...publicProfile,
+			avatar_url: '/api/v1/users/7/avatar'
+		});
+		const withAvatar = render(PublicProfilePage);
+
+		expect(await screen.findByAltText('Avatar von Sammler')).toHaveAttribute(
+			'src',
+			'/api/v1/users/7/avatar'
+		);
+		withAvatar.unmount();
+
+		mocks.fetchPublicProfile.mockResolvedValue({
+			...publicProfile,
+			display_name: 'Mira Muster'
+		});
+		render(PublicProfilePage);
+		expect(await screen.findByTestId('public-profile-avatar')).toHaveTextContent('MM');
+	});
+
+	it('uses singular labels for one physical and one distinct issue', async () => {
+		mocks.fetchPublicCollectionStats.mockResolvedValue({
+			...stats,
+			total_physical_owned: 1,
+			total_owned: 1
+		});
+
+		render(PublicProfilePage);
+
+		const total = await screen.findByTestId('public-physical-total');
+		expect(total).toHaveTextContent('1 physisches Heft');
+		expect(total).toHaveTextContent('1 unterschiedliche Ausgabe');
+	});
+
+	it('shows an unknown series total without a misleading progress bar', async () => {
+		mocks.fetchPublicCollectionStats.mockResolvedValue({
+			...stats,
+			total_issues: null,
+			overall_progress_percent: null,
+			series_stats: [
+				{
+					...stats.series_stats[0],
+					total_in_series: null,
+					progress_percent: null
+				}
+			]
+		});
+
+		render(PublicProfilePage);
+
+		expect(await screen.findByText(/2 gesammelt — Gesamtzahl unbekannt/)).toBeVisible();
+		expect(screen.getByTestId('progress-unavailable')).toBeInTheDocument();
+		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 	});
 
 	it('renders a public profile without an optional location', async () => {
