@@ -3,10 +3,12 @@ import {
 	acceptTrade,
 	addWantedBulk,
 	cancelTrade,
+	completeTrade,
 	createTradeProposal,
 	deleteWantedEntry,
 	fetchMatch,
 	fetchMatches,
+	fetchClosedTrades,
 	fetchOpenTrades,
 	fetchTrade,
 	fetchTradeOffers,
@@ -135,6 +137,12 @@ describe('Trades API', () => {
 		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/trades?per_page=25', {
 			credentials: 'same-origin'
 		});
+
+		await fetchClosedTrades({ page: 3, per_page: 25 }, controller.signal);
+		expect(mockFetch).toHaveBeenLastCalledWith(
+			'/api/v1/me/trades?page=3&per_page=25&scope=closed',
+			{ credentials: 'same-origin', signal: controller.signal }
+		);
 	});
 
 	it('fetches match and trade details', async () => {
@@ -151,7 +159,7 @@ describe('Trades API', () => {
 		});
 	});
 
-	it('creates, accepts and cancels trade proposals', async () => {
+	it('creates, accepts, completes and cancels trade proposals', async () => {
 		const created = { id: 9, status: 'proposed' };
 		mockFetch.mockResolvedValue(jsonResponse(created));
 
@@ -165,6 +173,12 @@ describe('Trades API', () => {
 
 		await expect(acceptTrade(9)).resolves.toEqual(created);
 		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/trades/9/accept', {
+			method: 'POST',
+			credentials: 'same-origin'
+		});
+
+		await expect(completeTrade(9)).resolves.toEqual(created);
+		expect(mockFetch).toHaveBeenLastCalledWith('/api/v1/me/trades/9/complete', {
 			method: 'POST',
 			credentials: 'same-origin'
 		});
@@ -183,5 +197,15 @@ describe('Trades API', () => {
 
 		mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'Bereits angenommen' }, 409));
 		await expect(cancelTrade(9)).rejects.toThrow('Bereits angenommen');
+
+		mockFetch.mockResolvedValueOnce(
+			jsonResponse({ error: 'Sammlung wurde verändert', code: 'trade_items_changed' }, 409)
+		);
+		const completionError = await completeTrade(9).catch((error) => error);
+		expect(completionError).toMatchObject({
+			message: 'Sammlung wurde verändert',
+			status: 409,
+			code: 'trade_items_changed'
+		});
 	});
 });

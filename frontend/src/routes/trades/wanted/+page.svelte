@@ -66,6 +66,11 @@
 						{entry.series_name} #{entry.issue_number}
 					</p>
 					<h2 class="font-semibold">{entry.title}</h2>
+					{#if entry.edition_label}
+						<p class="mt-1 text-xs" style="color: var(--text-secondary);">
+							Gewünschte Edition: {entry.edition_label}
+						</p>
+					{/if}
 					<button
 						type="button"
 						onclick={() => remove(entry)}

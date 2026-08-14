@@ -17,6 +17,7 @@ export interface CollectionEntry {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number | null;
+	edition_label: string | null;
 	condition_grade: ConditionGrade | null;
 	status: CollectionStatus;
 	notes: string | null;
@@ -58,12 +59,14 @@ export interface AddCollectionEntryRequest {
 	status?: PersistedCollectionStatus;
 	notes?: string;
 	copy_number?: number;
+	edition_label?: string;
 }
 
 export interface UpdateCollectionEntryRequest {
 	condition_grade?: ConditionGrade;
 	status?: PersistedCollectionStatus;
 	notes?: string;
+	edition_label?: string;
 }
 
 export type PersistedCollectionStatus = 'owned' | 'duplicate' | 'wanted';
@@ -71,6 +74,7 @@ export type CollectionStatus = PersistedCollectionStatus | 'missing';
 
 export interface CollectionQueryParams {
 	series_slug?: string;
+	issue_id?: number;
 	status?: string;
 	issue_number?: number;
 	condition?: string;
@@ -200,4 +204,9 @@ export async function fetchCollectionEntryByIssue(
 		credentials: 'same-origin'
 	});
 	return handleResponse<CollectionEntry | null>(response);
+}
+
+export async function fetchCollectionEntriesByIssue(issueId: number): Promise<CollectionEntry[]> {
+	const result = await fetchCollection({ issue_id: issueId, page: 1, per_page: 100 });
+	return result.data;
 }

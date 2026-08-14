@@ -167,7 +167,7 @@ impl AppConfig {
         let google_oauth = oauth_credentials(&get, "GOOGLE");
         let github_oauth = oauth_credentials(&get, "GITHUB");
         let privacy_policy_version = get("PRIVACY_POLICY_VERSION")
-            .unwrap_or_else(|| "2026-03-06".to_string())
+            .unwrap_or_else(|| "2026-08-14".to_string())
             .trim()
             .to_string();
         assert!(
@@ -446,7 +446,7 @@ mod tests {
         assert!(!config.cookie_secure);
         assert!(config.google_oauth.is_none());
         assert!(config.github_oauth.is_none());
-        assert_eq!(config.privacy_policy_version, "2026-03-06");
+        assert_eq!(config.privacy_policy_version, "2026-08-14");
         assert!(config.admin_email.is_none());
         assert_eq!(config.media_path, "/media");
         assert_eq!(config.media_url_prefix, "/media");

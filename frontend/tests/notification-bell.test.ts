@@ -243,7 +243,9 @@ describe('NotificationBell', () => {
 			'trade_proposed',
 			'trade_accepted',
 			'trade_cancelled',
-			'trade_message'
+			'trade_message',
+			'trade_completion_confirmed',
+			'trade_completed'
 		] as const;
 		mocks.fetchNotifications.mockResolvedValue({
 			data: kinds.map((kind, index) => ({
@@ -268,6 +270,8 @@ describe('NotificationBell', () => {
 		expect(screen.getByText('Tauschvorschlag angenommen')).toBeInTheDocument();
 		expect(screen.getByText('Tausch abgebrochen')).toBeInTheDocument();
 		expect(screen.getByText('Neue Nachricht')).toBeInTheDocument();
+		expect(screen.getByText('Tauscherhalt bestätigt')).toBeInTheDocument();
+		expect(screen.getByText('Tausch abgeschlossen')).toBeInTheDocument();
 		view.unmount();
 	});
 });

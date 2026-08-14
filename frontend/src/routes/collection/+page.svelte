@@ -6,6 +6,7 @@
 	import { untrack } from 'svelte';
 	import {
 		fetchCollection,
+		fetchCollectionEntriesByIssue,
 		addToCollection,
 		updateCollectionEntry,
 		deleteCollectionEntry,
@@ -40,6 +41,7 @@
 	// Detail sheet state
 	let selectedIssue = $state<Issue | null>(null);
 	let selectedEntry = $state<CollectionEntry | null>(null);
+	let selectedEntries = $state<CollectionEntry[]>([]);
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -115,8 +117,12 @@
 	async function handleSelect(entry: CollectionEntry) {
 		sheetError = null;
 		try {
-			const issue = await fetchIssue(entry.issue_id);
+			const [issue, issueEntries] = await Promise.all([
+				fetchIssue(entry.issue_id),
+				fetchCollectionEntriesByIssue(entry.issue_id)
+			]);
 			selectedIssue = issue;
+			selectedEntries = issueEntries;
 			selectedEntry = entry.id > 0 ? entry : null;
 		} catch (e) {
 			sheetError = e instanceof Error ? e.message : 'Heftdetails konnten nicht geladen werden';
@@ -126,6 +132,7 @@
 	function closeSheet() {
 		selectedIssue = null;
 		selectedEntry = null;
+		selectedEntries = [];
 		sheetError = null;
 	}
 
@@ -134,6 +141,7 @@
 		condition_grade?: ConditionGrade;
 		status: PersistedCollectionStatus;
 		notes: string;
+		edition_label: string;
 	}) {
 		sheetError = null;
 		try {
@@ -141,14 +149,16 @@
 				await updateCollectionEntry(selectedEntry.id, {
 					condition_grade: data.condition_grade,
 					status: data.status,
-					notes: data.notes
+					notes: data.notes,
+					edition_label: data.edition_label
 				});
 			} else {
 				await addToCollection({
 					issue_id: data.issue_id,
 					condition_grade: data.condition_grade,
 					status: data.status,
-					notes: data.notes
+					notes: data.notes,
+					edition_label: data.edition_label
 				});
 			}
 			closeSheet();
@@ -227,6 +237,9 @@
 <IssueDetailSheet
 	issue={selectedIssue}
 	collection_entry={selectedEntry}
+	collection_entries={selectedEntries}
+	onselectentry={(entry) => (selectedEntry = entry)}
+	onaddcopy={() => (selectedEntry = null)}
 	onclose={closeSheet}
 	onsave={handleSave}
 	ondelete={handleDelete}

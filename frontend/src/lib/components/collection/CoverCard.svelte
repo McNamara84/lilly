@@ -38,7 +38,7 @@
 		: undefined}
 	aria-label="{entry.title} — #{entry.issue_number}{entry.status === 'missing'
 		? ', fehlend'
-		: `, ${entry.status === 'owned' ? 'Vorhanden' : entry.status === 'duplicate' ? 'Doppelt' : entry.status === 'wanted' ? 'Gesucht' : entry.status}${entry.condition_grade ? `, ${entry.condition_grade}` : ''}`}"
+		: `, ${entry.status === 'owned' ? 'Vorhanden' : entry.status === 'duplicate' ? 'Doppelt' : entry.status === 'wanted' ? 'Gesucht' : entry.status}${entry.condition_grade ? `, ${entry.condition_grade}` : ''}${entry.edition_label ? `, ${entry.edition_label}` : ''}`}"
 	data-testid="cover-card"
 >
 	<!-- Cover image -->
@@ -103,4 +103,14 @@
 	>
 		{entry.title}
 	</p>
+	{#if entry.edition_label}
+		<p
+			class="truncate text-center text-[10px]"
+			style="color: var(--text-tertiary);"
+			title={`${entry.edition_label} · Exemplar ${entry.copy_number ?? '–'}`}
+			data-testid="edition-label"
+		>
+			{entry.edition_label} · Exemplar {entry.copy_number ?? '–'}
+		</p>
+	{/if}
 </div>

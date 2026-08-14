@@ -25,7 +25,9 @@
 			trade_proposed: 'Neuer Tauschvorschlag',
 			trade_accepted: 'Tauschvorschlag angenommen',
 			trade_cancelled: 'Tausch abgebrochen',
-			trade_message: 'Neue Nachricht'
+			trade_message: 'Neue Nachricht',
+			trade_completion_confirmed: 'Tauscherhalt bestätigt',
+			trade_completed: 'Tausch abgeschlossen'
 		}[kind];
 	}
 

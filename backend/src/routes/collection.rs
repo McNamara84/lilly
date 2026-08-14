@@ -10,9 +10,9 @@ use crate::error::AppError;
 use crate::models::collection::{
     AddCollectionEntryRequest, CollectionEntryResponse, CollectionQueryParams,
     CollectionStatsResponse, PaginatedCollectionResponse, SeriesStatsEntry,
-    UpdateCollectionEntryRequest, normalize_collection_note, validate_collection_sort,
-    validate_condition_grade, validate_missing_collection_sort, validate_sort_direction,
-    validate_status_condition,
+    UpdateCollectionEntryRequest, normalize_collection_note, normalize_edition_label,
+    validate_collection_sort, validate_condition_grade, validate_missing_collection_sort,
+    validate_sort_direction, validate_status_condition,
 };
 use crate::services::trade_matching;
 
@@ -38,63 +38,10 @@ async fn list_collection(
     auth: AuthUser,
     Query(params): Query<CollectionQueryParams>,
 ) -> Result<Json<PaginatedCollectionResponse>, AppError> {
-    // Validate optional filter values
-    if let Some(ref status) = params.status
-        && status != "missing"
-        && status != "owned"
-        && status != "duplicate"
-        && status != "wanted"
-    {
-        return Err(AppError::BadRequest(format!(
-            "Invalid status filter '{status}'. Must be one of: owned, duplicate, wanted, missing"
-        )));
-    }
-    if let Some(ref g) = params.condition_min {
-        validate_condition_grade(g).map_err(AppError::BadRequest)?;
-    }
-    if let Some(ref g) = params.condition_max {
-        validate_condition_grade(g).map_err(AppError::BadRequest)?;
-    }
-    // Both condition bounds must be provided together or not at all
-    if params.condition_min.is_some() != params.condition_max.is_some() {
-        return Err(AppError::BadRequest(
-            "condition_min and condition_max must be provided together".to_string(),
-        ));
-    }
-    if let Some(ref condition) = params.condition {
-        validate_condition_grade(condition).map_err(AppError::BadRequest)?;
-    }
-    if params.issue_number == Some(0) {
-        return Err(AppError::BadRequest(
-            "issue_number must be greater than zero".to_string(),
-        ));
-    }
-    if let Some(ref sort) = params.sort {
-        validate_collection_sort(sort).map_err(AppError::BadRequest)?;
-    }
-    if let Some(ref direction) = params.sort_dir {
-        validate_sort_direction(direction).map_err(AppError::BadRequest)?;
-    }
+    validate_collection_query(&params)?;
 
     // Handle the virtual "missing" status via a separate query path
     if params.status.as_deref() == Some("missing") {
-        params.series_slug.as_deref().ok_or_else(|| {
-            AppError::BadRequest(
-                "series_slug is required when filtering by status=missing".to_string(),
-            )
-        })?;
-        if params.condition.is_some()
-            || params.condition_min.is_some()
-            || params.condition_max.is_some()
-        {
-            return Err(AppError::BadRequest(
-                "condition filters cannot be used with status=missing".to_string(),
-            ));
-        }
-        if let Some(ref sort) = params.sort {
-            validate_missing_collection_sort(sort).map_err(AppError::BadRequest)?;
-        }
-
         let per_page = params.per_page.clamp(1, 100);
         let page = params.page.max(1);
 
@@ -117,6 +64,7 @@ async fn list_collection(
                 cover_url: m.cover_url.clone(),
                 cover_local_path: m.cover_local_path.clone(),
                 copy_number: None,
+                edition_label: None,
                 condition_grade: None,
                 status: "missing".to_string(),
                 notes: None,
@@ -149,6 +97,70 @@ async fn list_collection(
     }))
 }
 
+fn validate_collection_query(params: &CollectionQueryParams) -> Result<(), AppError> {
+    if let Some(ref status) = params.status
+        && status != "missing"
+        && status != "owned"
+        && status != "duplicate"
+        && status != "wanted"
+    {
+        return Err(AppError::BadRequest(format!(
+            "Invalid status filter '{status}'. Must be one of: owned, duplicate, wanted, missing"
+        )));
+    }
+    if let Some(ref g) = params.condition_min {
+        validate_condition_grade(g).map_err(AppError::BadRequest)?;
+    }
+    if let Some(ref g) = params.condition_max {
+        validate_condition_grade(g).map_err(AppError::BadRequest)?;
+    }
+    // Both condition bounds must be provided together or not at all
+    if params.condition_min.is_some() != params.condition_max.is_some() {
+        return Err(AppError::BadRequest(
+            "condition_min and condition_max must be provided together".to_string(),
+        ));
+    }
+    if let Some(ref condition) = params.condition {
+        validate_condition_grade(condition).map_err(AppError::BadRequest)?;
+    }
+    if params.issue_number == Some(0) {
+        return Err(AppError::BadRequest(
+            "issue_number must be greater than zero".to_string(),
+        ));
+    }
+    if params.issue_id == Some(0) {
+        return Err(AppError::BadRequest(
+            "issue_id must be greater than zero".to_string(),
+        ));
+    }
+    if let Some(ref sort) = params.sort {
+        validate_collection_sort(sort).map_err(AppError::BadRequest)?;
+    }
+    if let Some(ref direction) = params.sort_dir {
+        validate_sort_direction(direction).map_err(AppError::BadRequest)?;
+    }
+
+    if params.status.as_deref() == Some("missing") {
+        params.series_slug.as_deref().ok_or_else(|| {
+            AppError::BadRequest(
+                "series_slug is required when filtering by status=missing".to_string(),
+            )
+        })?;
+        if params.condition.is_some()
+            || params.condition_min.is_some()
+            || params.condition_max.is_some()
+        {
+            return Err(AppError::BadRequest(
+                "condition filters cannot be used with status=missing".to_string(),
+            ));
+        }
+        if let Some(ref sort) = params.sort {
+            validate_missing_collection_sort(sort).map_err(AppError::BadRequest)?;
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/v1/me/collection
 // ---------------------------------------------------------------------------
@@ -162,8 +174,7 @@ async fn add_to_collection(
     let status = body.status.as_deref().unwrap_or("owned");
     validate_status_condition(status, body.condition_grade.as_deref())
         .map_err(AppError::BadRequest)?;
-    let copy_number = body.copy_number.unwrap_or(1);
-    if copy_number < 1 {
+    if body.copy_number == Some(0) {
         return Err(AppError::BadRequest(
             "copy_number must be at least 1".to_string(),
         ));
@@ -178,6 +189,8 @@ async fn add_to_collection(
     }
 
     let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
+    let edition_label =
+        normalize_edition_label(body.edition_label.as_deref()).map_err(AppError::BadRequest)?;
 
     let mut transaction = state.inner.pool.begin().await?;
     if matches!(status, "duplicate" | "wanted") {
@@ -188,14 +201,30 @@ async fn add_to_collection(
         )
         .await?;
     }
+    let copy_number = match body.copy_number {
+        Some(copy_number) => copy_number,
+        None => collection::next_copy_number_on_connection(
+            &mut transaction,
+            auth.user_id,
+            body.issue_id,
+        )
+        .await?
+        .ok_or_else(|| AppError::ConflictWithCode {
+            message: "No free copy number is available for this issue".to_string(),
+            code: "collection_capacity_exceeded".to_string(),
+        })?,
+    };
     let entry_id = collection::add_entry_on_connection(
         &mut transaction,
-        auth.user_id,
-        body.issue_id,
-        copy_number,
-        body.condition_grade.as_deref(),
-        status,
-        notes,
+        collection::NewCollectionEntry {
+            user_id: auth.user_id,
+            issue_id: body.issue_id,
+            copy_number,
+            condition_grade: body.condition_grade.as_deref(),
+            status,
+            notes,
+            edition_label: edition_label.as_deref(),
+        },
     )
     .await
     .map_err(|e| {
@@ -242,9 +271,14 @@ async fn update_entry(
     Json(body): Json<UpdateCollectionEntryRequest>,
 ) -> Result<Json<CollectionEntryResponse>, AppError> {
     // Reject empty updates — at least one field must be provided
-    if body.condition_grade.is_none() && body.status.is_none() && body.notes.is_none() {
+    if body.condition_grade.is_none()
+        && body.status.is_none()
+        && body.notes.is_none()
+        && body.edition_label.is_none()
+    {
         return Err(AppError::BadRequest(
-            "At least one field (condition_grade, status, or notes) must be provided".to_string(),
+            "At least one field (condition_grade, status, notes, or edition_label) must be provided"
+                .to_string(),
         ));
     }
 
@@ -268,9 +302,15 @@ async fn update_entry(
         .map(|note| normalize_collection_note(Some(note)))
         .transpose()
         .map_err(AppError::BadRequest)?;
+    let edition_label_param = body
+        .edition_label
+        .as_deref()
+        .map(|label| normalize_edition_label(Some(label)))
+        .transpose()
+        .map_err(AppError::BadRequest)?;
 
     let mut transaction = state.inner.pool.begin().await?;
-    if body.status.is_some() || body.condition_grade.is_some() {
+    if body.status.is_some() || body.condition_grade.is_some() || body.edition_label.is_some() {
         trade_matching::prepare_entry_mutation_in_transaction(
             &mut transaction,
             auth.user_id,
@@ -293,6 +333,9 @@ async fn update_entry(
         body.condition_grade.as_deref(),
         body.status.as_deref(),
         notes_param,
+        edition_label_param
+            .as_ref()
+            .map(|edition_label| edition_label.as_deref()),
     )
     .await?;
 
@@ -305,6 +348,7 @@ async fn update_entry(
     .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("Failed to retrieve updated entry")))?;
 
     if body.status.is_some()
+        || body.edition_label.is_some()
         || (body.condition_grade.is_some()
             && matches!(existing.status.as_str(), "duplicate" | "wanted"))
     {
@@ -479,11 +523,21 @@ fn calculate_overall_stats(series_stats: &[SeriesStatsEntry]) -> (Option<u32>, O
 
 #[cfg(test)]
 mod tests {
-    use super::{calculate_overall_stats, calculate_progress, resolve_series_total};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use lilly_importer_core::adapter::AdapterRegistry;
+    use sqlx::mysql::MySqlPoolOptions;
+
+    use super::*;
     use crate::models::collection::{
         SeriesStatsEntry, validate_collection_sort, validate_condition_grade,
         validate_sort_direction, validate_status,
     };
+    use crate::routes::AppStateInner;
+    use crate::services::email::EmailService;
+    use crate::services::import_scheduler::ImportSchedulerConfig;
 
     fn series_stats(owned_count: u32, total_in_series: Option<u32>) -> SeriesStatsEntry {
         SeriesStatsEntry {
@@ -564,5 +618,244 @@ mod tests {
         );
 
         assert_eq!(calculate_overall_stats(&[]), (None, None));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn edition_crud_and_copy_allocation_work_against_mariadb() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("test database must be reachable");
+        crate::db::migrate_test_database(&pool)
+            .await
+            .expect("test migrations must succeed");
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        let user_id = inserted_id(
+            &sqlx::query("INSERT INTO users (email, display_name) VALUES (?, 'Edition Tester')")
+                .bind(format!("collection-editions-{suffix}@example.test"))
+                .execute(&pool)
+                .await
+                .expect("user fixture must be inserted"),
+        );
+        let series_id = inserted_id(
+            &sqlx::query("INSERT INTO series (name, slug, active) VALUES (?, ?, TRUE)")
+                .bind(format!("Collection Edition Test {suffix}"))
+                .bind(format!("collection-edition-test-{suffix}"))
+                .execute(&pool)
+                .await
+                .expect("series fixture must be inserted"),
+        );
+        let issue_id = insert_issue(&pool, series_id, 1, "Edition Target").await;
+        let other_issue_id = insert_issue(&pool, series_id, 2, "Other Target").await;
+        let media_root = std::env::temp_dir().join(format!("lilly-collection-edition-{suffix}"));
+        let state = test_state(pool.clone(), media_root.clone());
+        let auth = AuthUser {
+            user_id,
+            display_name: "Edition Tester".to_string(),
+            role: "user".to_string(),
+        };
+
+        let (_, Json(first)) = add_to_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(AddCollectionEntryRequest {
+                issue_id,
+                condition_grade: Some("Z1".to_string()),
+                status: Some("owned".to_string()),
+                notes: None,
+                copy_number: None,
+                edition_label: Some("  1. Auflage  ".to_string()),
+            }),
+        )
+        .await
+        .expect("first edition must be added");
+        assert_eq!(first.copy_number, Some(1));
+        assert_eq!(first.edition_label.as_deref(), Some("1. Auflage"));
+
+        let (_, Json(second)) = add_to_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(AddCollectionEntryRequest {
+                issue_id,
+                condition_grade: Some("Z2".to_string()),
+                status: Some("duplicate".to_string()),
+                notes: None,
+                copy_number: None,
+                edition_label: Some("Variantcover".to_string()),
+            }),
+        )
+        .await
+        .expect("second edition must be added");
+        assert_eq!(second.copy_number, Some(2));
+
+        let duplicate_copy = add_to_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(AddCollectionEntryRequest {
+                issue_id,
+                condition_grade: Some("Z3".to_string()),
+                status: Some("owned".to_string()),
+                notes: None,
+                copy_number: Some(2),
+                edition_label: None,
+            }),
+        )
+        .await;
+        assert!(matches!(duplicate_copy, Err(AppError::BadRequest(_))));
+
+        delete_entry(State(state.clone()), auth.clone(), Path(first.id))
+            .await
+            .expect("first edition must be deleted");
+        let (_, Json(reallocated)) = add_to_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(AddCollectionEntryRequest {
+                issue_id,
+                condition_grade: Some("Z0".to_string()),
+                status: Some("owned".to_string()),
+                notes: None,
+                copy_number: None,
+                edition_label: Some("Neuauflage".to_string()),
+            }),
+        )
+        .await
+        .expect("copy number hole must be reused");
+        assert_eq!(reallocated.copy_number, Some(1));
+
+        let Json(cleared) = update_entry(
+            State(state.clone()),
+            auth.clone(),
+            Path(second.id),
+            Json(UpdateCollectionEntryRequest {
+                condition_grade: None,
+                status: None,
+                notes: None,
+                edition_label: Some("   ".to_string()),
+            }),
+        )
+        .await
+        .expect("edition label must be clearable");
+        assert!(cleared.edition_label.is_none());
+
+        let _other = add_to_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(AddCollectionEntryRequest {
+                issue_id: other_issue_id,
+                condition_grade: Some("Z2".to_string()),
+                status: Some("owned".to_string()),
+                notes: None,
+                copy_number: None,
+                edition_label: None,
+            }),
+        )
+        .await
+        .expect("other issue fixture must be added");
+        let Json(filtered) = list_collection(
+            State(state.clone()),
+            auth.clone(),
+            Query(CollectionQueryParams {
+                issue_id: Some(issue_id),
+                ..CollectionQueryParams::default()
+            }),
+        )
+        .await
+        .expect("issue copies must be filtered");
+        assert_eq!(filtered.total, 2);
+        assert!(filtered.data.iter().all(|entry| entry.issue_id == issue_id));
+
+        let overlong = add_to_collection(
+            State(state),
+            auth,
+            Json(AddCollectionEntryRequest {
+                issue_id,
+                condition_grade: Some("Z2".to_string()),
+                status: Some("owned".to_string()),
+                notes: None,
+                copy_number: None,
+                edition_label: Some(
+                    "📚".repeat(crate::models::collection::MAX_EDITION_LABEL_LENGTH + 1),
+                ),
+            }),
+        )
+        .await;
+        assert!(matches!(overlong, Err(AppError::BadRequest(_))));
+
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .expect("user fixture must be deleted");
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .expect("series fixture must be deleted");
+        let _ = tokio::fs::remove_dir_all(media_root).await;
+    }
+
+    fn test_state(pool: sqlx::MySqlPool, media_root: PathBuf) -> AppState {
+        let media_storage = crate::services::media::MediaStorage::new(&media_root);
+        AppState {
+            inner: Arc::new(AppStateInner {
+                pool,
+                jwt_secret: "collection-test-secret".to_string(),
+                jwt_access_expiry: 900,
+                jwt_refresh_expiry: 2_592_000,
+                password_reset_ttl_seconds: 3_600,
+                email_service: EmailService::Log {
+                    from: "test@lilly.app".to_string(),
+                },
+                app_base_url: "http://localhost".to_string(),
+                cookie_secure: false,
+                oauth_service: crate::services::oauth::OAuthService::disabled(),
+                privacy_policy_version: "test-v1".to_string(),
+                adapter_registry: AdapterRegistry::new(),
+                media_path: media_root,
+                media_url_prefix: "/media".to_string(),
+                photo_upload_config: crate::config::PhotoUploadConfig::default(),
+                media_storage,
+                import_scheduler_config: ImportSchedulerConfig {
+                    enabled: false,
+                    schedule: "0 10 6 * * Sat *".to_string(),
+                    timezone: "Europe/Berlin".to_string(),
+                    adapters: Vec::new(),
+                },
+                request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
+            }),
+        }
+    }
+
+    async fn insert_issue(
+        pool: &sqlx::MySqlPool,
+        series_id: u32,
+        issue_number: u32,
+        title: &str,
+    ) -> u32 {
+        inserted_id(
+            &sqlx::query("INSERT INTO issues (series_id, issue_number, title) VALUES (?, ?, ?)")
+                .bind(series_id)
+                .bind(issue_number)
+                .bind(title)
+                .execute(pool)
+                .await
+                .expect("issue fixture must be inserted"),
+        )
+    }
+
+    fn inserted_id(result: &sqlx::mysql::MySqlQueryResult) -> u32 {
+        result
+            .last_insert_id()
+            .try_into()
+            .expect("fixture ID must fit into u32")
     }
 }

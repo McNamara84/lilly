@@ -251,6 +251,93 @@ test.describe('Add to Collection', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Collection End-to-End Workflow', () => {
+	test('multiple editions of one issue can be added, edited and deleted independently', async ({
+		page
+	}) => {
+		type SnapshotEntry = {
+			id: number;
+			issue_id: number;
+			title: string;
+			copy_number: number | null;
+			edition_label: string | null;
+			condition_grade: string | null;
+			status: 'owned' | 'duplicate' | 'wanted';
+			notes: string | null;
+		};
+
+		const response = await page.request.get('/api/v1/me/collection?status=owned&per_page=100');
+		expect(response.ok()).toBe(true);
+		const original = ((await response.json()) as { data: SnapshotEntry[] }).data[0];
+		if (!original) throw new Error('The E2E worker needs an owned collection entry');
+
+		const firstEdition = 'E2E Erstauflage';
+		const secondEdition = 'E2E Variantcover';
+		const editedSecondEdition = 'E2E Variantcover bearbeitet';
+
+		try {
+			await page.goto('/collection');
+			await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
+			await page.getByTestId('cover-card').filter({ hasText: original.title }).first().click();
+			await page.getByTestId('edition-input').fill(firstEdition);
+			await page.getByTestId('save-button').click();
+			await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 5000 });
+
+			const firstCard = page.getByTestId('cover-card').filter({ hasText: firstEdition });
+			await expect(firstCard).toHaveCount(1);
+			await firstCard.click();
+			await page.getByTestId('add-copy-button').click();
+			await page.getByTestId('edition-input').fill(secondEdition);
+			await page.getByTestId('notes-textarea').fill('Nur am zweiten Exemplar');
+			await page.getByTestId('save-button').click();
+			await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 5000 });
+
+			await expect(page.getByTestId('cover-card').filter({ hasText: original.title })).toHaveCount(
+				2
+			);
+			await expect(page.getByTestId('cover-card').filter({ hasText: firstEdition })).toHaveCount(1);
+			const secondCard = page.getByTestId('cover-card').filter({ hasText: secondEdition });
+			await expect(secondCard).toHaveCount(1);
+
+			await secondCard.click();
+			await page.getByTestId('edition-input').fill(editedSecondEdition);
+			await page.getByTestId('save-button').click();
+			await expect(page.getByTestId('cover-card').filter({ hasText: firstEdition })).toHaveCount(1);
+			const editedSecondCard = page
+				.getByTestId('cover-card')
+				.filter({ hasText: editedSecondEdition });
+			await expect(editedSecondCard).toHaveCount(1);
+
+			await editedSecondCard.click();
+			await page.getByTestId('delete-button').click();
+			await expect(
+				page.getByTestId('cover-card').filter({ hasText: editedSecondEdition })
+			).toHaveCount(0);
+			await expect(page.getByTestId('cover-card').filter({ hasText: firstEdition })).toHaveCount(1);
+		} finally {
+			const currentResponse = await page.request.get(
+				`/api/v1/me/collection?issue_id=${original.issue_id}&per_page=100`
+			);
+			if (currentResponse.ok()) {
+				const current = (await currentResponse.json()) as { data: SnapshotEntry[] };
+				for (const entry of current.data) {
+					if (entry.id !== original.id) {
+						const deleted = await page.request.delete(`/api/v1/me/collection/${entry.id}`);
+						expect(deleted.ok()).toBe(true);
+					}
+				}
+			}
+			const restored = await page.request.patch(`/api/v1/me/collection/${original.id}`, {
+				data: {
+					condition_grade: original.condition_grade,
+					status: original.status,
+					notes: original.notes ?? '',
+					edition_label: original.edition_label ?? ''
+				}
+			});
+			expect(restored.ok()).toBe(true);
+		}
+	});
+
 	test('full workflow: add issue, see in collection, use filters', async ({ page }) => {
 		// Step 1: Go to add page
 		await page.goto('/collection/add');
@@ -415,6 +502,7 @@ test.describe('Collection End-to-End Workflow', () => {
 			id: number;
 			issue_id: number;
 			copy_number: number | null;
+			edition_label: string | null;
 			condition_grade: string | null;
 			status: 'owned' | 'duplicate' | 'wanted';
 			notes: string | null;
@@ -453,6 +541,7 @@ test.describe('Collection End-to-End Workflow', () => {
 					data: {
 						issue_id: entry.issue_id,
 						copy_number: entry.copy_number ?? 1,
+						edition_label: entry.edition_label,
 						condition_grade: entry.condition_grade ?? 'Z1',
 						status: entry.status,
 						notes: entry.notes

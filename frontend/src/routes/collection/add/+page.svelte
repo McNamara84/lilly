@@ -23,6 +23,7 @@
 	let entries = $state<CollectionEntry[]>([]);
 	let selectedIssue = $state<Issue | null>(null);
 	let selectedEntry = $state<CollectionEntry | null>(null);
+	let selectedEntries = $state<CollectionEntry[]>([]);
 	let loading = $state(true);
 	let gridLoading = $state(false);
 	let error = $state<string | null>(null);
@@ -85,6 +86,7 @@
 	function openDetails(issue: Issue, entry: CollectionEntry | null, trigger: HTMLButtonElement) {
 		sheetError = null;
 		selectedIssue = issue;
+		selectedEntries = entries.filter((candidate) => candidate.issue_id === issue.id);
 		selectedEntry = entry;
 		detailTrigger = trigger;
 	}
@@ -92,6 +94,7 @@
 	function closeSheet(restoreFocus = true) {
 		selectedIssue = null;
 		selectedEntry = null;
+		selectedEntries = [];
 		sheetError = null;
 		if (restoreFocus && detailTrigger) {
 			const trigger = detailTrigger;
@@ -114,6 +117,7 @@
 		condition_grade?: ConditionGrade;
 		status: PersistedCollectionStatus;
 		notes: string;
+		edition_label: string;
 	}) {
 		sheetError = null;
 		try {
@@ -121,7 +125,8 @@
 				const updated = await updateCollectionEntry(selectedEntry.id, {
 					condition_grade: data.condition_grade,
 					status: data.status,
-					notes: data.notes
+					notes: data.notes,
+					edition_label: data.edition_label
 				});
 				entries = entries.map((entry) => (entry.id === updated.id ? updated : entry));
 				showToast(`Heft #${updated.issue_number} aktualisiert`);
@@ -226,6 +231,9 @@
 <IssueDetailSheet
 	issue={selectedIssue}
 	collection_entry={selectedEntry}
+	collection_entries={selectedEntries}
+	onselectentry={(entry) => (selectedEntry = entry)}
+	onaddcopy={() => (selectedEntry = null)}
 	onclose={closeSheet}
 	onsave={handleSave}
 	ondelete={handleDelete}

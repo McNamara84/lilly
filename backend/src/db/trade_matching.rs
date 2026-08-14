@@ -19,6 +19,8 @@ struct CandidateItem {
     issue_number: u32,
     title: String,
     series_name: String,
+    edition_label: Option<String>,
+    wanted_edition_label: Option<String>,
 }
 
 impl CandidateItem {
@@ -193,12 +195,15 @@ async fn find_candidate_items(
         "SELECT offer.id AS offer_entry_id, wanted.id AS wanted_entry_id,
                 offer.issue_id, offer.user_id AS offered_by_user_id,
                 wanted.user_id AS wanted_by_user_id, i.issue_number, i.title,
-                s.name AS series_name
+                s.name AS series_name, offer.edition_label,
+                wanted.edition_label AS wanted_edition_label
          FROM collection_entries offer
          JOIN collection_entries wanted
            ON wanted.issue_id = offer.issue_id
           AND wanted.status = 'wanted'
           AND wanted.user_id <> offer.user_id
+          AND (wanted.edition_label IS NULL
+               OR wanted.edition_label = offer.edition_label)
          JOIN issues i ON i.id = offer.issue_id
          JOIN series s ON s.id = i.series_id AND s.active = TRUE
          WHERE offer.status = 'duplicate'
@@ -470,7 +475,8 @@ fn item_summaries(items: &[CandidateItem], offered_by: u32) -> Vec<serde_json::V
                 "issue_id": item.issue_id,
                 "issue_number": item.issue_number,
                 "title": item.title,
-                "series_name": item.series_name
+                "series_name": item.series_name,
+                "edition_label": item.edition_label
             })
         })
         .collect()
@@ -485,6 +491,14 @@ fn fingerprint_items(items: &[CandidateItem]) -> String {
         hasher.update(identity.2.to_be_bytes());
         hasher.update(identity.3.to_be_bytes());
         hasher.update(identity.4.to_be_bytes());
+        if let Some(edition_label) = &item.edition_label {
+            hasher.update(edition_label.as_bytes());
+        }
+        hasher.update([0]);
+        if let Some(wanted_edition_label) = &item.wanted_edition_label {
+            hasher.update(wanted_edition_label.as_bytes());
+        }
+        hasher.update([0]);
     }
     hex::encode(hasher.finalize())
 }
@@ -579,10 +593,12 @@ pub async fn find_match_item_views(
         "SELECT mi.match_id, mi.offer_entry_id, mi.wanted_entry_id, mi.issue_id,
                 mi.offered_by_user_id, i.issue_number, i.title,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug,
-                i.cover_url, i.cover_local_path, offer.copy_number,
+                i.cover_url, i.cover_local_path, offer.copy_number, offer.edition_label,
+                wanted.edition_label AS wanted_edition_label,
                 offer.condition_grade
          FROM trade_match_items mi
          JOIN collection_entries offer ON offer.id = mi.offer_entry_id
+         JOIN collection_entries wanted ON wanted.id = mi.wanted_entry_id
          JOIN issues i ON i.id = mi.issue_id
          JOIN series s ON s.id = i.series_id
          WHERE mi.match_id = ?
@@ -604,10 +620,12 @@ pub async fn find_match_item_views_for_matches(
         "SELECT mi.match_id, mi.offer_entry_id, mi.wanted_entry_id, mi.issue_id,
                 mi.offered_by_user_id, i.issue_number, i.title,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug,
-                i.cover_url, i.cover_local_path, offer.copy_number,
+                i.cover_url, i.cover_local_path, offer.copy_number, offer.edition_label,
+                wanted.edition_label AS wanted_edition_label,
                 offer.condition_grade
          FROM trade_match_items mi
          JOIN collection_entries offer ON offer.id = mi.offer_entry_id
+         JOIN collection_entries wanted ON wanted.id = mi.wanted_entry_id
          JOIN issues i ON i.id = mi.issue_id
          JOIN series s ON s.id = i.series_id
          WHERE mi.match_id IN (",
@@ -634,7 +652,7 @@ mod tests {
     use super::*;
     use crate::error::AppError;
     use crate::models::messaging::{MessagePageParams, SendMessageRequest};
-    use crate::models::trade_matching::{CreateTradeProposalRequest, PageParams};
+    use crate::models::trade_matching::{CreateTradeProposalRequest, PageParams, TradePageParams};
     use crate::services::{messaging, trade_matching as matching_service, trades};
 
     fn candidate(
@@ -653,6 +671,8 @@ mod tests {
             issue_number: issue,
             title: format!("Issue {issue}"),
             series_name: "Series".to_string(),
+            edition_label: None,
+            wanted_edition_label: None,
         }
     }
 
@@ -674,6 +694,13 @@ mod tests {
         assert_ne!(
             fingerprint_items(std::slice::from_ref(&first)),
             fingerprint_items(&[first, second])
+        );
+
+        let mut edition_changed = candidate(1, 2, 3, 4, 5);
+        edition_changed.edition_label = Some("Variantcover".to_string());
+        assert_ne!(
+            fingerprint_items(&[candidate(1, 2, 3, 4, 5)]),
+            fingerprint_items(&[edition_changed])
         );
     }
 
@@ -732,6 +759,29 @@ mod tests {
         let first_wanted_id =
             insert_entry(&pool, first_user_id, second_issue_id, "wanted", None).await;
 
+        sqlx::query("UPDATE collection_entries SET edition_label = '1. Auflage' WHERE id = ?")
+            .bind(first_offer_id)
+            .execute(&pool)
+            .await
+            .expect("offered edition must be assigned");
+        sqlx::query("UPDATE collection_entries SET edition_label = '2. Auflage' WHERE id = ?")
+            .bind(second_wanted_id)
+            .execute(&pool)
+            .await
+            .expect("wanted edition mismatch must be assigned");
+        sqlx::query("UPDATE collection_entries SET edition_label = 'Variantcover' WHERE id = ?")
+            .bind(second_offer_id)
+            .execute(&pool)
+            .await
+            .expect("second offered edition must be assigned");
+        let edition_mismatch = reconcile(&pool, first_user_id).await;
+        assert_eq!(edition_mismatch.created, 0);
+
+        sqlx::query("UPDATE collection_entries SET edition_label = '1. Auflage' WHERE id = ?")
+            .bind(second_wanted_id)
+            .execute(&pool)
+            .await
+            .expect("wanted edition must be made compatible");
         let created = reconcile(&pool, first_user_id).await;
         assert_eq!(created.created, 1);
         let page = PageParams {
@@ -745,6 +795,14 @@ mod tests {
         assert_eq!(matches.data[0].match_score, 100);
         assert_eq!(matches.data[0].my_offers[0].entry_id, first_offer_id);
         assert_eq!(matches.data[0].partner_offers[0].entry_id, second_offer_id);
+        assert_eq!(
+            matches.data[0].my_offers[0].edition_label.as_deref(),
+            Some("1. Auflage")
+        );
+        assert_eq!(
+            matches.data[0].my_offers[0].wanted_edition_label.as_deref(),
+            Some("1. Auflage")
+        );
         let match_id = matches.data[0].id;
 
         let unchanged = reconcile(&pool, first_user_id).await;
@@ -973,6 +1031,214 @@ mod tests {
             1
         );
 
+        let completion_proposal = trades::create_proposal(
+            &pool,
+            first_user_id,
+            match_id,
+            &CreateTradeProposalRequest {
+                offered_entry_ids: vec![first_offer_id],
+                requested_entry_ids: vec![second_offer_id],
+            },
+        )
+        .await
+        .expect("completion proposal must be created");
+        assert_eq!(
+            completion_proposal.my_offers[0].edition_label.as_deref(),
+            Some("1. Auflage")
+        );
+        assert_eq!(
+            completion_proposal.partner_offers[0]
+                .edition_label
+                .as_deref(),
+            Some("Variantcover")
+        );
+        trades::accept_trade(&pool, second_user_id, completion_proposal.id)
+            .await
+            .expect("completion proposal must be accepted");
+
+        let photo_storage_key = format!("matching-completion-{suffix}.jpg");
+        sqlx::query(
+            "INSERT INTO collection_photos
+			    (entry_id, storage_key, media_type, byte_size, width, height, sort_order)
+			 VALUES (?, ?, 'image/jpeg', 10, 1, 1, 0)",
+        )
+        .bind(first_offer_id)
+        .bind(&photo_storage_key)
+        .execute(&pool)
+        .await
+        .expect("offer photo fixture must be inserted");
+
+        let first_confirmation =
+            trades::complete_trade(&pool, first_user_id, completion_proposal.id)
+                .await
+                .expect("first completion confirmation must succeed");
+        assert_eq!(first_confirmation.trade.status, "accepted");
+        assert!(
+            first_confirmation
+                .trade
+                .my_completion_confirmed_at
+                .is_some()
+        );
+        assert!(
+            first_confirmation
+                .trade
+                .partner_completion_confirmed_at
+                .is_none()
+        );
+        assert!(first_confirmation.photo_storage_keys.is_empty());
+        assert_eq!(collection_entry_count(&pool, first_offer_id).await, 1);
+        assert_eq!(collection_entry_count(&pool, second_offer_id).await, 1);
+
+        trades::complete_trade(&pool, first_user_id, completion_proposal.id)
+            .await
+            .expect("repeated first confirmation must be idempotent");
+        assert_eq!(
+            completion_confirmation_count(&pool, completion_proposal.id).await,
+            1
+        );
+        assert_eq!(
+            trade_notification_count(
+                &pool,
+                second_user_id,
+                completion_proposal.id,
+                "trade_completion_confirmed",
+            )
+            .await,
+            1
+        );
+
+        sqlx::query("UPDATE collection_entries SET edition_label = 'Verändert' WHERE id = ?")
+            .bind(first_offer_id)
+            .execute(&pool)
+            .await
+            .expect("accepted offer must be changed for rollback test");
+        let changed_completion =
+            trades::complete_trade(&pool, second_user_id, completion_proposal.id).await;
+        assert!(matches!(
+            changed_completion,
+            Err(AppError::ConflictWithCode { ref code, .. }) if code == "trade_items_changed"
+        ));
+        assert_eq!(
+            trade_status(&pool, completion_proposal.id).await,
+            "accepted"
+        );
+        assert_eq!(
+            completion_confirmation_count(&pool, completion_proposal.id).await,
+            1
+        );
+        assert_eq!(collection_entry_count(&pool, first_offer_id).await, 1);
+
+        sqlx::query("UPDATE collection_entries SET edition_label = '1. Auflage' WHERE id = ?")
+            .bind(first_offer_id)
+            .execute(&pool)
+            .await
+            .expect("accepted offer edition must be restored");
+        let completed = trades::complete_trade(&pool, second_user_id, completion_proposal.id)
+            .await
+            .expect("second confirmation must complete the trade");
+        assert_eq!(completed.trade.status, "completed");
+        assert!(completed.trade.completed_at.is_some());
+        assert!(completed.trade.my_completion_confirmed_at.is_some());
+        assert!(completed.trade.partner_completion_confirmed_at.is_some());
+        assert_eq!(
+            completed.photo_storage_keys,
+            vec![photo_storage_key.clone()]
+        );
+        assert_eq!(collection_entry_count(&pool, first_offer_id).await, 0);
+        assert_eq!(collection_entry_count(&pool, second_offer_id).await, 0);
+        assert_eq!(
+            collection_entry_state(&pool, second_wanted_id).await,
+            (
+                "owned".to_string(),
+                Some("Z1".to_string()),
+                Some("1. Auflage".to_string())
+            )
+        );
+        assert_eq!(
+            collection_entry_state(&pool, first_wanted_id).await,
+            (
+                "owned".to_string(),
+                Some("Z2".to_string()),
+                Some("Variantcover".to_string())
+            )
+        );
+        assert_eq!(media_deletion_job_count(&pool, &photo_storage_key).await, 1);
+        assert_eq!(
+            trade_notification_count(
+                &pool,
+                first_user_id,
+                completion_proposal.id,
+                "trade_completed",
+            )
+            .await,
+            1
+        );
+
+        let open = trades::list_trades(
+            &pool,
+            first_user_id,
+            &TradePageParams {
+                scope: None,
+                page: 1,
+                per_page: 20,
+            },
+        )
+        .await
+        .expect("open trades must be listed");
+        assert!(
+            !open
+                .data
+                .iter()
+                .any(|trade| trade.id == completion_proposal.id)
+        );
+        let history = trades::list_trades(
+            &pool,
+            first_user_id,
+            &TradePageParams {
+                scope: Some("closed".to_string()),
+                page: 1,
+                per_page: 20,
+            },
+        )
+        .await
+        .expect("trade history must be listed");
+        assert!(
+            history
+                .data
+                .iter()
+                .any(|trade| { trade.id == completion_proposal.id && trade.status == "completed" })
+        );
+        assert!(history.data.iter().any(|trade| trade.id == proposal.id));
+
+        let repeated_completion =
+            trades::complete_trade(&pool, first_user_id, completion_proposal.id)
+                .await
+                .expect("completed trade retry must be idempotent");
+        assert_eq!(repeated_completion.trade.status, "completed");
+        assert!(repeated_completion.photo_storage_keys.is_empty());
+        let completed_cancellation =
+            trades::cancel_trade(&pool, first_user_id, completion_proposal.id).await;
+        assert!(matches!(
+            completed_cancellation,
+            Err(AppError::ConflictWithCode { ref code, .. }) if code == "invalid_trade_transition"
+        ));
+        assert_eq!(
+            messaging::list_messages(
+                &pool,
+                second_user_id,
+                completion_proposal.thread_id,
+                &MessagePageParams {
+                    before_id: None,
+                    limit: 50,
+                },
+            )
+            .await
+            .expect("completed trade messages must be retained")
+            .data
+            .len(),
+            0
+        );
+
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(first_user_id)
             .execute(&pool)
@@ -980,6 +1246,7 @@ mod tests {
             .expect("account deletion must cascade");
         assert_eq!(row_count(&pool, "trade_matches", match_id).await, 0);
         assert_eq!(row_count(&pool, "trades", proposal.id).await, 0);
+        assert_eq!(row_count(&pool, "trades", completion_proposal.id).await, 0);
         assert_eq!(
             row_count(&pool, "message_threads", proposal.thread_id).await,
             0
@@ -1056,12 +1323,15 @@ mod tests {
             .await?;
             crate::db::collection::add_entry_on_connection(
                 &mut transaction,
-                first_user_id,
-                first_issue_id,
-                1,
-                Some("Z1"),
-                "duplicate",
-                None,
+                crate::db::collection::NewCollectionEntry {
+                    user_id: first_user_id,
+                    issue_id: first_issue_id,
+                    copy_number: 1,
+                    condition_grade: Some("Z1"),
+                    status: "duplicate",
+                    notes: None,
+                    edition_label: None,
+                },
             )
             .await?;
             reconcile_user_matches(&mut transaction, first_user_id).await?;
@@ -1080,12 +1350,15 @@ mod tests {
             .await?;
             crate::db::collection::add_entry_on_connection(
                 &mut transaction,
-                second_user_id,
-                first_issue_id,
-                1,
-                None,
-                "wanted",
-                None,
+                crate::db::collection::NewCollectionEntry {
+                    user_id: second_user_id,
+                    issue_id: first_issue_id,
+                    copy_number: 1,
+                    condition_grade: None,
+                    status: "wanted",
+                    notes: None,
+                    edition_label: None,
+                },
             )
             .await?;
             reconcile_user_matches(&mut transaction, second_user_id).await?;
@@ -1221,6 +1494,44 @@ mod tests {
             .fetch_one(pool)
             .await
             .expect("trade status must be readable")
+    }
+
+    async fn completion_confirmation_count(pool: &MySqlPool, trade_id: u32) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM trade_completion_confirmations WHERE trade_id = ?")
+            .bind(trade_id)
+            .fetch_one(pool)
+            .await
+            .expect("completion confirmations must be countable")
+    }
+
+    async fn collection_entry_count(pool: &MySqlPool, entry_id: u32) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM collection_entries WHERE id = ?")
+            .bind(entry_id)
+            .fetch_one(pool)
+            .await
+            .expect("collection entry must be countable")
+    }
+
+    async fn collection_entry_state(
+        pool: &MySqlPool,
+        entry_id: u32,
+    ) -> (String, Option<String>, Option<String>) {
+        sqlx::query_as(
+            "SELECT status, condition_grade, edition_label
+			 FROM collection_entries WHERE id = ?",
+        )
+        .bind(entry_id)
+        .fetch_one(pool)
+        .await
+        .expect("collection entry state must be readable")
+    }
+
+    async fn media_deletion_job_count(pool: &MySqlPool, storage_key: &str) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM media_deletion_jobs WHERE storage_key = ?")
+            .bind(storage_key)
+            .fetch_one(pool)
+            .await
+            .expect("media deletion job must be countable")
     }
 
     async fn row_count(pool: &MySqlPool, table: &str, id: u32) -> i64 {

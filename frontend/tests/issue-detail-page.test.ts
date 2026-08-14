@@ -21,7 +21,10 @@ const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
 vi.mock('$lib/api/collection', () => ({
-	fetchCollectionEntryByIssue: (...args: unknown[]) => mockFetchCollectionEntryByIssue(...args),
+	fetchCollectionEntriesByIssue: async (...args: unknown[]) => {
+		const result = await mockFetchCollectionEntryByIssue(...args);
+		return Array.isArray(result) ? result : result ? [result] : [];
+	},
 	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
 	updateCollectionEntry: (...args: unknown[]) => mockUpdateCollectionEntry(...args),
 	deleteCollectionEntry: (...args: unknown[]) => mockDeleteCollectionEntry(...args)
@@ -84,6 +87,7 @@ const sampleEntry = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 1,
+	edition_label: null,
 	condition_grade: 'Z1',
 	status: 'owned',
 	notes: 'Test note',
@@ -331,7 +335,8 @@ describe('Issue Detail Page', () => {
 				issue_id: 42,
 				condition_grade: 'Z2',
 				status: 'owned',
-				notes: ''
+				notes: '',
+				edition_label: ''
 			});
 		});
 	});
@@ -379,7 +384,8 @@ describe('Issue Detail Page', () => {
 			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(1, {
 				condition_grade: 'Z1',
 				status: 'owned',
-				notes: 'Test note'
+				notes: 'Test note',
+				edition_label: ''
 			});
 		});
 	});
@@ -405,7 +411,8 @@ describe('Issue Detail Page', () => {
 			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(1, {
 				condition_grade: undefined,
 				status: 'wanted',
-				notes: 'Test note'
+				notes: 'Test note',
+				edition_label: ''
 			})
 		);
 	});

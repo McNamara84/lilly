@@ -102,6 +102,7 @@ function makeEntry(overrides: Record<string, unknown> = {}) {
 		cover_url: null,
 		cover_local_path: null,
 		copy_number: 1,
+		edition_label: null,
 		condition_grade: 'Z2',
 		status: 'owned',
 		notes: null,
@@ -239,7 +240,8 @@ describe('Collection Add Page', () => {
 				issue_id: 100,
 				condition_grade: 'Z2',
 				status: 'owned',
-				notes: 'Signierte Ausgabe'
+				notes: 'Signierte Ausgabe',
+				edition_label: ''
 			});
 		});
 		expect(firstCell).toHaveAttribute('data-status', 'owned');
@@ -267,7 +269,8 @@ describe('Collection Add Page', () => {
 			expect(mockUpdateCollectionEntry).toHaveBeenCalledWith(10, {
 				condition_grade: 'Z4',
 				status: 'wanted',
-				notes: 'Neu'
+				notes: 'Neu',
+				edition_label: ''
 			})
 		);
 		expect(screen.getAllByTestId('series-status-cell')[0]).toHaveAttribute('data-status', 'wanted');

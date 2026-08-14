@@ -208,7 +208,7 @@ Die folgenden Kernentitäten bilden das Datenmodell von LILLY. Das detaillierte 
 - **Serie (Series):** Serienname, Verlag, Genre, Erscheinungsrhythmus, Status, Datenquelle-URL, Gesamtzahl Hefte.
 - **Heft (Issue):** Heftnummer, Titel, Autor(en), Ersterscheinungsdatum, Serienzugehörigkeit, Cover-URL, Zyklus/Handlungsabschnitt.
 - **Nutzer (User):** Anzeigename, E-Mail (verschlüsselt), Passwort-Hash, OAuth-Referenzen, Avatar, Standort (optional), Profil- und Sammlungssichtbarkeit.
-- **Sammlungseintrag (CollectionEntry):** Nutzer-Referenz, Heft-Referenz, Zustand (Z0–Z4), Status (vorhanden/doppelt/gesucht), Notizen, eigene Fotos.
+- **Sammlungseintrag (CollectionEntry):** Nutzer-Referenz, Heft-Referenz, Exemplarnummer, optionale Editionsbezeichnung, Zustand (Z0–Z4), Status (vorhanden/doppelt/gesucht), Notizen, eigene Fotos.
 - **Tausch (Trade):** Anbieter, Nachfrager, angebotene Hefte, gesuchte Hefte, Status (offen/akzeptiert/abgeschlossen/abgebrochen), Nachrichten-Thread.
 - **Nachricht (Message):** Absender, Empfänger, Tausch-Referenz (optional), Inhalt, Zeitstempel, Gelesen-Status.
 - **Kommentar (Comment):** Nutzer-Referenz, Heft-Referenz, Text, Bewertung (1–5 Sterne), Zeitstempel.

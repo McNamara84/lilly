@@ -7,28 +7,48 @@
 		limitCollectionNote
 	} from '$lib/collection/notes';
 	import type { Issue } from '$lib/api/series';
+	import {
+		MAX_EDITION_LABEL_LENGTH,
+		countEditionLabelCharacters,
+		limitEditionLabel
+	} from '$lib/collection/editions';
 	import ConditionChips from './ConditionChips.svelte';
 	import PhotoUploader from '$lib/components/media/PhotoUploader.svelte';
 
 	interface Props {
 		issue: Issue | null;
 		collection_entry: CollectionEntry | null;
+		collection_entries?: CollectionEntry[];
 		onclose: () => void;
 		onsave: (data: {
 			issue_id: number;
 			condition_grade?: ConditionGrade;
 			status: PersistedCollectionStatus;
 			notes: string;
+			edition_label: string;
 		}) => void;
 		ondelete?: () => void;
+		onselectentry?: (entry: CollectionEntry) => void;
+		onaddcopy?: () => void;
 		error?: string | null;
 	}
 
-	let { issue, collection_entry, onclose, onsave, ondelete, error = null }: Props = $props();
+	let {
+		issue,
+		collection_entry,
+		collection_entries = [],
+		onclose,
+		onsave,
+		ondelete,
+		onselectentry,
+		onaddcopy,
+		error = null
+	}: Props = $props();
 
 	let conditionGrade = $state<ConditionGrade>('Z2');
 	let status = $state<PersistedCollectionStatus>('owned');
 	let notes = $state('');
+	let editionLabel = $state('');
 	const ENTRY_STATUSES = ['owned', 'duplicate', 'wanted'] as const;
 
 	// Sync state when props change
@@ -37,12 +57,14 @@
 		status =
 			collection_entry && collection_entry.status !== 'missing' ? collection_entry.status : 'owned';
 		notes = collection_entry?.notes ?? '';
+		editionLabel = collection_entry?.edition_label ?? '';
 	});
 
 	const isOpen = $derived(issue !== null);
 	const isEditing = $derived(collection_entry !== null && collection_entry.id > 0);
 	const needsCondition = $derived(status !== 'wanted' || collection_entry?.condition_grade != null);
 	const noteLength = $derived(countCollectionNoteCharacters(notes));
+	const editionLabelLength = $derived(countEditionLabelCharacters(editionLabel));
 
 	function handleSave() {
 		if (!issue) return;
@@ -50,7 +72,8 @@
 			issue_id: issue.id,
 			condition_grade: needsCondition ? conditionGrade : undefined,
 			status,
-			notes
+			notes,
+			edition_label: editionLabel
 		});
 	}
 
@@ -62,6 +85,12 @@
 		const textarea = event.currentTarget as HTMLTextAreaElement;
 		notes = limitCollectionNote(textarea.value);
 		if (textarea.value !== notes) textarea.value = notes;
+	}
+
+	function handleEditionInput(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		editionLabel = limitEditionLabel(input.value);
+		if (input.value !== editionLabel) input.value = editionLabel;
 	}
 </script>
 
@@ -127,6 +156,44 @@
 
 			<!-- Collection actions -->
 			<section class="mb-6">
+				{#if collection_entries.length > 0}
+					<div class="mb-5" data-testid="edition-entry-list">
+						<h3 class="mb-2 text-sm font-semibold" style="color: var(--text-primary);">
+							Exemplare und Editionen
+						</h3>
+						<div class="flex flex-wrap gap-2">
+							{#each collection_entries as entry (entry.id)}
+								<button
+									type="button"
+									aria-pressed={collection_entry?.id === entry.id}
+									onclick={() => onselectentry?.(entry)}
+									class="cursor-pointer rounded-lg px-3 py-2 text-left text-xs"
+									style={collection_entry?.id === entry.id
+										? 'background: var(--color-brand-500); color: #000;'
+										: 'background: var(--glass); color: var(--text-secondary);'}
+									data-testid="edition-entry-option"
+								>
+									<span class="block font-semibold">
+										{entry.edition_label ?? 'Edition nicht angegeben'}
+									</span>
+									<span class="block">Exemplar {entry.copy_number ?? '–'}</span>
+								</button>
+							{/each}
+							{#if onaddcopy}
+								<button
+									type="button"
+									onclick={onaddcopy}
+									class="cursor-pointer rounded-lg px-3 py-2 text-xs"
+									style="border: 1px dashed var(--glass-border); color: var(--text-secondary);"
+									data-testid="add-copy-button"
+								>
+									+ Weiteres Exemplar
+								</button>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
 				<h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">
 					Sammlungsstatus
 				</h3>
@@ -166,6 +233,27 @@
 						Ein Zustand wird erst benötigt, sobald du ein Exemplar besitzt oder anbietest.
 					</p>
 				{/if}
+
+				<label
+					for="entry-edition"
+					class="block text-xs mt-4 mb-1"
+					style="color: var(--text-tertiary);"
+				>
+					Edition oder Auflage
+				</label>
+				<input
+					id="entry-edition"
+					value={editionLabel}
+					oninput={handleEditionInput}
+					aria-describedby="entry-edition-hint"
+					class="w-full rounded-lg p-2 text-sm"
+					style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
+					placeholder="z. B. 1. Auflage oder Variantcover 2024"
+					data-testid="edition-input"
+				/>
+				<p id="entry-edition-hint" class="mt-1 text-[10px]" style="color: var(--text-tertiary);">
+					Optional; leer lassen für eine beliebige oder unbekannte Edition. {editionLabelLength}/{MAX_EDITION_LABEL_LENGTH}
+				</p>
 
 				<!-- Notes -->
 				<label

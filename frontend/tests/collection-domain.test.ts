@@ -17,6 +17,11 @@ import {
 	countCollectionNoteCharacters,
 	limitCollectionNote
 } from '$lib/collection/notes';
+import {
+	MAX_EDITION_LABEL_LENGTH,
+	countEditionLabelCharacters,
+	limitEditionLabel
+} from '$lib/collection/editions';
 
 function issue(id: number, issueNumber: number): Issue {
 	return {
@@ -50,6 +55,7 @@ function entry(id: number, issueId: number, status: CollectionEntry['status']): 
 		cover_url: null,
 		cover_local_path: null,
 		copy_number: 1,
+		edition_label: null,
 		condition_grade: 'Z2',
 		status,
 		notes: null,
@@ -93,6 +99,20 @@ describe('collection notes', () => {
 		const limited = limitCollectionNote('📚'.repeat(MAX_COLLECTION_NOTE_LENGTH + 1));
 
 		expect(countCollectionNoteCharacters(limited)).toBe(MAX_COLLECTION_NOTE_LENGTH);
+		expect(limited.endsWith('📚')).toBe(true);
+	});
+});
+
+describe('edition labels', () => {
+	it('counts Unicode code points consistently with the backend', () => {
+		expect(countEditionLabelCharacters('1. Auflage 📚')).toBe(12);
+		expect(countEditionLabelCharacters('📚'.repeat(MAX_EDITION_LABEL_LENGTH))).toBe(120);
+	});
+
+	it('limits labels without splitting surrogate pairs', () => {
+		const limited = limitEditionLabel('📚'.repeat(MAX_EDITION_LABEL_LENGTH + 1));
+
+		expect(countEditionLabelCharacters(limited)).toBe(MAX_EDITION_LABEL_LENGTH);
 		expect(limited.endsWith('📚')).toBe(true);
 	});
 });

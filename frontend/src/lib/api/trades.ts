@@ -13,6 +13,7 @@ export interface TradeOffer {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number;
+	edition_label: string | null;
 	condition_grade: ConditionGrade;
 	offering_user_id: number;
 	offering_user_display_name: string;
@@ -29,6 +30,7 @@ export interface WantedEntry {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number;
+	edition_label: string | null;
 	condition_grade: ConditionGrade | null;
 }
 
@@ -55,6 +57,7 @@ export interface PaginatedResponse<T> {
 export interface TradeListParams {
 	series_slug?: string;
 	q?: string;
+	scope?: 'open' | 'closed';
 	page?: number;
 	per_page?: number;
 }
@@ -94,6 +97,8 @@ export interface MatchIssue {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number;
+	edition_label: string | null;
+	wanted_edition_label: string | null;
 	condition_grade: ConditionGrade;
 }
 
@@ -124,6 +129,8 @@ export interface TradeItem {
 	cover_url: string | null;
 	cover_local_path: string | null;
 	copy_number: number;
+	edition_label: string | null;
+	wanted_edition_label: string | null;
 	condition_grade: ConditionGrade;
 }
 
@@ -140,6 +147,9 @@ export interface Trade {
 	proposed_at: string;
 	accepted_at: string | null;
 	cancelled_at: string | null;
+	completed_at: string | null;
+	my_completion_confirmed_at: string | null;
+	partner_completion_confirmed_at: string | null;
 	updated_at: string;
 }
 
@@ -148,12 +158,20 @@ export interface PageParams {
 	per_page?: number;
 }
 
+export interface TradePageParams extends PageParams {
+	scope?: 'open' | 'closed';
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
 	if (!response.ok) {
 		const body = await response.json().catch(() => ({ error: 'An unexpected error occurred' }));
-		throw new Error(
+		const error = new Error(
 			typeof body?.error === 'string' && body.error ? body.error : 'An unexpected error occurred'
 		);
+		(error as Error & { status?: number; code?: string }).status = response.status;
+		if (typeof body?.code === 'string')
+			(error as Error & { status?: number; code?: string }).code = body.code;
+		throw error;
 	}
 	return response.json();
 }
@@ -268,6 +286,17 @@ export async function fetchOpenTrades(
 	return handleResponse<PaginatedResponse<Trade>>(response);
 }
 
+export async function fetchClosedTrades(
+	params: PageParams = {},
+	signal?: AbortSignal
+): Promise<PaginatedResponse<Trade>> {
+	const response = await fetch(
+		`${API_BASE}/me/trades${buildQueryString({ ...params, scope: 'closed' })}`,
+		requestInit(signal)
+	);
+	return handleResponse<PaginatedResponse<Trade>>(response);
+}
+
 export async function fetchTrade(tradeId: number, signal?: AbortSignal): Promise<Trade> {
 	const response = await fetch(`${API_BASE}/me/trades/${tradeId}`, requestInit(signal));
 	return handleResponse<Trade>(response);
@@ -287,4 +316,12 @@ export async function cancelTrade(tradeId: number): Promise<void> {
 		credentials: 'same-origin'
 	});
 	if (!response.ok) await handleResponse<never>(response);
+}
+
+export async function completeTrade(tradeId: number): Promise<Trade> {
+	const response = await fetch(`${API_BASE}/me/trades/${tradeId}/complete`, {
+		method: 'POST',
+		credentials: 'same-origin'
+	});
+	return handleResponse<Trade>(response);
 }

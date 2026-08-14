@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	getAuthState: vi.fn(),
 	fetchMatches: vi.fn(),
 	fetchOpenTrades: vi.fn(),
+	fetchClosedTrades: vi.fn(),
 	createTradeProposal: vi.fn(),
 	fetchTradeOffers: vi.fn(),
 	fetchWantedEntries: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 vi.mock('$lib/api/trades', () => ({
 	fetchMatches: (...args: unknown[]) => mocks.fetchMatches(...args),
 	fetchOpenTrades: (...args: unknown[]) => mocks.fetchOpenTrades(...args),
+	fetchClosedTrades: (...args: unknown[]) => mocks.fetchClosedTrades(...args),
 	createTradeProposal: (...args: unknown[]) => mocks.createTradeProposal(...args),
 	fetchTradeOffers: (...args: unknown[]) => mocks.fetchTradeOffers(...args),
 	fetchWantedEntries: (...args: unknown[]) => mocks.fetchWantedEntries(...args),
@@ -58,6 +60,8 @@ const myOffer = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 2,
+	edition_label: '1. Auflage',
+	wanted_edition_label: null,
 	condition_grade: 'Z2' as const
 };
 
@@ -101,6 +105,9 @@ const trade = {
 	proposed_at: '2026-08-10T08:00:00Z',
 	accepted_at: null,
 	cancelled_at: null,
+	completed_at: null,
+	my_completion_confirmed_at: null,
+	partner_completion_confirmed_at: null,
 	updated_at: '2026-08-10T08:00:00Z'
 };
 
@@ -139,6 +146,7 @@ describe('Trades hub', () => {
 		mocks.getAuthState.mockReturnValue(authenticatedState());
 		mocks.fetchMatches.mockResolvedValue(page([match]));
 		mocks.fetchOpenTrades.mockResolvedValue(page([trade]));
+		mocks.fetchClosedTrades.mockResolvedValue(page([]));
 		mocks.createTradeProposal.mockResolvedValue(trade);
 	});
 
@@ -148,6 +156,7 @@ describe('Trades hub', () => {
 		await waitFor(() => expect(screen.getByTestId('trade-match-card')).toBeInTheDocument());
 		expect(mocks.fetchMatches).toHaveBeenCalledWith({ per_page: 50 });
 		expect(mocks.fetchOpenTrades).toHaveBeenCalledWith({ per_page: 50 });
+		expect(mocks.fetchClosedTrades).toHaveBeenCalledWith({ per_page: 50 });
 		expect(screen.getByText('Tauschpartnerin')).toBeInTheDocument();
 		expect(screen.getByLabelText('Match-Score 88 Prozent')).toBeInTheDocument();
 		expect(screen.getByRole('link', { name: 'Tauschbare Hefte' })).toHaveAttribute(
@@ -267,6 +276,7 @@ describe('Trades hub', () => {
 		expect(screen.getByTestId('trades-loading')).toBeInTheDocument();
 		expect(mocks.fetchMatches).not.toHaveBeenCalled();
 		expect(mocks.fetchOpenTrades).not.toHaveBeenCalled();
+		expect(mocks.fetchClosedTrades).not.toHaveBeenCalled();
 		expect(mocks.goto).not.toHaveBeenCalled();
 		view.unmount();
 	});
@@ -284,6 +294,12 @@ describe('Trades hub', () => {
 			per_page: number;
 			total: number;
 		}) => void;
+		let resolveHistory!: (value: {
+			data: (typeof trade)[];
+			page: number;
+			per_page: number;
+			total: number;
+		}) => void;
 		mocks.fetchMatches.mockReturnValue(
 			new Promise((resolve) => {
 				resolveMatches = resolve;
@@ -294,12 +310,18 @@ describe('Trades hub', () => {
 				resolveTrades = resolve;
 			})
 		);
+		mocks.fetchClosedTrades.mockReturnValue(
+			new Promise((resolve) => {
+				resolveHistory = resolve;
+			})
+		);
 		const view = render(TradesPage);
 		const user = userEvent.setup();
 
 		expect(screen.getByTestId('trades-loading')).toBeInTheDocument();
 		resolveMatches(page([match]));
 		resolveTrades(page([]));
+		resolveHistory(page([]));
 		await waitFor(() => expect(screen.getByTestId('matches-panel')).toBeInTheDocument());
 
 		await user.click(screen.getByTestId('active-trades-tab'));
@@ -307,6 +329,30 @@ describe('Trades hub', () => {
 		await user.click(screen.getByTestId('matches-tab'));
 		expect(screen.getByTestId('trade-match-card')).toBeInTheDocument();
 		view.unmount();
+	});
+
+	it('shows completed and cancelled trades in the history tab', async () => {
+		mocks.fetchClosedTrades.mockResolvedValue(
+			page([
+				{
+					...trade,
+					id: 18,
+					status: 'completed' as const,
+					completed_at: '2026-08-12T12:00:00Z'
+				},
+				{ ...trade, id: 19, status: 'cancelled' as const }
+			])
+		);
+		render(TradesPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(screen.getByTestId('matches-panel')).toBeInTheDocument());
+		await user.click(screen.getByTestId('trade-history-tab'));
+
+		expect(screen.getByTestId('trade-history-tab')).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getAllByTestId('trade-summary-card')).toHaveLength(2);
+		expect(screen.getByText('Abgeschlossen')).toBeInTheDocument();
+		expect(screen.getByText('Abgebrochen')).toBeInTheDocument();
 	});
 });
 

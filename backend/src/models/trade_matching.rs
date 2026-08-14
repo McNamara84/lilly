@@ -37,6 +37,44 @@ impl PageParams {
     }
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct TradePageParams {
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_per_page")]
+    pub per_page: u32,
+}
+
+impl TradePageParams {
+    pub fn scope(&self) -> &str {
+        self.scope.as_deref().unwrap_or("open")
+    }
+
+    pub fn page(&self) -> u32 {
+        self.page.max(1)
+    }
+
+    pub fn per_page(&self) -> u32 {
+        self.per_page.clamp(1, 100)
+    }
+
+    pub fn offset(&self) -> u64 {
+        u64::from(self.page().saturating_sub(1))
+            .saturating_mul(u64::from(self.per_page()))
+            .min(1_000_000)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if matches!(self.scope(), "open" | "closed") {
+            Ok(())
+        } else {
+            Err("scope must be one of: open, closed".to_string())
+        }
+    }
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 #[allow(dead_code)]
 pub struct MatchRecord {
@@ -94,6 +132,8 @@ pub struct MatchItemViewRow {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
+    pub wanted_edition_label: Option<String>,
     pub condition_grade: String,
 }
 
@@ -135,6 +175,8 @@ pub struct MatchIssueResponse {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
+    pub wanted_edition_label: Option<String>,
     pub condition_grade: String,
 }
 
@@ -152,6 +194,8 @@ impl From<&MatchItemViewRow> for MatchIssueResponse {
             cover_url: row.cover_url.clone(),
             cover_local_path: row.cover_local_path.clone(),
             copy_number: row.copy_number,
+            edition_label: row.edition_label.clone(),
+            wanted_edition_label: row.wanted_edition_label.clone(),
             condition_grade: row.condition_grade.clone(),
         }
     }
@@ -224,6 +268,7 @@ pub struct TradeRecord {
     pub proposed_at: NaiveDateTime,
     pub accepted_at: Option<NaiveDateTime>,
     pub cancelled_at: Option<NaiveDateTime>,
+    pub completed_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -240,6 +285,9 @@ pub struct TradeListRow {
     pub proposed_at: NaiveDateTime,
     pub accepted_at: Option<NaiveDateTime>,
     pub cancelled_at: Option<NaiveDateTime>,
+    pub completed_at: Option<NaiveDateTime>,
+    pub my_completion_confirmed_at: Option<NaiveDateTime>,
+    pub partner_completion_confirmed_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub partner_id: u32,
@@ -267,6 +315,8 @@ pub struct TradeItemViewRow {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number_snapshot: u8,
+    pub edition_label_snapshot: Option<String>,
+    pub wanted_edition_label_snapshot: Option<String>,
     pub condition_grade_snapshot: String,
 }
 
@@ -283,6 +333,8 @@ pub struct TradeItemResponse {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
+    pub wanted_edition_label: Option<String>,
     pub condition_grade: String,
 }
 
@@ -300,6 +352,8 @@ impl From<&TradeItemViewRow> for TradeItemResponse {
             cover_url: row.cover_url.clone(),
             cover_local_path: row.cover_local_path.clone(),
             copy_number: row.copy_number_snapshot,
+            edition_label: row.edition_label_snapshot.clone(),
+            wanted_edition_label: row.wanted_edition_label_snapshot.clone(),
             condition_grade: row.condition_grade_snapshot.clone(),
         }
     }
@@ -319,6 +373,9 @@ pub struct TradeResponse {
     pub proposed_at: NaiveDateTime,
     pub accepted_at: Option<NaiveDateTime>,
     pub cancelled_at: Option<NaiveDateTime>,
+    pub completed_at: Option<NaiveDateTime>,
+    pub my_completion_confirmed_at: Option<NaiveDateTime>,
+    pub partner_completion_confirmed_at: Option<NaiveDateTime>,
     pub updated_at: NaiveDateTime,
 }
 
@@ -353,6 +410,29 @@ mod tests {
         assert_eq!(params.page(), 1);
         assert_eq!(params.per_page(), 100);
         assert_eq!(params.offset(), 0);
+    }
+
+    #[test]
+    fn trade_scope_defaults_and_validates() {
+        let default = TradePageParams::default();
+        assert_eq!(default.scope(), "open");
+        assert!(default.validate().is_ok());
+
+        let closed = TradePageParams {
+            scope: Some("closed".to_string()),
+            page: 0,
+            per_page: 500,
+        };
+        assert!(closed.validate().is_ok());
+        assert_eq!(closed.page(), 1);
+        assert_eq!(closed.per_page(), 100);
+        assert_eq!(closed.offset(), 0);
+
+        let invalid = TradePageParams {
+            scope: Some("all".to_string()),
+            ..TradePageParams::default()
+        };
+        assert!(invalid.validate().is_err());
     }
 
     #[test]

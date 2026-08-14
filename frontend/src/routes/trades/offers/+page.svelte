@@ -60,6 +60,11 @@
 					</p>
 					<h2 class="font-semibold">{offer.title}</h2>
 					<p class="mt-1 text-sm">Zustand {offer.condition_grade}</p>
+					{#if offer.edition_label}
+						<p class="mt-1 text-xs" style="color: var(--text-secondary);">
+							{offer.edition_label} · Exemplar {offer.copy_number}
+						</p>
+					{/if}
 					<button
 						type="button"
 						onclick={() => deactivate(offer)}

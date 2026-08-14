@@ -9,12 +9,14 @@ vi.mock('$lib/stores/auth.svelte', () => ({
 }));
 
 const mockFetchCollection = vi.fn();
+const mockFetchCollectionEntriesByIssue = vi.fn();
 const mockAddToCollection = vi.fn();
 const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
 vi.mock('$lib/api/collection', () => ({
 	fetchCollection: (...args: unknown[]) => mockFetchCollection(...args),
+	fetchCollectionEntriesByIssue: (...args: unknown[]) => mockFetchCollectionEntriesByIssue(...args),
 	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
 	updateCollectionEntry: (...args: unknown[]) => mockUpdateCollectionEntry(...args),
 	deleteCollectionEntry: (...args: unknown[]) => mockDeleteCollectionEntry(...args)
@@ -61,6 +63,7 @@ const sampleEntry = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 1,
+	edition_label: null,
 	condition_grade: 'Z2',
 	status: 'owned',
 	notes: null,
@@ -89,6 +92,7 @@ describe('Collection Page', () => {
 		vi.clearAllMocks();
 		mockFetchSeries.mockResolvedValue([]);
 		mockFetchCollection.mockResolvedValue({ data: [], page: 1, per_page: 20, total: 0 });
+		mockFetchCollectionEntriesByIssue.mockResolvedValue([sampleEntry]);
 	});
 
 	it('sets the page title', () => {
@@ -264,6 +268,7 @@ describe('Collection Page', () => {
 			total: 1
 		});
 		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockFetchCollectionEntriesByIssue.mockResolvedValue([]);
 		mockAddToCollection.mockResolvedValue(sampleEntry);
 		render(CollectionPage);
 

@@ -6,6 +6,7 @@
 	import {
 		acceptTrade,
 		cancelTrade,
+		completeTrade,
 		fetchTrade,
 		type Trade,
 		type TradeItem
@@ -65,6 +66,19 @@
 		}
 	}
 
+	async function complete() {
+		actionPending = true;
+		try {
+			trade = await completeTrade(tradeId);
+			error = null;
+		} catch (cause) {
+			error =
+				cause instanceof Error ? cause.message : 'Tauschabschluss konnte nicht bestätigt werden.';
+		} finally {
+			actionPending = false;
+		}
+	}
+
 	function statusLabel(status: Trade['status']): string {
 		return {
 			proposed: 'Vorgeschlagen',
@@ -75,7 +89,7 @@
 	}
 
 	function itemLabel(item: TradeItem): string {
-		return `${item.series_name} #${item.issue_number}: ${item.title} · ${item.condition_grade}`;
+		return `${item.series_name} #${item.issue_number}: ${item.title} · ${item.condition_grade}${item.edition_label ? ` · ${item.edition_label}` : ''}`;
 	}
 </script>
 
@@ -117,6 +131,54 @@
 				</ul>
 			</section>
 		</div>
+
+		{#if trade.status === 'accepted' || trade.status === 'completed'}
+			<section
+				class="glass-elevated mt-5 rounded-xl p-5"
+				aria-labelledby="completion-heading"
+				aria-live="polite"
+				data-testid="trade-completion"
+			>
+				<h2 id="completion-heading" class="font-semibold">Tauschabschluss</h2>
+				<p class="mt-2 text-sm" style="color: var(--text-secondary);">
+					Die Sammlungen werden erst aktualisiert, wenn beide Seiten den Erhalt bestätigt haben.
+				</p>
+				<ul class="mt-3 space-y-1 text-sm">
+					<li>
+						Deine Bestätigung:
+						{trade.my_completion_confirmed_at
+							? new Date(trade.my_completion_confirmed_at).toLocaleString('de-DE')
+							: 'ausstehend'}
+					</li>
+					<li>
+						Bestätigung von {trade.partner.display_name}:
+						{trade.partner_completion_confirmed_at
+							? new Date(trade.partner_completion_confirmed_at).toLocaleString('de-DE')
+							: 'ausstehend'}
+					</li>
+				</ul>
+				{#if trade.status === 'accepted' && !trade.my_completion_confirmed_at}
+					<button
+						type="button"
+						onclick={complete}
+						disabled={actionPending}
+						class="mt-4 cursor-pointer rounded-lg px-4 py-2 font-semibold disabled:opacity-50"
+						style="background: var(--color-brand-500); color: #000;"
+						data-testid="complete-trade-button"
+					>
+						Tausch als erhalten bestätigen
+					</button>
+				{:else if trade.status === 'accepted'}
+					<p class="mt-3 text-sm" data-testid="completion-waiting">
+						Warten auf die Bestätigung der anderen Seite.
+					</p>
+				{:else if trade.completed_at}
+					<p class="mt-3 text-sm" data-testid="completion-finished">
+						Abgeschlossen am {new Date(trade.completed_at).toLocaleString('de-DE')}.
+					</p>
+				{/if}
+			</section>
+		{/if}
 
 		{#if error}<p class="mt-4" role="alert" style="color: var(--color-error);">{error}</p>{/if}
 		{#if trade.status === 'proposed' || trade.status === 'accepted'}

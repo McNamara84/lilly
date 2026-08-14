@@ -12,6 +12,7 @@ pub struct CollectionEntry {
     pub user_id: u32,
     pub issue_id: u32,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
     pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
@@ -30,6 +31,7 @@ pub struct AddCollectionEntryRequest {
     pub status: Option<String>,
     pub notes: Option<String>,
     pub copy_number: Option<u8>,
+    pub edition_label: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -37,11 +39,13 @@ pub struct UpdateCollectionEntryRequest {
     pub condition_grade: Option<String>,
     pub status: Option<String>,
     pub notes: Option<String>,
+    pub edition_label: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct CollectionQueryParams {
     pub series_slug: Option<String>,
+    pub issue_id: Option<u32>,
     pub status: Option<String>,
     pub issue_number: Option<u32>,
     pub condition: Option<String>,
@@ -81,6 +85,7 @@ pub struct CollectionEntryResponse {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: Option<u8>,
+    pub edition_label: Option<String>,
     pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
@@ -130,6 +135,7 @@ pub struct CollectionEntryRow {
     pub user_id: u32,
     pub issue_id: u32,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
     pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
@@ -157,6 +163,7 @@ impl From<&CollectionEntryRow> for CollectionEntryResponse {
             cover_url: r.cover_url.clone(),
             cover_local_path: r.cover_local_path.clone(),
             copy_number: Some(r.copy_number),
+            edition_label: r.edition_label.clone(),
             condition_grade: r.condition_grade.clone(),
             status: r.status.clone(),
             notes: r.notes.clone(),
@@ -182,6 +189,7 @@ const VALID_COLLECTION_SORTS: &[&str] = &[
 ];
 const VALID_SORT_DIRECTIONS: &[&str] = &["asc", "desc"];
 pub const MAX_COLLECTION_NOTE_LENGTH: usize = 10_000;
+pub const MAX_EDITION_LABEL_LENGTH: usize = 120;
 
 pub fn validate_condition_grade(grade: &str) -> Result<(), String> {
     if VALID_CONDITION_GRADES.contains(&grade) {
@@ -240,6 +248,24 @@ pub fn normalize_collection_note(note: Option<&str>) -> Result<Option<&str>, Str
     } else {
         Ok(Some(note))
     }
+}
+
+/// Normalize optional edition metadata while keeping user-visible casing.
+/// Blank values clear the field and are persisted as NULL.
+pub fn normalize_edition_label(label: Option<&str>) -> Result<Option<String>, String> {
+    let Some(label) = label else {
+        return Ok(None);
+    };
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > MAX_EDITION_LABEL_LENGTH {
+        return Err(format!(
+            "Edition labels must not exceed {MAX_EDITION_LABEL_LENGTH} characters"
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
 }
 
 pub fn validate_collection_sort(sort: &str) -> Result<(), String> {
@@ -347,6 +373,18 @@ mod tests {
     }
 
     #[test]
+    fn edition_labels_are_trimmed_cleared_and_unicode_bounded() {
+        assert_eq!(normalize_edition_label(None), Ok(None));
+        assert_eq!(normalize_edition_label(Some(" \n ")), Ok(None));
+        assert_eq!(
+            normalize_edition_label(Some("  1. Auflage  ")),
+            Ok(Some("1. Auflage".to_string()))
+        );
+        assert!(normalize_edition_label(Some(&"ä".repeat(MAX_EDITION_LABEL_LENGTH))).is_ok());
+        assert!(normalize_edition_label(Some(&"🟡".repeat(MAX_EDITION_LABEL_LENGTH + 1))).is_err());
+    }
+
+    #[test]
     fn test_validate_collection_sort() {
         for sort in VALID_COLLECTION_SORTS {
             assert!(validate_collection_sort(sort).is_ok());
@@ -380,6 +418,7 @@ mod tests {
             user_id: 10,
             issue_id: 100,
             copy_number: 1,
+            edition_label: Some("1. Auflage".to_string()),
             condition_grade: Some("Z2".to_string()),
             status: "owned".to_string(),
             notes: Some("Nice copy".to_string()),
@@ -402,6 +441,7 @@ mod tests {
         assert_eq!(response.series_slug, "test-series");
         assert_eq!(response.notes, Some("Nice copy".to_string()));
         assert_eq!(response.copy_number, Some(1));
+        assert_eq!(response.edition_label.as_deref(), Some("1. Auflage"));
         assert!(response.created_at.is_some());
         assert!(response.updated_at.is_some());
     }

@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 	fetchTrade: vi.fn(),
 	acceptTrade: vi.fn(),
 	cancelTrade: vi.fn(),
+	completeTrade: vi.fn(),
 	fetchMessages: vi.fn(),
 	markThreadRead: vi.fn(),
 	sendMessage: vi.fn(),
@@ -40,7 +41,8 @@ vi.mock('$lib/stores/auth.svelte', () => ({ getAuthState: () => mocks.getAuthSta
 vi.mock('$lib/api/trades', () => ({
 	fetchTrade: (...args: unknown[]) => mocks.fetchTrade(...args),
 	acceptTrade: (...args: unknown[]) => mocks.acceptTrade(...args),
-	cancelTrade: (...args: unknown[]) => mocks.cancelTrade(...args)
+	cancelTrade: (...args: unknown[]) => mocks.cancelTrade(...args),
+	completeTrade: (...args: unknown[]) => mocks.completeTrade(...args)
 }));
 vi.mock('$lib/api/messages', () => ({
 	fetchMessages: (...args: unknown[]) => mocks.fetchMessages(...args),
@@ -60,6 +62,8 @@ const item = {
 	cover_url: null,
 	cover_local_path: null,
 	copy_number: 1,
+	edition_label: null,
+	wanted_edition_label: null,
 	condition_grade: 'Z2' as const
 };
 
@@ -76,7 +80,16 @@ const proposedTrade = {
 	proposed_at: '2026-08-10T08:00:00Z',
 	accepted_at: null,
 	cancelled_at: null,
+	completed_at: null,
+	my_completion_confirmed_at: null,
+	partner_completion_confirmed_at: null,
 	updated_at: '2026-08-10T08:00:00Z'
+};
+
+const acceptedTrade = {
+	...proposedTrade,
+	status: 'accepted' as const,
+	accepted_at: '2026-08-10T09:00:00Z'
 };
 
 function authState() {
@@ -100,11 +113,13 @@ describe('Trade detail page', () => {
 		mocks.getAuthState.mockReturnValue(authState());
 		mocks.fetchTrade.mockResolvedValue({ ...proposedTrade });
 		mocks.acceptTrade.mockResolvedValue({
-			...proposedTrade,
-			status: 'accepted',
-			accepted_at: '2026-08-10T09:00:00Z'
+			...acceptedTrade
 		});
 		mocks.cancelTrade.mockResolvedValue(undefined);
+		mocks.completeTrade.mockResolvedValue({
+			...acceptedTrade,
+			my_completion_confirmed_at: '2026-08-11T08:00:00Z'
+		});
 		mocks.fetchMessages.mockResolvedValue({ data: [], next_before_id: null });
 		mocks.markThreadRead.mockResolvedValue(undefined);
 	});
@@ -118,6 +133,73 @@ describe('Trade detail page', () => {
 		expect(screen.getByText('Maddrax #7: Die Gruft · Z2')).toBeInTheDocument();
 		expect(screen.getByTestId('message-thread')).toBeInTheDocument();
 		view.unmount();
+	});
+
+	it('records the first completion confirmation and waits for the partner', async () => {
+		mocks.fetchTrade.mockResolvedValueOnce(acceptedTrade);
+		const view = render(TradeDetailPage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Tausch als erhalten bestätigen' }));
+
+		await waitFor(() => expect(mocks.completeTrade).toHaveBeenCalledWith(8));
+		expect(screen.getByTestId('completion-waiting')).toHaveTextContent(
+			'Warten auf die Bestätigung der anderen Seite.'
+		);
+		expect(
+			screen.queryByRole('button', { name: 'Tausch als erhalten bestätigen' })
+		).not.toBeInTheDocument();
+		view.unmount();
+	});
+
+	it('shows the atomic completion after the second confirmation', async () => {
+		mocks.fetchTrade.mockResolvedValueOnce({
+			...acceptedTrade,
+			partner_completion_confirmed_at: '2026-08-11T08:00:00Z'
+		});
+		mocks.completeTrade.mockResolvedValueOnce({
+			...acceptedTrade,
+			status: 'completed',
+			completed_at: '2026-08-11T09:00:00Z',
+			my_completion_confirmed_at: '2026-08-11T09:00:00Z',
+			partner_completion_confirmed_at: '2026-08-11T08:00:00Z'
+		});
+		const completed = render(TradeDetailPage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByRole('button', { name: 'Tausch als erhalten bestätigen' }));
+
+		expect(await screen.findByText('Abgeschlossen')).toBeInTheDocument();
+		expect(mocks.completeTrade).toHaveBeenCalledWith(8);
+		expect(screen.getByTestId('completion-finished')).toHaveTextContent('Abgeschlossen am');
+		completed.unmount();
+	});
+
+	it('reports typed and fallback completion errors', async () => {
+		mocks.fetchTrade.mockResolvedValue(acceptedTrade);
+		mocks.completeTrade.mockRejectedValueOnce(new Error('Sammlung wurde verändert'));
+		const typed = render(TradeDetailPage);
+		const typedUser = userEvent.setup();
+		await typedUser.click(
+			await screen.findByRole('button', { name: 'Tausch als erhalten bestätigen' })
+		);
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent('Sammlung wurde verändert')
+		);
+		typed.unmount();
+
+		mocks.completeTrade.mockRejectedValueOnce('offline');
+		const fallback = render(TradeDetailPage);
+		const fallbackUser = userEvent.setup();
+		await fallbackUser.click(
+			await screen.findByRole('button', { name: 'Tausch als erhalten bestätigen' })
+		);
+		await waitFor(() =>
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Tauschabschluss konnte nicht bestätigt werden.'
+			)
+		);
+		fallback.unmount();
 	});
 
 	it('allows only the responder to accept and updates the status', async () => {

@@ -83,6 +83,7 @@ pub struct TradeListEntryRow {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
     pub condition_grade: Option<String>,
     pub owner_id: u32,
     pub owner_display_name: String,
@@ -100,6 +101,7 @@ pub struct TradeOfferResponse {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
     pub condition_grade: String,
     pub offering_user_id: u32,
     pub offering_user_display_name: String,
@@ -125,6 +127,7 @@ impl TryFrom<&TradeListEntryRow> for TradeOfferResponse {
             cover_url: row.cover_url.clone(),
             cover_local_path: row.cover_local_path.clone(),
             copy_number: row.copy_number,
+            edition_label: row.edition_label.clone(),
             condition_grade,
             offering_user_id: row.owner_id,
             offering_user_display_name: row.owner_display_name.clone(),
@@ -144,6 +147,7 @@ pub struct WantedEntryResponse {
     pub cover_url: Option<String>,
     pub cover_local_path: Option<String>,
     pub copy_number: u8,
+    pub edition_label: Option<String>,
     pub condition_grade: Option<String>,
 }
 
@@ -160,6 +164,7 @@ impl From<&TradeListEntryRow> for WantedEntryResponse {
             cover_url: row.cover_url.clone(),
             cover_local_path: row.cover_local_path.clone(),
             copy_number: row.copy_number,
+            edition_label: row.edition_label.clone(),
             condition_grade: row.condition_grade.clone(),
         }
     }
@@ -292,6 +297,7 @@ mod tests {
             cover_url: Some("https://example.com/cover.jpg".to_string()),
             cover_local_path: None,
             copy_number: 1,
+            edition_label: None,
             condition_grade: condition_grade.map(str::to_string),
             owner_id: 9,
             owner_display_name: "Collector".to_string(),
