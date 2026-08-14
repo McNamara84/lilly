@@ -1,0 +1,11 @@
+<!-- Deterministic local test fixture based on the source state from 2026-08-14. -->
+{{Roman Zyklus 20
+|Nummer = 695
+|Titel = Trans-Meeraka-Express
+|Autor =
+|Erscheinungsdatum = 05.09.2026
+|Titelbildzeichner =
+|Besonderes =
+|Format = E-Book
+|Schlagworte =
+}}

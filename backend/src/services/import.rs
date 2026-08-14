@@ -6,7 +6,7 @@ use std::time::Duration;
 use chrono::{DateTime, NaiveDate, Utc};
 use lilly_importer_core::{
     AdapterError, IssueData, SourceDescriptor, WikiAdapter, normalize_and_validate_issue,
-    normalize_and_validate_series, validate_reference_record,
+    normalize_and_validate_series, validate_reference_record, validate_source_reference,
 };
 
 use crate::db::import_jobs::ImportProgress;
@@ -49,6 +49,12 @@ impl IssueOutcome {
             Self::Unchanged => "unchanged",
         }
     }
+}
+
+#[derive(Debug)]
+enum PreparedIssue {
+    Future(IssueData),
+    Published(IssueData),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -570,8 +576,30 @@ async fn execute_import(
 
         let source_record_id = details.source.source_record_id.clone();
         let raw_details = details.clone();
-        let details = match normalize_and_validate_issue(descriptor, issue_number, details) {
-            Ok(details) => details,
+        let details = match prepare_issue_for_import(descriptor, issue_number, details, today) {
+            Ok(PreparedIssue::Future(details)) => {
+                progress.skipped = progress.skipped.saturating_add(1);
+                record_review_result(
+                    &state,
+                    job_id,
+                    descriptor.source_key,
+                    &details,
+                    None,
+                    "skipped",
+                    "info",
+                    "publication-date",
+                    Some("Issue has not been published yet"),
+                    &CoverImportResult {
+                        status: "not_checked",
+                        local_path: None,
+                        reason: Some("Cover was not checked for a future issue".to_string()),
+                    },
+                )
+                .await?;
+                import_jobs::update_import_progress(&state.pool, job_id, progress).await?;
+                continue;
+            }
+            Ok(PreparedIssue::Published(details)) => details,
             Err(error) => {
                 record_issue_failure(
                     &state,
@@ -608,29 +636,6 @@ async fn execute_import(
                 &mut error_messages,
             )
             .await?;
-            continue;
-        }
-
-        if !is_published(details.published_at, today) {
-            progress.skipped = progress.skipped.saturating_add(1);
-            record_review_result(
-                &state,
-                job_id,
-                descriptor.source_key,
-                &details,
-                None,
-                "skipped",
-                "info",
-                "publication-date",
-                Some("Issue has not been published yet"),
-                &CoverImportResult {
-                    status: "not_checked",
-                    local_path: None,
-                    reason: Some("Cover was not checked for a future issue".to_string()),
-                },
-            )
-            .await?;
-            import_jobs::update_import_progress(&state.pool, job_id, progress).await?;
             continue;
         }
 
@@ -1061,8 +1066,25 @@ async fn persist_issue(
     Ok(issue_id)
 }
 
-fn is_published(published_at: Option<NaiveDate>, today: NaiveDate) -> bool {
-    published_at.is_some_and(|date| date <= today)
+fn prepare_issue_for_import(
+    descriptor: SourceDescriptor,
+    expected_issue_number: u32,
+    issue: IssueData,
+    today: NaiveDate,
+) -> Result<PreparedIssue, AdapterError> {
+    if issue.published_at.is_some_and(|date| date > today) {
+        if issue.issue_number == 0 || issue.issue_number != expected_issue_number {
+            return Err(AdapterError::Parse(format!(
+                "Returned issue number {} does not match requested issue {expected_issue_number}",
+                issue.issue_number
+            )));
+        }
+        validate_source_reference(descriptor, &issue.source)?;
+        return Ok(PreparedIssue::Future(issue));
+    }
+
+    normalize_and_validate_issue(descriptor, expected_issue_number, issue)
+        .map(PreparedIssue::Published)
 }
 
 fn cover_extension(content_type: &str) -> Option<&'static str> {
@@ -1696,14 +1718,41 @@ mod tests {
     }
 
     #[test]
-    fn publication_filter_skips_unknown_and_future_dates() {
+    fn future_issue_is_skipped_before_bibliographic_validation() {
         let today = NaiveDate::from_ymd_opt(2026, 8, 8).unwrap();
-        assert!(!is_published(None, today));
-        assert!(is_published(Some(today), today));
-        assert!(!is_published(
-            Some(NaiveDate::from_ymd_opt(2026, 8, 15).unwrap()),
-            today
+        let future = NaiveDate::from_ymd_opt(2026, 8, 15).unwrap();
+        let issue = sync_issue(695, "Future stub", Vec::new(), future);
+
+        assert!(matches!(
+            prepare_issue_for_import(SYNC_DESCRIPTOR, 695, issue, today),
+            Ok(PreparedIssue::Future(_))
         ));
+    }
+
+    #[test]
+    fn published_or_undated_issue_still_requires_complete_metadata() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 8).unwrap();
+        let published = sync_issue(695, "Published stub", Vec::new(), today);
+        let published_error =
+            prepare_issue_for_import(SYNC_DESCRIPTOR, 695, published, today).unwrap_err();
+        assert_eq!(
+            published_error.to_string(),
+            "Parse error: Issue 695 has no author"
+        );
+
+        let mut undated = sync_issue(
+            695,
+            "Undated issue",
+            vec!["Known Author".to_string()],
+            today,
+        );
+        undated.published_at = None;
+        let undated_error =
+            prepare_issue_for_import(SYNC_DESCRIPTOR, 695, undated, today).unwrap_err();
+        assert_eq!(
+            undated_error.to_string(),
+            "Parse error: Issue 695 has no first publication date"
+        );
     }
 
     #[test]
@@ -2188,15 +2237,7 @@ mod tests {
                 past,
             )),
         );
-        source_issues.insert(
-            2,
-            Ok(sync_issue(
-                2,
-                "Future Title",
-                vec!["Future Author".to_string()],
-                future,
-            )),
-        );
+        source_issues.insert(2, Ok(sync_issue(2, "Future Title", Vec::new(), future)));
         source_issues.insert(3, Ok(sync_issue(3, "Invalid Title", Vec::new(), past)));
         let scenario = Arc::new(RwLock::new(SyncScenario {
             issue_list_error: None,
