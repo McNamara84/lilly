@@ -674,6 +674,31 @@ mod tests {
     }
 
     #[test]
+    fn mx695_fixture_reproduces_future_stub_with_missing_author() {
+        let issue = map_issue_details(
+            695,
+            "Trans-Meeraka-Express",
+            include_str!("../../tests/fixtures/maddrax/mx0695.wiki"),
+            None,
+        );
+
+        assert_eq!(issue.title, "Trans-Meeraka-Express");
+        assert!(issue.authors.is_empty());
+        assert_eq!(
+            issue.published_at,
+            chrono::NaiveDate::from_ymd_opt(2026, 9, 5)
+        );
+
+        let error = lilly_importer_core::normalize_and_validate_issue(
+            SOURCE_DESCRIPTOR,
+            issue.issue_number,
+            issue,
+        )
+        .expect_err("full validation must reproduce the missing-author failure");
+        assert_eq!(error.to_string(), "Parse error: Issue 695 has no author");
+    }
+
+    #[test]
     fn test_parse_wikitext_infobox() {
         let wikitext = r"{{Roman Zyklus 01
 |NummerVor = &nbsp;
