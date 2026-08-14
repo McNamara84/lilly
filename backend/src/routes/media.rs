@@ -12,7 +12,7 @@ use crate::error::AppError;
 use crate::models::media::{CollectionPhotoResponse, PhotoPolicyResponse, ProcessedPhoto};
 use crate::services::media::{MediaError, StagedPhoto, process_deletion_key, process_photo};
 
-const HARD_MULTIPART_REQUEST_LIMIT: usize = 5 * 1024 * 1024 + 64 * 1024;
+pub(super) const HARD_MULTIPART_REQUEST_LIMIT: usize = 5 * 1024 * 1024 + 64 * 1024;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -220,7 +220,7 @@ async fn photo_content(
         .map_err(|error| AppError::InternalError(error.into()))
 }
 
-async fn read_single_photo(
+pub(super) async fn read_single_photo(
     multipart: &mut Multipart,
     max_upload_bytes: usize,
 ) -> Result<Vec<u8>, AppError> {
@@ -257,7 +257,7 @@ async fn read_single_photo(
     photo.ok_or_else(|| AppError::BadRequest("No photo file was uploaded".to_string()))
 }
 
-fn map_media_error(error: MediaError) -> AppError {
+pub(super) fn map_media_error(error: MediaError) -> AppError {
     match error {
         MediaError::TooLarge => AppError::PayloadTooLarge(error.to_string()),
         MediaError::Unsupported | MediaError::Invalid => AppError::BadRequest(error.to_string()),

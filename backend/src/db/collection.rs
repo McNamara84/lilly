@@ -436,6 +436,7 @@ pub struct MissingIssueRow {
 #[allow(dead_code, clippy::struct_field_names)]
 pub struct CollectionStatsRow {
     pub total_entries: i64,
+    pub total_physical_owned: i64,
     pub total_owned: i64,
     pub total_duplicate: i64,
     pub total_wanted: i64,
@@ -448,6 +449,7 @@ pub async fn get_collection_stats(
     sqlx::query_as::<_, CollectionStatsRow>(
         "SELECT
             COUNT(ce.id) AS total_entries,
+            COUNT(CASE WHEN ce.status IN ('owned', 'duplicate') THEN 1 END) AS total_physical_owned,
             COUNT(DISTINCT CASE WHEN ce.status IN ('owned', 'duplicate') THEN ce.issue_id END) AS total_owned,
             COUNT(DISTINCT CASE WHEN ce.status = 'duplicate' THEN ce.issue_id END) AS total_duplicate,
             COUNT(DISTINCT CASE WHEN ce.status = 'wanted' THEN ce.issue_id END) AS total_wanted

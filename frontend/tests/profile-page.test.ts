@@ -1,20 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import ProfilePage from '../src/routes/profile/+page.svelte';
 
 const mockGetAuthState = vi.fn();
 const mockFetchOwnProfile = vi.fn();
+const mockUpdateProfile = vi.fn();
 const mockUpdateVisibility = vi.fn();
+const mockUploadAvatar = vi.fn();
+const mockDeleteAvatar = vi.fn();
 const mockFetchPrivacyConsents = vi.fn();
+const mockFetchPhotoPolicy = vi.fn();
+const mockSetUser = vi.fn();
 
 vi.mock('$lib/stores/auth.svelte', () => ({
-	getAuthState: () => mockGetAuthState()
+	getAuthState: () => mockGetAuthState(),
+	setUser: (...args: unknown[]) => mockSetUser(...args)
 }));
 
 vi.mock('$lib/api/profile', () => ({
 	fetchOwnProfile: (...args: unknown[]) => mockFetchOwnProfile(...args),
+	updateProfile: (...args: unknown[]) => mockUpdateProfile(...args),
+	uploadAvatar: (...args: unknown[]) => mockUploadAvatar(...args),
+	deleteAvatar: (...args: unknown[]) => mockDeleteAvatar(...args),
 	updateVisibility: (...args: unknown[]) => mockUpdateVisibility(...args)
+}));
+
+vi.mock('$lib/api/media', () => ({
+	DEFAULT_PHOTO_POLICY: {
+		allowed_media_types: ['image/jpeg', 'image/png', 'image/webp'],
+		max_upload_bytes: 5 * 1024 * 1024,
+		max_photos: 4,
+		max_edge: 2048
+	},
+	fetchPhotoPolicy: (...args: unknown[]) => mockFetchPhotoPolicy(...args)
 }));
 
 vi.mock('$lib/api/auth', () => ({
@@ -28,7 +47,7 @@ const profile = {
 	id: 7,
 	email: 'sammler@example.com',
 	display_name: 'Sammler',
-	avatar_path: null,
+	avatar_url: null,
 	location: 'Berlin',
 	profile_public: false,
 	collection_public: false,
@@ -54,6 +73,18 @@ describe('Profile Page', () => {
 		vi.clearAllMocks();
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchOwnProfile.mockResolvedValue({ ...profile });
+		mockUpdateProfile.mockResolvedValue({ ...profile });
+		mockUploadAvatar.mockResolvedValue({
+			...profile,
+			avatar_url: '/api/v1/users/7/avatar'
+		});
+		mockDeleteAvatar.mockResolvedValue(undefined);
+		mockFetchPhotoPolicy.mockResolvedValue({
+			allowed_media_types: ['image/jpeg', 'image/png', 'image/webp'],
+			max_upload_bytes: 5 * 1024 * 1024,
+			max_photos: 4,
+			max_edge: 2048
+		});
 		mockFetchPrivacyConsents.mockResolvedValue([
 			{
 				policy_version: 'test-v1',
@@ -61,6 +92,117 @@ describe('Profile Page', () => {
 				registration_method: 'password'
 			}
 		]);
+	});
+
+	it('edits and normalizes display name and optional location', async () => {
+		mockUpdateProfile.mockResolvedValue({
+			...profile,
+			display_name: 'Neue Sammlerin',
+			location: null
+		});
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		const name = await screen.findByTestId('profile-display-name-input');
+		await user.clear(name);
+		await user.type(name, '  Neue Sammlerin  ');
+		const location = screen.getByTestId('profile-location-input');
+		await user.clear(location);
+		await user.type(location, '   ');
+		await user.click(screen.getByTestId('save-profile'));
+
+		await waitFor(() =>
+			expect(mockUpdateProfile).toHaveBeenCalledWith({
+				display_name: 'Neue Sammlerin',
+				location: null
+			})
+		);
+		expect(mockSetUser).toHaveBeenCalledWith(
+			expect.objectContaining({ display_name: 'Neue Sammlerin' })
+		);
+		expect(screen.getByTestId('profile-success')).toHaveTextContent('Profildaten gespeichert.');
+	});
+
+	it('validates editable fields before sending them', async () => {
+		render(ProfilePage);
+		const user = userEvent.setup();
+		const name = await screen.findByTestId('profile-display-name-input');
+		await user.clear(name);
+		await user.type(name, 'X');
+		await user.click(screen.getByTestId('save-profile'));
+
+		expect(
+			await screen.findByText('Der Anzeigename muss 2 bis 100 Zeichen lang sein.')
+		).toBeVisible();
+		expect(name).toHaveAttribute('aria-invalid', 'true');
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+	});
+
+	it('validates the Unicode length of the optional location', async () => {
+		render(ProfilePage);
+		const user = userEvent.setup();
+		const location = await screen.findByTestId('profile-location-input');
+		await fireEvent.input(location, { target: { value: '📚'.repeat(256) } });
+		await user.click(screen.getByTestId('save-profile'));
+
+		expect(
+			await screen.findByText('Der Standort darf höchstens 255 Zeichen lang sein.')
+		).toBeVisible();
+		expect(location).toHaveAttribute('aria-invalid', 'true');
+		expect(location).toHaveAttribute('aria-describedby', 'location-hint location-error');
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+	});
+
+	it('maps backend field validation errors back to the corresponding input', async () => {
+		mockUpdateProfile.mockRejectedValue(
+			Object.assign(new Error('Validierung fehlgeschlagen'), {
+				fields: { location: 'Dieser Standort ist nicht zulässig.' }
+			})
+		);
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await screen.findByTestId('profile-location-input');
+		await user.click(screen.getByTestId('save-profile'));
+
+		expect(await screen.findByText('Dieser Standort ist nicht zulässig.')).toBeVisible();
+		expect(screen.getByTestId('profile-location-input')).toHaveAttribute('aria-invalid', 'true');
+		expect(screen.getByRole('alert')).toHaveTextContent('Validierung fehlgeschlagen');
+	});
+
+	it('uploads and removes an avatar with accessible controls', async () => {
+		render(ProfilePage);
+		const user = userEvent.setup();
+		const input = await screen.findByTestId('profile-avatar-input');
+		const avatar = new File(['avatar'], 'avatar.png', { type: 'image/png' });
+
+		await user.upload(input, avatar);
+		await waitFor(() => expect(mockUploadAvatar).toHaveBeenCalledWith(avatar));
+		expect(await screen.findByAltText('Avatar von Sammler')).toHaveAttribute(
+			'src',
+			expect.stringContaining('/api/v1/users/7/avatar?v=')
+		);
+		await user.click(screen.getByTestId('delete-avatar'));
+		await waitFor(() => expect(mockDeleteAvatar).toHaveBeenCalledOnce());
+		expect(screen.queryByTestId('delete-avatar')).not.toBeInTheDocument();
+		expect(screen.getByTestId('profile-success')).toHaveTextContent('Avatar entfernt.');
+	});
+
+	it('rejects unsupported or oversized avatars before upload', async () => {
+		render(ProfilePage);
+		const user = userEvent.setup({ applyAccept: false });
+		const input = await screen.findByTestId('profile-avatar-input');
+
+		await user.upload(input, new File(['text'], 'avatar.txt', { type: 'text/plain' }));
+		expect(await screen.findByTestId('profile-error')).toHaveTextContent('JPEG-, PNG- oder WebP');
+		expect(mockUploadAvatar).not.toHaveBeenCalled();
+
+		await user.upload(
+			input,
+			new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' })
+		);
+		await waitFor(() => expect(screen.getByTestId('profile-error')).toHaveTextContent('höchstens'));
+		expect(mockUploadAvatar).not.toHaveBeenCalled();
 	});
 
 	it('loads private account data and initializes both visibility toggles', async () => {

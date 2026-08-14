@@ -99,6 +99,7 @@ pub struct PaginatedCollectionResponse {
 #[derive(Debug, Serialize)]
 pub struct CollectionStatsResponse {
     pub total_issues: Option<u32>,
+    pub total_physical_owned: u32,
     pub total_owned: u32,
     pub total_duplicate: u32,
     pub total_wanted: u32,

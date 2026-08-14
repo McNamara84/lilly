@@ -422,7 +422,7 @@
           "id": "profile_stats",
           "component": "SeriesProgressBar",
           "repeat": { "kind": "dynamic", "per": "series" },
-          "description": "Collection progress for each series. Visible if profile is public."
+          "description": "Physical issue total and distinct collection progress for each series. Public statistics require both profile_public and collection_public."
         },
         {
           "id": "public_lists",

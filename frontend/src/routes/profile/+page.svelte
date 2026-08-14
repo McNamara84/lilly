@@ -1,21 +1,36 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { fetchOwnProfile, updateVisibility, type OwnProfile } from '$lib/api/profile';
+	import {
+		deleteAvatar,
+		fetchOwnProfile,
+		updateProfile,
+		updateVisibility,
+		uploadAvatar,
+		type OwnProfile
+	} from '$lib/api/profile';
 	import { fetchPrivacyConsents, type PrivacyConsent } from '$lib/api/auth';
-	import { getAuthState } from '$lib/stores/auth.svelte';
+	import { DEFAULT_PHOTO_POLICY, fetchPhotoPolicy, type PhotoPolicy } from '$lib/api/media';
+	import { getAuthState, setUser } from '$lib/stores/auth.svelte';
 
 	const auth = getAuthState();
 
 	let profile = $state<OwnProfile | null>(null);
 	let profilePublic = $state(false);
 	let collectionPublic = $state(false);
+	let displayName = $state('');
+	let location = $state('');
 	let loading = $state(true);
 	let saving = $state(false);
+	let profileSaving = $state(false);
+	let avatarSaving = $state(false);
+	let avatarVersion = $state(0);
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
+	let fieldErrors = $state<Record<string, string>>({});
 	let privacyConsents = $state<PrivacyConsent[]>([]);
 	let privacyConsentsError = $state<string | null>(null);
+	let photoPolicy = $state<PhotoPolicy>(DEFAULT_PHOTO_POLICY);
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -29,14 +44,17 @@
 		loading = true;
 		error = null;
 		privacyConsentsError = null;
-		const [profileResult, consentsResult] = await Promise.allSettled([
+		const [profileResult, consentsResult, policyResult] = await Promise.allSettled([
 			fetchOwnProfile(),
-			fetchPrivacyConsents()
+			fetchPrivacyConsents(),
+			fetchPhotoPolicy()
 		]);
 		if (profileResult.status === 'fulfilled') {
 			profile = profileResult.value;
 			profilePublic = profile.profile_public;
 			collectionPublic = profile.collection_public;
+			displayName = profile.display_name;
+			location = profile.location ?? '';
 		} else {
 			const cause = profileResult.reason;
 			error = cause instanceof Error ? cause.message : 'Profil konnte nicht geladen werden.';
@@ -50,7 +68,104 @@
 					? cause.message
 					: 'Datenschutz-Einwilligungen konnten nicht geladen werden.';
 		}
+		if (policyResult.status === 'fulfilled') photoPolicy = policyResult.value;
 		loading = false;
+	}
+
+	function validateProfileFields(): boolean {
+		const nextErrors: Record<string, string> = {};
+		const normalizedName = displayName.trim();
+		const normalizedLocation = location.trim();
+		if ([...normalizedName].length < 2 || [...normalizedName].length > 100) {
+			nextErrors.display_name = 'Der Anzeigename muss 2 bis 100 Zeichen lang sein.';
+		}
+		if ([...normalizedLocation].length > 255) {
+			nextErrors.location = 'Der Standort darf höchstens 255 Zeichen lang sein.';
+		}
+		fieldErrors = nextErrors;
+		return Object.keys(nextErrors).length === 0;
+	}
+
+	async function saveProfile(event: SubmitEvent) {
+		event.preventDefault();
+		if (!validateProfileFields()) return;
+		profileSaving = true;
+		error = null;
+		success = null;
+		try {
+			const updated = await updateProfile({
+				display_name: displayName.trim(),
+				location: location.trim() || null
+			});
+			profile = updated;
+			displayName = updated.display_name;
+			location = updated.location ?? '';
+			if (auth.user) setUser({ ...auth.user, display_name: updated.display_name });
+			success = 'Profildaten gespeichert.';
+		} catch (cause) {
+			if (cause instanceof Error && 'fields' in cause) {
+				fieldErrors = (cause as Error & { fields?: Record<string, string> }).fields ?? {};
+			}
+			error =
+				cause instanceof Error ? cause.message : 'Profildaten konnten nicht gespeichert werden.';
+		} finally {
+			profileSaving = false;
+		}
+	}
+
+	async function selectAvatar(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		if (!photoPolicy.allowed_media_types.includes(file.type)) {
+			error = 'Bitte wähle ein JPEG-, PNG- oder WebP-Bild.';
+			return;
+		}
+		if (file.size > photoPolicy.max_upload_bytes) {
+			error = `Das Bild darf höchstens ${formatBytes(photoPolicy.max_upload_bytes)} groß sein.`;
+			return;
+		}
+		avatarSaving = true;
+		error = null;
+		success = null;
+		try {
+			profile = await uploadAvatar(file);
+			avatarVersion = Date.now();
+			success = 'Avatar gespeichert.';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Avatar konnte nicht gespeichert werden.';
+		} finally {
+			avatarSaving = false;
+		}
+	}
+
+	async function removeAvatar() {
+		avatarSaving = true;
+		error = null;
+		success = null;
+		try {
+			await deleteAvatar();
+			if (profile) profile = { ...profile, avatar_url: null };
+			success = 'Avatar entfernt.';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Avatar konnte nicht entfernt werden.';
+		} finally {
+			avatarSaving = false;
+		}
+	}
+
+	function initials(name: string): string {
+		return name
+			.trim()
+			.split(/\s+/u)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? '')
+			.join('');
+	}
+
+	function formatBytes(bytes: number): string {
+		return `${(bytes / 1024 / 1024).toLocaleString('de-DE', { maximumFractionDigits: 1 })} MB`;
 	}
 
 	function registrationMethodLabel(method: PrivacyConsent['registration_method']): string {
@@ -103,17 +218,132 @@
 			<p data-testid="profile-loading">Profil wird geladen …</p>
 		{:else if profile}
 			<section class="glass-elevated mb-6 rounded-lg p-6" aria-labelledby="profile-data-heading">
-				<h2 id="profile-data-heading" class="mb-4 text-lg font-semibold">Kontodaten</h2>
-				<dl class="grid gap-3 sm:grid-cols-2">
+				<h2 id="profile-data-heading" class="mb-5 text-lg font-semibold">Profildaten</h2>
+				<div class="mb-6 flex flex-col gap-5 sm:flex-row sm:items-center">
+					<div
+						class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full text-2xl font-bold"
+						style="background: var(--surface-raised);"
+						data-testid="profile-avatar"
+					>
+						{#if profile.avatar_url}
+							<img
+								src={`${profile.avatar_url}?v=${avatarVersion}`}
+								alt={`Avatar von ${profile.display_name}`}
+								class="h-full w-full object-cover"
+							/>
+						{:else}
+							<span aria-hidden="true">{initials(profile.display_name)}</span>
+							<span class="sr-only">Kein Avatar hochgeladen</span>
+						{/if}
+					</div>
+					<div class="space-y-2">
+						<p class="font-semibold" data-testid="profile-display-name">{profile.display_name}</p>
+						<p class="text-sm" style="color: var(--text-tertiary);">
+							JPEG, PNG oder WebP bis {formatBytes(photoPolicy.max_upload_bytes)}
+						</p>
+						<div class="flex flex-wrap gap-2">
+							<label
+								for="profile-avatar-input"
+								class="cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold"
+								style="background: var(--surface-raised);"
+							>
+								{avatarSaving
+									? 'Verarbeitung …'
+									: profile.avatar_url
+										? 'Avatar ersetzen'
+										: 'Avatar wählen'}
+							</label>
+							<input
+								id="profile-avatar-input"
+								type="file"
+								accept={photoPolicy.allowed_media_types.join(',')}
+								capture="user"
+								class="sr-only"
+								disabled={avatarSaving}
+								onchange={selectAvatar}
+								data-testid="profile-avatar-input"
+							/>
+							{#if profile.avatar_url}
+								<button
+									type="button"
+									class="rounded-lg px-3 py-2 text-sm disabled:opacity-50"
+									disabled={avatarSaving}
+									onclick={removeAvatar}
+									data-testid="delete-avatar"
+								>
+									Avatar entfernen
+								</button>
+							{/if}
+						</div>
+					</div>
+				</div>
+
+				<form class="grid gap-4 sm:grid-cols-2" onsubmit={saveProfile} novalidate>
 					<div>
-						<dt class="text-xs" style="color: var(--text-tertiary);">Anzeigename</dt>
-						<dd data-testid="profile-display-name">{profile.display_name}</dd>
+						<label for="profile-display-name-input" class="mb-1 block text-sm font-medium">
+							Anzeigename
+						</label>
+						<input
+							id="profile-display-name-input"
+							type="text"
+							bind:value={displayName}
+							minlength="2"
+							maxlength="100"
+							required
+							disabled={profileSaving}
+							aria-invalid={fieldErrors.display_name ? 'true' : undefined}
+							aria-describedby={fieldErrors.display_name ? 'display-name-error' : undefined}
+							class="w-full rounded-lg border px-3 py-2"
+							data-testid="profile-display-name-input"
+						/>
+						{#if fieldErrors.display_name}
+							<p id="display-name-error" class="mt-1 text-sm" style="color: var(--color-error);">
+								{fieldErrors.display_name}
+							</p>
+						{/if}
 					</div>
 					<div>
-						<dt class="text-xs" style="color: var(--text-tertiary);">E-Mail</dt>
-						<dd data-testid="profile-email">{profile.email}</dd>
+						<label for="profile-location-input" class="mb-1 block text-sm font-medium">
+							Ort oder Region (optional)
+						</label>
+						<input
+							id="profile-location-input"
+							type="text"
+							bind:value={location}
+							maxlength="255"
+							autocomplete="address-level2"
+							disabled={profileSaving}
+							aria-invalid={fieldErrors.location ? 'true' : undefined}
+							aria-describedby={fieldErrors.location
+								? 'location-hint location-error'
+								: 'location-hint'}
+							class="w-full rounded-lg border px-3 py-2"
+							data-testid="profile-location-input"
+						/>
+						<p id="location-hint" class="mt-1 text-xs" style="color: var(--text-tertiary);">
+							Bitte keine genaue Anschrift angeben.
+						</p>
+						{#if fieldErrors.location}
+							<p id="location-error" class="mt-1 text-sm" style="color: var(--color-error);">
+								{fieldErrors.location}
+							</p>
+						{/if}
 					</div>
-				</dl>
+					<div class="sm:col-span-2">
+						<p class="mb-3 text-sm" style="color: var(--text-tertiary);">
+							E-Mail: <span data-testid="profile-email">{profile.email}</span>
+						</p>
+						<button
+							type="submit"
+							class="rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
+							style="background: var(--color-brand-500); color: #000;"
+							disabled={profileSaving}
+							data-testid="save-profile"
+						>
+							{profileSaving ? 'Speichern …' : 'Profildaten speichern'}
+						</button>
+					</div>
+				</form>
 			</section>
 
 			<section

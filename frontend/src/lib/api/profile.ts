@@ -7,7 +7,7 @@ export interface OwnProfile {
 	id: number;
 	email: string;
 	display_name: string;
-	avatar_path: string | null;
+	avatar_url: string | null;
 	location: string | null;
 	profile_public: boolean;
 	collection_public: boolean;
@@ -22,7 +22,7 @@ export interface VisibilitySettings {
 export interface PublicProfile {
 	id: number;
 	display_name: string;
-	avatar_path: string | null;
+	avatar_url: string | null;
 	location: string | null;
 	created_at: string;
 }
@@ -60,14 +60,55 @@ async function handleResponse<T>(response: Response): Promise<T> {
 				: 'An unexpected error occurred'
 		);
 		(error as Error & { status?: number }).status = response.status;
+		if (
+			errorBody?.fields !== null &&
+			typeof errorBody?.fields === 'object' &&
+			!Array.isArray(errorBody.fields)
+		) {
+			(error as Error & { fields?: Record<string, string> }).fields = errorBody.fields;
+		}
 		throw error;
 	}
 	return response.json();
 }
 
+export interface ProfileUpdate {
+	display_name: string;
+	location: string | null;
+}
+
 export async function fetchOwnProfile(): Promise<OwnProfile> {
 	const response = await fetch(`${API_BASE}/me/profile`, { credentials: 'same-origin' });
 	return handleResponse<OwnProfile>(response);
+}
+
+export async function updateProfile(profile: ProfileUpdate): Promise<OwnProfile> {
+	const response = await fetch(`${API_BASE}/me/profile`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify(profile)
+	});
+	return handleResponse<OwnProfile>(response);
+}
+
+export async function uploadAvatar(photo: File): Promise<OwnProfile> {
+	const body = new FormData();
+	body.append('photo', photo);
+	const response = await fetch(`${API_BASE}/me/profile/avatar`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		body
+	});
+	return handleResponse<OwnProfile>(response);
+}
+
+export async function deleteAvatar(): Promise<void> {
+	const response = await fetch(`${API_BASE}/me/profile/avatar`, {
+		method: 'DELETE',
+		credentials: 'same-origin'
+	});
+	if (!response.ok) await handleResponse<never>(response);
 }
 
 export async function updateVisibility(settings: VisibilitySettings): Promise<VisibilitySettings> {

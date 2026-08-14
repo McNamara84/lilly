@@ -58,6 +58,15 @@
 			loading = false;
 		}
 	}
+
+	function initials(name: string): string {
+		return name
+			.trim()
+			.split(/\s+/u)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? '')
+			.join('');
+	}
 </script>
 
 <svelte:head>
@@ -78,12 +87,33 @@
 		{:else if error}
 			<p role="alert" style="color: var(--color-error);">{error}</p>
 		{:else if profile}
-			<header class="glass-elevated mb-6 rounded-lg p-6" data-testid="public-profile">
-				<h1 class="text-2xl font-bold">{profile.display_name}</h1>
-				{#if profile.location}<p class="mt-1">{profile.location}</p>{/if}
-				<p class="mt-1 text-sm" style="color: var(--text-tertiary);">
-					Mitglied seit {new Date(profile.created_at).toLocaleDateString('de-DE')}
-				</p>
+			<header
+				class="glass-elevated mb-6 flex items-center gap-5 rounded-lg p-6"
+				data-testid="public-profile"
+			>
+				<div
+					class="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full text-xl font-bold"
+					style="background: var(--surface-raised);"
+					data-testid="public-profile-avatar"
+				>
+					{#if profile.avatar_url}
+						<img
+							src={profile.avatar_url}
+							alt={`Avatar von ${profile.display_name}`}
+							class="h-full w-full object-cover"
+						/>
+					{:else}
+						<span aria-hidden="true">{initials(profile.display_name)}</span>
+						<span class="sr-only">Kein öffentlicher Avatar</span>
+					{/if}
+				</div>
+				<div>
+					<h1 class="text-2xl font-bold">{profile.display_name}</h1>
+					{#if profile.location}<p class="mt-1">{profile.location}</p>{/if}
+					<p class="mt-1 text-sm" style="color: var(--text-tertiary);">
+						Mitglied seit {new Date(profile.created_at).toLocaleDateString('de-DE')}
+					</p>
+				</div>
 			</header>
 
 			{#if stats}
@@ -93,6 +123,21 @@
 						<a href={resolve(`/users/${profile.id}/collection`)} class="text-sm underline">
 							Sammlung öffnen
 						</a>
+					</div>
+					<div
+						class="mb-6 rounded-lg p-4"
+						style="background: var(--surface-raised);"
+						data-testid="public-physical-total"
+					>
+						<strong class="text-2xl">{stats.total_physical_owned}</strong>
+						<span class="ml-2">
+							{stats.total_physical_owned === 1 ? 'physisches Heft' : 'physische Hefte'}
+						</span>
+						<p class="mt-1 text-xs" style="color: var(--text-tertiary);">
+							{stats.total_owned} unterschiedliche {stats.total_owned === 1
+								? 'Ausgabe'
+								: 'Ausgaben'}; Doppelexemplare zählen nur in der physischen Gesamtzahl mehrfach.
+						</p>
 					</div>
 					{#each stats.series_stats as series (series.series_id)}
 						<SeriesProgressBar

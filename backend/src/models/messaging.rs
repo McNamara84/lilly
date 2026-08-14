@@ -2,6 +2,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
 use super::trade_matching::{PageParams, TradePartnerResponse};
+use crate::models::profile::avatar_content_url;
 
 pub const MAX_MESSAGE_LENGTH: usize = 4_000;
 
@@ -144,7 +145,7 @@ impl From<&ThreadListRow> for ThreadSummaryResponse {
                 display_name: row.partner_display_name.clone(),
                 avatar_path: row
                     .partner_profile_public
-                    .then(|| row.partner_avatar_path.clone())
+                    .then(|| avatar_content_url(row.partner_id, row.partner_avatar_path.is_some()))
                     .flatten(),
                 location: row
                     .partner_profile_public

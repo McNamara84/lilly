@@ -107,13 +107,13 @@ Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Enc
 
 Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 
-| Container  | Image                                       | Port (intern)    | Aufgabe                                                              |
-| ---------- | ------------------------------------------- | ---------------- | -------------------------------------------------------------------- |
+| Container  | Image                                       | Port (intern)    | Aufgabe                                                                           |
+| ---------- | ------------------------------------------- | ---------------- | --------------------------------------------------------------------------------- |
 | `caddy`    | `caddy:2.11.4-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
-| `frontend` | `node:26.7.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages       |
-| `backend`  | `rust:1.97.1-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung |
-| `db`       | `mariadb:12.3.2`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                              |
-| `importer` | Rust CLI (eigener Build)                    | –                | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB       |
+| `frontend` | `node:26.7.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
+| `backend`  | `rust:1.97.1-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
+| `db`       | `mariadb:12.3.2`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                                           |
+| `importer` | Rust CLI (eigener Build)                    | –                | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB                    |
 
 ### 3.3 Request-Flow
 
@@ -174,18 +174,18 @@ erlaubt für die beiden Provenienzfelder nur gemeinsam `NULL` oder gemeinsam ges
 
 ### 4.3 Tabelle: `users`
 
-| Spalte              | Typ          | Constraint           | Beschreibung                                                                           |
-| ------------------- | ------------ | -------------------- | -------------------------------------------------------------------------------------- |
-| `id`                | INT UNSIGNED | PK, AUTO_INC         | Primärschlüssel                                                                        |
-| `email`             | VARCHAR(255) | NOT NULL, UQ         | E-Mail-Adresse (verschlüsselt gespeichert)                                             |
-| `password_hash`     | VARCHAR(255) | NULL                 | argon2id-Hash (NULL bei reinem OAuth-Login)                                            |
-| `display_name`      | VARCHAR(100) | NOT NULL             | Anzeigename / Sammlername                                                              |
-| `role`              | ENUM         | NOT NULL, DEF 'user' | 'user' \| 'admin' — Benutzerrolle. Admins können Imports starten und Serien verwalten. |
-| `avatar_path`       | VARCHAR(500) | NULL                 | Pfad zum Avatar-Bild                                                                   |
-| `location`          | VARCHAR(255) | NULL                 | Standort (freiwillig, für Tausch-Nähe)                                                 |
-| `profile_public`    | BOOLEAN      | NOT NULL, DEF 0      | Profil öffentlich sichtbar?                                                            |
-| `collection_public` | BOOLEAN      | NOT NULL, DEF 0      | Sammlung einschließlich persönlicher Heftnotizen öffentlich sichtbar?                  |
-| `created_at`        | TIMESTAMP    | NOT NULL             | Registrierungszeitpunkt                                                                |
+| Spalte              | Typ          | Constraint           | Beschreibung                                                                            |
+| ------------------- | ------------ | -------------------- | --------------------------------------------------------------------------------------- |
+| `id`                | INT UNSIGNED | PK, AUTO_INC         | Primärschlüssel                                                                         |
+| `email`             | VARCHAR(255) | NOT NULL, UQ         | E-Mail-Adresse (verschlüsselt gespeichert)                                              |
+| `password_hash`     | VARCHAR(255) | NULL                 | argon2id-Hash (NULL bei reinem OAuth-Login)                                             |
+| `display_name`      | VARCHAR(100) | NOT NULL             | Anzeigename / Sammlername                                                               |
+| `role`              | ENUM         | NOT NULL, DEF 'user' | 'user' \| 'admin' — Benutzerrolle. Admins können Imports starten und Serien verwalten.  |
+| `avatar_path`       | VARCHAR(500) | NULL                 | Interner zufälliger Storage Key des normalisierten Avatars; wird nie per API ausgegeben |
+| `location`          | VARCHAR(255) | NULL                 | Standort (freiwillig, für Tausch-Nähe)                                                  |
+| `profile_public`    | BOOLEAN      | NOT NULL, DEF 0      | Profil öffentlich sichtbar?                                                             |
+| `collection_public` | BOOLEAN      | NOT NULL, DEF 0      | Sammlung einschließlich persönlicher Heftnotizen öffentlich sichtbar?                   |
+| `created_at`        | TIMESTAMP    | NOT NULL             | Registrierungszeitpunkt                                                                 |
 
 OAuth-Identitäten und Einwilligungen sind normalisiert:
 
@@ -201,14 +201,14 @@ OAuth-Identitäten und Einwilligungen sind normalisiert:
 
 #### 4.3.1 Tabelle: `password_reset_tokens`
 
-| Spalte | Typ | Constraint | Beschreibung |
-| --- | --- | --- | --- |
-| `id` | BIGINT UNSIGNED | PK, AUTO_INC | Technischer Schlüssel |
-| `user_id` | INT UNSIGNED | FK, NOT NULL, CASCADE | Zugehöriges Passwortkonto |
-| `token_hash` | CHAR(64) | NOT NULL, UNIQUE | SHA-256-Hash; der rohe Token wird nicht persistiert |
-| `created_at` | DATETIME(6) | NOT NULL | Ausstellungszeitpunkt |
-| `expires_at` | DATETIME(6) | NOT NULL, INDEX | Ablaufzeitpunkt |
-| `used_at` | DATETIME(6) | NULL | Verbrauch beziehungsweise Invalidierung |
+| Spalte       | Typ             | Constraint            | Beschreibung                                        |
+| ------------ | --------------- | --------------------- | --------------------------------------------------- |
+| `id`         | BIGINT UNSIGNED | PK, AUTO_INC          | Technischer Schlüssel                               |
+| `user_id`    | INT UNSIGNED    | FK, NOT NULL, CASCADE | Zugehöriges Passwortkonto                           |
+| `token_hash` | CHAR(64)        | NOT NULL, UNIQUE      | SHA-256-Hash; der rohe Token wird nicht persistiert |
+| `created_at` | DATETIME(6)     | NOT NULL              | Ausstellungszeitpunkt                               |
+| `expires_at` | DATETIME(6)     | NOT NULL, INDEX       | Ablaufzeitpunkt                                     |
+| `used_at`    | DATETIME(6)     | NULL                  | Verbrauch beziehungsweise Invalidierung             |
 
 Das Ersetzen und Verbrauchen erfolgt transaktional. Beim erfolgreichen Verbrauch werden alle noch
 aktiven Reset-Tokens des Nutzers markiert, sein Passwort aktualisiert und sämtliche Refresh-Tokens
@@ -232,17 +232,17 @@ _Unique Index: `(user_id, issue_id, copy_number)` – ein Nutzer kann dasselbe H
 
 ### 4.5 Tabelle: `collection_photos`
 
-| Spalte       | Typ          | Constraint      | Beschreibung                                                 |
-| ------------ | ------------ | --------------- | ------------------------------------------------------------ |
-| `id`         | INT UNSIGNED | PK, AUTO_INC    | Primärschlüssel                                              |
-| `entry_id`   | INT UNSIGNED | FK, NOT NULL    | Fremdschlüssel auf collection_entries.id (ON DELETE CASCADE) |
+| Spalte        | Typ          | Constraint       | Beschreibung                                                           |
+| ------------- | ------------ | ---------------- | ---------------------------------------------------------------------- |
+| `id`          | INT UNSIGNED | PK, AUTO_INC     | Primärschlüssel                                                        |
+| `entry_id`    | INT UNSIGNED | FK, NOT NULL     | Fremdschlüssel auf collection_entries.id (ON DELETE CASCADE)           |
 | `storage_key` | VARCHAR(128) | UNIQUE, NOT NULL | Servergenerierter, nicht erratbarer Schlüssel im privaten Media-Volume |
-| `media_type`  | VARCHAR(32)  | NOT NULL         | Kanonischer MIME-Typ des gespeicherten Derivats              |
-| `byte_size`   | INT UNSIGNED | NOT NULL         | Größe des normalisierten Derivats                             |
-| `width`       | INT UNSIGNED | NOT NULL         | Verifizierte Breite des Derivats                              |
-| `height`      | INT UNSIGNED | NOT NULL         | Verifizierte Höhe des Derivats                                |
-| `sort_order`  | TINYINT      | NOT NULL, 0–3    | Stabiler Foto-Slot innerhalb des Sammlungsexemplars           |
-| `created_at`  | TIMESTAMP    | NOT NULL         | Upload-Zeitpunkt                                              |
+| `media_type`  | VARCHAR(32)  | NOT NULL         | Kanonischer MIME-Typ des gespeicherten Derivats                        |
+| `byte_size`   | INT UNSIGNED | NOT NULL         | Größe des normalisierten Derivats                                      |
+| `width`       | INT UNSIGNED | NOT NULL         | Verifizierte Breite des Derivats                                       |
+| `height`      | INT UNSIGNED | NOT NULL         | Verifizierte Höhe des Derivats                                         |
+| `sort_order`  | TINYINT      | NOT NULL, 0–3    | Stabiler Foto-Slot innerhalb des Sammlungsexemplars                    |
+| `created_at`  | TIMESTAMP    | NOT NULL         | Upload-Zeitpunkt                                                       |
 
 _Unique Index: `(entry_id, sort_order)` – zusammen mit einer `FOR UPDATE`-Sperre des
 Sammlungseintrags verhindert er, dass parallele Uploads das Viererlimit überschreiten. Offene
@@ -305,62 +305,66 @@ Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte End
 
 ### 5.1 Endpunkt-Übersicht
 
-| Methode      | Pfad                                              | Auth    | Beschreibung                                                                            |
-| ------------ | ------------------------------------------------- | ------- | --------------------------------------------------------------------------------------- |
-| **POST**     | `/api/v1/auth/register`                           | Nein    | Registrierung (E-Mail/Passwort)                                                         |
-| **POST**     | `/api/v1/auth/login`                              | Nein    | Login → Access + Refresh Token                                                          |
-| **GET**      | `/api/v1/auth/options`                            | Nein    | Provider-Verfügbarkeit und aktuelle Datenschutzversion                                  |
-| **POST**     | `/api/v1/auth/oauth/{provider}/start`             | Nein    | OAuth-Login/-Registrierung mit State, Browserbindung und PKCE starten                    |
-| **GET**      | `/api/v1/auth/oauth/{provider}/callback`          | Nein    | Provider-Callback prüfen und Login/Registrierung abschließen                            |
-| **GET/POST/DELETE** | `/api/v1/auth/oauth/link`                | Optional/Ja | Ausstehende explizite Kontoverknüpfung lesen, bestätigen oder abbrechen              |
-| **POST**     | `/api/v1/auth/refresh`                            | Refresh | Token-Erneuerung                                                                        |
-| **GET**      | `/api/v1/auth/me`                                 | Ja      | Aktueller Nutzer (inkl. Rolle)                                                          |
-| **POST**     | `/api/v1/auth/logout`                             | Ja      | Logout (Cookies löschen)                                                                |
-| **GET**      | `/api/v1/auth/verify`                             | Nein    | E-Mail-Verifizierung per Token                                                          |
-| **POST**     | `/api/v1/auth/resend-verification`                | Nein    | Verifizierungs-E-Mail erneut senden                                                     |
-| **POST**     | `/api/v1/auth/password-reset/request`              | Nein    | Generische Reset-Anfrage ohne Offenlegung des Kontostatus                               |
-| **POST**     | `/api/v1/auth/password-reset/confirm`              | Nein    | Einmaligen Reset-Token verbrauchen und neues Passwort setzen                            |
-| **GET**      | `/api/v1/me/privacy-consents`                     | Ja      | Private, versionierte Einwilligungshistorie des eigenen Kontos                          |
-| **GET**      | `/api/v1/series`                                  | Nein    | Alle **aktiven** Serien auflisten                                                       |
-| **GET**      | `/api/v1/series/{slug}/issues`                    | Nein    | Alle Hefte einer aktiven Serie (paginiert)                                              |
-| **GET**      | `/api/v1/issues/{id}`                             | Nein    | Heft-Details + Community-Kommentare                                                     |
-| **GET**      | `/api/v1/me/collection`                           | Ja      | Eigene Sammlung (Filter, Paginierung)                                                   |
-| **POST**     | `/api/v1/me/collection`                           | Ja      | Heft zur Sammlung hinzufügen                                                            |
-| **PATCH**    | `/api/v1/me/collection/{id}`                      | Ja      | Eintrag ändern (Zustand, Status, Notizen)                                               |
-| **DELETE**   | `/api/v1/me/collection/{id}`                      | Ja      | Eintrag entfernen                                                                       |
-| **POST**     | `/api/v1/me/collection/{id}/photos`               | Ja      | Foto hochladen (multipart/form-data)                                                    |
-| **GET**      | `/api/v1/me/collection/{id}/photos`                | Ja      | Eigene Fotos des exakten Sammlungsexemplars auflisten                                  |
-| **DELETE**   | `/api/v1/me/collection/{id}/photos/{photo_id}`     | Ja      | Eigenes Foto einzeln löschen                                                           |
-| **GET**      | `/api/v1/collection-photos/{photo_id}/content`     | Optional| Foto für Eigentümer oder bei öffentlicher Sammlung ausliefern                          |
-| **GET**      | `/api/v1/media/photo-policy`                       | Nein    | Nicht-sensitive Uploadgrenzen und unterstützte Bildtypen                               |
-| **GET**      | `/api/v1/me/trade-offers`                         | Ja      | Eigene aktive Tauschangebote aus Einträgen mit Status `duplicate` (Filter, Paginierung) |
-| **GET**      | `/api/v1/me/wanted`                               | Ja      | Eigene aktive Wunschliste (Filter, Paginierung)                                         |
-| **GET**      | `/api/v1/me/wanted/candidates`                    | Ja      | Nicht vorhandene Hefte einer aktiven Serie samt Wunschstatus                            |
-| **POST**     | `/api/v1/me/wanted/bulk`                          | Ja      | Bis zu 100 Hefte idempotent zur Wunschliste hinzufügen                                  |
-| **DELETE**   | `/api/v1/me/wanted/{entry_id}`                    | Ja      | Eigenen Wunschlisteneintrag entfernen                                                   |
-| **GET**      | `/api/v1/me/matches`                              | Ja      | Aktive wechselseitige Matches (paginiert)                                               |
-| **GET**      | `/api/v1/me/matches/{match_id}`                   | Ja      | Eigenes Match mit datenschutzsicherer Partner- und Itemprojektion                       |
-| **POST**     | `/api/v1/me/matches/{match_id}/proposals`         | Ja      | Aus ausgewählten Match-Items einen Tausch und Thread erzeugen                           |
-| **GET**      | `/api/v1/me/trades`                               | Ja      | Eigene vorgeschlagene und angenommene Tausche                                           |
-| **GET**      | `/api/v1/me/trades/{trade_id}`                    | Ja      | Tausch-Snapshot einschließlich Thread-ID                                                |
-| **POST**     | `/api/v1/me/trades/{trade_id}/accept`             | Ja      | Vorschlag als Empfänger annehmen                                                        |
-| **POST**     | `/api/v1/me/trades/{trade_id}/cancel`             | Ja      | Offenen Tausch als Teilnehmer abbrechen                                                 |
-| **GET**      | `/api/v1/me/messages`                             | Ja      | Thread-Inbox mit Vorschau und Ungelesen-Zähler                                          |
-| **GET/POST** | `/api/v1/me/messages/{thread_id}`                 | Ja      | Nachrichten lesen oder idempotent senden                                                |
-| **PATCH**    | `/api/v1/me/messages/{thread_id}/read`            | Ja      | Empfangene Nachrichten bis zu einer ID gelesen markieren                                |
-| **GET**      | `/api/v1/me/notifications`                        | Ja      | Eigene Benachrichtigungen, optional nur ungelesene                                      |
-| **GET**      | `/api/v1/me/notifications/unread-count`           | Ja      | Anzahl ungelesener Benachrichtigungen                                                   |
-| **PATCH**    | `/api/v1/me/notifications/{notification_id}/read` | Ja      | Einzelne Benachrichtigung gelesen markieren                                             |
-| **POST**     | `/api/v1/me/notifications/read-all`               | Ja      | Alle eigenen Benachrichtigungen gelesen markieren                                       |
-| **GET**      | `/api/v1/me/collection/stats`                     | Ja      | Sammlungsstatistiken (Gesamt, pro Serie, Doppelte, Gesuchte)                            |
-| **GET**      | `/api/v1/me/activity`                             | Ja      | Letzte Aktivitäten des Nutzers (Timeline)                                               |
-| **GET**      | `/api/v1/me/profile`                              | Ja      | Eigenes Profil + Sichtbarkeitseinstellungen                                             |
-| **PATCH**    | `/api/v1/me/profile/visibility`                   | Ja      | Profil- und Sammlungssichtbarkeit ändern                                                |
-| **GET**      | `/api/v1/users/{user_id}/profile`                 | Nein    | Öffentliches Profil (wenn freigegeben)                                                  |
-| **GET**      | `/api/v1/users/{user_id}/collection`              | Nein    | Öffentliche Sammlung einschließlich Notizen (wenn freigegeben)                          |
-| **GET**      | `/api/v1/users/{user_id}/collection/stats`        | Nein    | Öffentliche Sammlungsstatistiken (wenn freigegeben)                                     |
-| **GET**      | `/api/v1/users`                                   | Nein    | Öffentliche Sammler-Liste (sortier-/filterbar)                                          |
-| **GET**      | `/api/v1/issues/most-wanted`                      | Nein    | Meistgesuchte Hefte plattformweit                                                       |
+| Methode             | Pfad                                              | Auth        | Beschreibung                                                                            |
+| ------------------- | ------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------- |
+| **POST**            | `/api/v1/auth/register`                           | Nein        | Registrierung (E-Mail/Passwort)                                                         |
+| **POST**            | `/api/v1/auth/login`                              | Nein        | Login → Access + Refresh Token                                                          |
+| **GET**             | `/api/v1/auth/options`                            | Nein        | Provider-Verfügbarkeit und aktuelle Datenschutzversion                                  |
+| **POST**            | `/api/v1/auth/oauth/{provider}/start`             | Nein        | OAuth-Login/-Registrierung mit State, Browserbindung und PKCE starten                   |
+| **GET**             | `/api/v1/auth/oauth/{provider}/callback`          | Nein        | Provider-Callback prüfen und Login/Registrierung abschließen                            |
+| **GET/POST/DELETE** | `/api/v1/auth/oauth/link`                         | Optional/Ja | Ausstehende explizite Kontoverknüpfung lesen, bestätigen oder abbrechen                 |
+| **POST**            | `/api/v1/auth/refresh`                            | Refresh     | Token-Erneuerung                                                                        |
+| **GET**             | `/api/v1/auth/me`                                 | Ja          | Aktueller Nutzer (inkl. Rolle)                                                          |
+| **POST**            | `/api/v1/auth/logout`                             | Ja          | Logout (Cookies löschen)                                                                |
+| **GET**             | `/api/v1/auth/verify`                             | Nein        | E-Mail-Verifizierung per Token                                                          |
+| **POST**            | `/api/v1/auth/resend-verification`                | Nein        | Verifizierungs-E-Mail erneut senden                                                     |
+| **POST**            | `/api/v1/auth/password-reset/request`             | Nein        | Generische Reset-Anfrage ohne Offenlegung des Kontostatus                               |
+| **POST**            | `/api/v1/auth/password-reset/confirm`             | Nein        | Einmaligen Reset-Token verbrauchen und neues Passwort setzen                            |
+| **GET**             | `/api/v1/me/privacy-consents`                     | Ja          | Private, versionierte Einwilligungshistorie des eigenen Kontos                          |
+| **GET**             | `/api/v1/series`                                  | Nein        | Alle **aktiven** Serien auflisten                                                       |
+| **GET**             | `/api/v1/series/{slug}/issues`                    | Nein        | Alle Hefte einer aktiven Serie (paginiert)                                              |
+| **GET**             | `/api/v1/issues/{id}`                             | Nein        | Heft-Details + Community-Kommentare                                                     |
+| **GET**             | `/api/v1/me/collection`                           | Ja          | Eigene Sammlung (Filter, Paginierung)                                                   |
+| **POST**            | `/api/v1/me/collection`                           | Ja          | Heft zur Sammlung hinzufügen                                                            |
+| **PATCH**           | `/api/v1/me/collection/{id}`                      | Ja          | Eintrag ändern (Zustand, Status, Notizen)                                               |
+| **DELETE**          | `/api/v1/me/collection/{id}`                      | Ja          | Eintrag entfernen                                                                       |
+| **POST**            | `/api/v1/me/collection/{id}/photos`               | Ja          | Foto hochladen (multipart/form-data)                                                    |
+| **GET**             | `/api/v1/me/collection/{id}/photos`               | Ja          | Eigene Fotos des exakten Sammlungsexemplars auflisten                                   |
+| **DELETE**          | `/api/v1/me/collection/{id}/photos/{photo_id}`    | Ja          | Eigenes Foto einzeln löschen                                                            |
+| **GET**             | `/api/v1/collection-photos/{photo_id}/content`    | Optional    | Foto für Eigentümer oder bei öffentlicher Sammlung ausliefern                           |
+| **GET**             | `/api/v1/media/photo-policy`                      | Nein        | Nicht-sensitive Uploadgrenzen und unterstützte Bildtypen                                |
+| **GET**             | `/api/v1/me/trade-offers`                         | Ja          | Eigene aktive Tauschangebote aus Einträgen mit Status `duplicate` (Filter, Paginierung) |
+| **GET**             | `/api/v1/me/wanted`                               | Ja          | Eigene aktive Wunschliste (Filter, Paginierung)                                         |
+| **GET**             | `/api/v1/me/wanted/candidates`                    | Ja          | Nicht vorhandene Hefte einer aktiven Serie samt Wunschstatus                            |
+| **POST**            | `/api/v1/me/wanted/bulk`                          | Ja          | Bis zu 100 Hefte idempotent zur Wunschliste hinzufügen                                  |
+| **DELETE**          | `/api/v1/me/wanted/{entry_id}`                    | Ja          | Eigenen Wunschlisteneintrag entfernen                                                   |
+| **GET**             | `/api/v1/me/matches`                              | Ja          | Aktive wechselseitige Matches (paginiert)                                               |
+| **GET**             | `/api/v1/me/matches/{match_id}`                   | Ja          | Eigenes Match mit datenschutzsicherer Partner- und Itemprojektion                       |
+| **POST**            | `/api/v1/me/matches/{match_id}/proposals`         | Ja          | Aus ausgewählten Match-Items einen Tausch und Thread erzeugen                           |
+| **GET**             | `/api/v1/me/trades`                               | Ja          | Eigene vorgeschlagene und angenommene Tausche                                           |
+| **GET**             | `/api/v1/me/trades/{trade_id}`                    | Ja          | Tausch-Snapshot einschließlich Thread-ID                                                |
+| **POST**            | `/api/v1/me/trades/{trade_id}/accept`             | Ja          | Vorschlag als Empfänger annehmen                                                        |
+| **POST**            | `/api/v1/me/trades/{trade_id}/cancel`             | Ja          | Offenen Tausch als Teilnehmer abbrechen                                                 |
+| **GET**             | `/api/v1/me/messages`                             | Ja          | Thread-Inbox mit Vorschau und Ungelesen-Zähler                                          |
+| **GET/POST**        | `/api/v1/me/messages/{thread_id}`                 | Ja          | Nachrichten lesen oder idempotent senden                                                |
+| **PATCH**           | `/api/v1/me/messages/{thread_id}/read`            | Ja          | Empfangene Nachrichten bis zu einer ID gelesen markieren                                |
+| **GET**             | `/api/v1/me/notifications`                        | Ja          | Eigene Benachrichtigungen, optional nur ungelesene                                      |
+| **GET**             | `/api/v1/me/notifications/unread-count`           | Ja          | Anzahl ungelesener Benachrichtigungen                                                   |
+| **PATCH**           | `/api/v1/me/notifications/{notification_id}/read` | Ja          | Einzelne Benachrichtigung gelesen markieren                                             |
+| **POST**            | `/api/v1/me/notifications/read-all`               | Ja          | Alle eigenen Benachrichtigungen gelesen markieren                                       |
+| **GET**             | `/api/v1/me/collection/stats`                     | Ja          | Sammlungsstatistiken (Gesamt, pro Serie, Doppelte, Gesuchte)                            |
+| **GET**             | `/api/v1/me/activity`                             | Ja          | Letzte Aktivitäten des Nutzers (Timeline)                                               |
+| **GET**             | `/api/v1/me/profile`                              | Ja          | Eigenes Profil + Sichtbarkeitseinstellungen                                             |
+| **PATCH**           | `/api/v1/me/profile`                              | Ja          | Eigenen Anzeigenamen und optionalen Standort ändern                                     |
+| **POST**            | `/api/v1/me/profile/avatar`                       | Ja          | Eigenen Avatar validieren, normalisieren und hochladen/ersetzen                         |
+| **DELETE**          | `/api/v1/me/profile/avatar`                       | Ja          | Eigenen Avatar samt wiederholbarer Dateibereinigung entfernen                           |
+| **PATCH**           | `/api/v1/me/profile/visibility`                   | Ja          | Profil- und Sammlungssichtbarkeit ändern                                                |
+| **GET**             | `/api/v1/users/{user_id}/profile`                 | Nein        | Öffentliches Profil (wenn freigegeben)                                                  |
+| **GET**             | `/api/v1/users/{user_id}/avatar`                  | Optional    | Avatar für Eigentümer oder bei öffentlichem Profil ausliefern                           |
+| **GET**             | `/api/v1/users/{user_id}/collection`              | Nein        | Öffentliche Sammlung einschließlich Notizen (wenn freigegeben)                          |
+| **GET**             | `/api/v1/users/{user_id}/collection/stats`        | Nein        | Profilstatistik, wenn Profil und Sammlung öffentlich sind                               |
+| **GET**             | `/api/v1/users`                                   | Nein        | Öffentliche Sammler-Liste (sortier-/filterbar)                                          |
+| **GET**             | `/api/v1/issues/most-wanted`                      | Nein        | Meistgesuchte Hefte plattformweit                                                       |
 
 #### 5.1.1 Admin-Endpunkte
 
@@ -398,6 +402,27 @@ Wird der Filter `status=missing` angefragt, führt das Backend einen LEFT JOIN v
 **API-Verhalten bei `GET /api/v1/series/{slug}/issues` (authentifiziert):**
 
 Wenn ein authentifizierter Nutzer die Heftliste einer Serie abruft, reichert das Backend die Response optional mit dem Sammlungsstatus pro Heft an (owned/duplicate/wanted/null). Hefte mit `null`-Status gelten im Frontend als `missing`.
+
+#### 5.2.1 Zählregeln für Sammlungsstatistiken
+
+Die Statistik trennt physische Exemplare von logischen Ausgaben:
+
+- `total_physical_owned` zählt jeden Sammlungseintrag mit Status `owned` oder `duplicate`.
+  Mehrere physische Exemplare derselben Ausgabe werden mehrfach gezählt; `wanted` zählt nicht.
+- `total_owned` und `series_stats[].owned_count` zählen unterschiedliche `issue_id`-Werte mit
+  Status `owned` oder `duplicate`. Dadurch erhöhen Doppelexemplare oder alternative Editionen den
+  Serienfortschritt nicht mehrfach.
+- Ein Prozentwert wird nur bei einer bekannten positiven Gesamtzahl ausgegeben und auf höchstens
+  100 Prozent begrenzt. Bei unbekannter Gesamtzahl bleiben Nenner und Prozentwert `null`.
+- Die eigene Statistik ist immer authentifiziert abrufbar. Die Profilstatistik ist öffentlich nur
+  verfügbar, wenn `profile_public` und `collection_public` gesetzt sind. Der direkte öffentliche
+  Sammlungslink folgt weiterhin ausschließlich `collection_public`.
+
+Avatar-Uploads verwenden dieselbe inhaltsbasierte JPEG-/PNG-/WebP-Prüfung und Normalisierung wie
+Sammlungsfotos. API-Antworten enthalten nur die kontrollierte URL
+`/api/v1/users/{user_id}/avatar`; der Storage Key bleibt intern. Beim Ersetzen oder Löschen wird
+der alte Key über `media_deletion_jobs` wiederholbar bereinigt. Die Storage-Reconciliation
+berücksichtigt sowohl Sammlungsfotos als auch aktive Avatare.
 
 ### 5.3 Abgeleitete Tausch- und Wunschlisten
 

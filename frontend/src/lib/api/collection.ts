@@ -33,6 +33,7 @@ export interface PaginatedCollection {
 
 export interface CollectionStats {
 	total_issues: number | null;
+	total_physical_owned: number;
 	total_owned: number;
 	total_duplicate: number;
 	total_wanted: number;

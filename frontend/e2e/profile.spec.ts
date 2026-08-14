@@ -6,9 +6,16 @@ interface OwnProfile {
 	id: number;
 	email: string;
 	display_name: string;
+	avatar_url: string | null;
+	location: string | null;
 	profile_public: boolean;
 	collection_public: boolean;
 }
+
+const PNG = Buffer.from(
+	'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVQI12P0WefPwMDAxMDAwMDAAAAPkwFN/OEGTAAAAABJRU5ErkJggg==',
+	'base64'
+);
 
 interface CollectionEntry {
 	id: number;
@@ -99,7 +106,9 @@ test.describe('Profile Visibility and Public Notes', () => {
 
 				expect(profileResponse.status()).toBe(visibility.profile ? 200 : 404);
 				expect(collectionResponse.status()).toBe(visibility.collection ? 200 : 404);
-				expect(statsResponse.status()).toBe(visibility.collection ? 200 : 404);
+				expect(statsResponse.status()).toBe(
+					visibility.profile && visibility.collection ? 200 : 404
+				);
 
 				if (visibility.profile) {
 					const publicProfile = await profileResponse.json();
@@ -120,6 +129,73 @@ test.describe('Profile Visibility and Public Notes', () => {
 				}
 			}
 		} finally {
+			await setVisibility(page, snapshot.profile_public, snapshot.collection_public);
+		}
+	});
+
+	test('profile identity, avatar privacy and physical statistics work end to end', async ({
+		page,
+		anonymousRequest
+	}) => {
+		const snapshot = await ownProfile(page);
+		expect(snapshot.avatar_url).toBeNull();
+		try {
+			await setVisibility(page, false, true);
+			await page.goto('/profile');
+			await page.getByTestId('profile-display-name-input').fill('  E2E Sammlerin  ');
+			await page.getByTestId('profile-location-input').fill('  Hamburg  ');
+			await page.getByTestId('save-profile').click();
+			await expect(page.getByTestId('profile-success')).toHaveText('Profildaten gespeichert.');
+
+			await page.getByTestId('profile-avatar-input').setInputFiles({
+				name: 'avatar.png',
+				mimeType: 'image/png',
+				buffer: PNG
+			});
+			await expect(page.getByAltText('Avatar von E2E Sammlerin')).toBeVisible();
+
+			const saved = await ownProfile(page);
+			expect(saved.display_name).toBe('E2E Sammlerin');
+			expect(saved.location).toBe('Hamburg');
+			expect(saved.avatar_url).toBe(`/api/v1/users/${saved.id}/avatar`);
+			expect((await anonymousRequest.get(saved.avatar_url!)).status()).toBe(404);
+			expect((await page.request.get(saved.avatar_url!)).status()).toBe(200);
+			expect(
+				(await anonymousRequest.get(`/api/v1/users/${saved.id}/collection/stats`)).status()
+			).toBe(404);
+
+			await setVisibility(page, true, true);
+			const publicProfileResponse = await anonymousRequest.get(`/api/v1/users/${saved.id}/profile`);
+			expect(publicProfileResponse.ok()).toBe(true);
+			const publicProfile = await publicProfileResponse.json();
+			expect(publicProfile).toMatchObject({
+				display_name: 'E2E Sammlerin',
+				location: 'Hamburg',
+				avatar_url: `/api/v1/users/${saved.id}/avatar`
+			});
+			expect(publicProfile).not.toHaveProperty('avatar_path');
+			const publicAvatar = await anonymousRequest.get(saved.avatar_url!);
+			expect(publicAvatar.ok()).toBe(true);
+			expect(publicAvatar.headers()['content-type']).toBe('image/jpeg');
+
+			const statsResponse = await anonymousRequest.get(
+				`/api/v1/users/${saved.id}/collection/stats`
+			);
+			expect(statsResponse.ok()).toBe(true);
+			const stats = await statsResponse.json();
+			expect(stats.total_physical_owned).toBeGreaterThanOrEqual(stats.total_owned);
+			await page.goto(`/users/${saved.id}`);
+			await expect(page.getByTestId('public-physical-total')).toContainText('physische');
+			await expect(page.getByAltText('Avatar von E2E Sammlerin')).toBeVisible();
+		} finally {
+			await page.request.delete('/api/v1/me/profile/avatar');
+			const restore = await page.request.patch('/api/v1/me/profile', {
+				data: {
+					display_name: snapshot.display_name,
+					location: snapshot.location
+				}
+			});
+			expect(restore.ok()).toBe(true);
 			await setVisibility(page, snapshot.profile_public, snapshot.collection_public);
 		}
 	});

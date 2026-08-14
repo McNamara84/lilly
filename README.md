@@ -96,7 +96,7 @@ While generic book managers and general-purpose collector software exist, there 
 
 ### Community
 
-- Public collector profiles with statistics
+- Editable collector profiles with privacy-aware avatars, locations, and per-series statistics
 - Wishlists and trade lists can be shared publicly
 - Upload your own photos per issue (condition documentation, special features)
 - Comments and ratings on individual issues
@@ -106,7 +106,7 @@ While generic book managers and general-purpose collector software exist, there 
 - Registration via email/password or OAuth Authorization Code + PKCE (Google, GitHub)
 - Explicit, versioned privacy consent stored atomically with every new account
 - Secure account linking: matching provider emails never link or sign in automatically
-- Profile with display name, avatar, and optional location
+- Editable profile with display name, validated avatar upload, and optional coarse location
 - Profile visibility (public/private) configurable
 - GDPR-compliant: full account and data deletion supported
 

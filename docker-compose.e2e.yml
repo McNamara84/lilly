@@ -18,6 +18,10 @@ services:
       SMTP_PASSWORD: ""
       SMTP_FROM: noreply@lilly.app
       APP_BASE_URL: http://localhost
+      # A parallel full browser suite intentionally generates far more public
+      # requests than a real client. Keep endpoint-specific auth limiters intact
+      # while preventing the shared proxy address from throttling unrelated tests.
+      RATE_LIMIT_PUBLIC_API: "10000/60"
     depends_on:
       mailpit:
         condition: service_started
