@@ -105,11 +105,9 @@
 										? ` · ${entry.condition_grade}`
 										: ''}
 								</p>
-								{#if entry.edition_label}
-									<p class="mt-1 text-xs" style="color: var(--text-secondary);">
-										{entry.edition_label} · Exemplar {entry.copy_number}
-									</p>
-								{/if}
+								<p class="mt-1 text-xs" style="color: var(--text-secondary);">
+									{entry.edition_label ? `${entry.edition_label} · ` : ''}Exemplar {entry.copy_number}
+								</p>
 							</div>
 						</div>
 						<div class="mt-4 border-t pt-3" style="border-color: var(--glass-border);">

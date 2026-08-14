@@ -265,6 +265,7 @@ describe('Public Collection Page', () => {
 		await waitFor(() => expect(screen.getByTestId('public-collection-grid')).toBeInTheDocument());
 		expect(screen.getByText('Dunkle Zukunft')).toBeInTheDocument();
 		expect(screen.getByText('Vorhanden · Z2')).toBeInTheDocument();
+		expect(screen.getByText('Exemplar 1')).toBeInTheDocument();
 		expect(screen.getByTestId('collection-note')).toHaveTextContent('Erste Zeile Grüße 📚');
 		expect(screen.getByTestId('collection-note')).toHaveClass('whitespace-pre-wrap');
 	});
@@ -280,6 +281,21 @@ describe('Public Collection Page', () => {
 		render(PublicCollectionPage);
 
 		expect(await screen.findByText('1. Auflage · Exemplar 2')).toBeInTheDocument();
+	});
+
+	it('distinguishes multiple public copies even without edition labels', async () => {
+		mocks.fetchPublicCollection.mockResolvedValue({
+			data: [collectionEntry({ copy_number: 1 }), collectionEntry({ copy_number: 2 })],
+			page: 1,
+			per_page: 100,
+			total: 2
+		});
+
+		render(PublicCollectionPage);
+
+		await waitFor(() => expect(screen.getAllByTestId('public-collection-entry')).toHaveLength(2));
+		expect(screen.getByText('Exemplar 1')).toBeInTheDocument();
+		expect(screen.getByText('Exemplar 2')).toBeInTheDocument();
 	});
 
 	it('loads every public collection page', async () => {

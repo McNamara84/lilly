@@ -357,6 +357,29 @@ describe('Trades hub', () => {
 		expect(screen.getByText('Abgeschlossen')).toBeInTheDocument();
 		expect(screen.getByText('Abgebrochen')).toBeInTheDocument();
 	});
+
+	it('loads every page of closed trades into the history', async () => {
+		const firstPage = Array.from({ length: 50 }, (_, index) => ({
+			...trade,
+			id: index + 1,
+			status: 'completed' as const
+		}));
+		const secondPage = [
+			{ ...trade, id: 51, status: 'cancelled' as const },
+			{ ...trade, id: 52, status: 'completed' as const }
+		];
+		mocks.fetchClosedTrades
+			.mockResolvedValueOnce({ data: firstPage, page: 1, per_page: 50, total: 52 })
+			.mockResolvedValueOnce({ data: secondPage, page: 2, per_page: 50, total: 52 });
+		render(TradesPage);
+		const user = userEvent.setup();
+
+		await waitFor(() => expect(mocks.fetchClosedTrades).toHaveBeenCalledTimes(2));
+		expect(mocks.fetchClosedTrades).toHaveBeenNthCalledWith(2, { page: 2, per_page: 50 });
+		await user.click(screen.getByTestId('trade-history-tab'));
+
+		expect(screen.getAllByTestId('trade-summary-card')).toHaveLength(52);
+	});
 });
 
 describe('Trade cards', () => {
@@ -512,6 +535,7 @@ describe('Trade list management pages', () => {
 		const offersView = render(OffersPage);
 		await waitFor(() => expect(screen.getByTestId('offer-card')).toBeInTheDocument());
 		expect(screen.queryByText('1. Auflage', { exact: false })).not.toBeInTheDocument();
+		expect(screen.getByText('Exemplar 2')).toBeInTheDocument();
 		offersView.unmount();
 
 		mocks.fetchWantedEntries.mockResolvedValue(page([{ ...wanted, edition_label: null }]));

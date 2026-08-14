@@ -330,6 +330,19 @@ describe('CoverCard', () => {
 		const card = screen.getByTestId('cover-card');
 		expect(card.getAttribute('aria-label')).toContain('Dunkle Zukunft');
 		expect(card.getAttribute('aria-label')).toContain('#42');
+		expect(card.getAttribute('aria-label')).toContain('Exemplar 1');
+	});
+
+	it('gives otherwise identical physical copies distinct accessible names', () => {
+		const entries = [
+			makeEntry({ id: 1, edition_label: '1. Auflage', copy_number: 1 }),
+			makeEntry({ id: 2, edition_label: '1. Auflage', copy_number: 2 })
+		];
+		render(CoverGrid, { props: { items: entries, loading: false } });
+
+		const cards = screen.getAllByTestId('cover-card');
+		expect(cards[0]).toHaveAccessibleName(/1\. Auflage, Exemplar 1/);
+		expect(cards[1]).toHaveAccessibleName(/1\. Auflage, Exemplar 2/);
 	});
 
 	it('shows the edition and copy number in the card and accessible name', () => {

@@ -134,13 +134,15 @@ export async function fetchCollection(
 	return handleResponse<PaginatedCollection>(response);
 }
 
-export async function fetchAllCollectionEntries(seriesSlug: string): Promise<CollectionEntry[]> {
+async function fetchAllCollectionPages(
+	params: Omit<CollectionQueryParams, 'page' | 'per_page'>
+): Promise<CollectionEntry[]> {
 	const allEntries: CollectionEntry[] = [];
 	let page = 1;
 	let total = Infinity;
 
 	while (allEntries.length < total) {
-		const result = await fetchCollection({ series_slug: seriesSlug, per_page: 100, page });
+		const result = await fetchCollection({ ...params, page, per_page: 100 });
 		allEntries.push(...result.data);
 		total = result.total;
 		if (result.data.length === 0) break;
@@ -148,6 +150,10 @@ export async function fetchAllCollectionEntries(seriesSlug: string): Promise<Col
 	}
 
 	return allEntries;
+}
+
+export async function fetchAllCollectionEntries(seriesSlug: string): Promise<CollectionEntry[]> {
+	return fetchAllCollectionPages({ series_slug: seriesSlug });
 }
 
 export async function addToCollection(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
@@ -207,6 +213,5 @@ export async function fetchCollectionEntryByIssue(
 }
 
 export async function fetchCollectionEntriesByIssue(issueId: number): Promise<CollectionEntry[]> {
-	const result = await fetchCollection({ issue_id: issueId, page: 1, per_page: 100 });
-	return result.data;
+	return fetchAllCollectionPages({ issue_id: issueId });
 }

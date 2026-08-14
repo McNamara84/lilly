@@ -37,16 +37,34 @@
 			const [matchResult, tradeResult, historyResult] = await Promise.all([
 				fetchMatches({ per_page: 50 }),
 				fetchOpenTrades({ per_page: 50 }),
-				fetchClosedTrades({ per_page: 50 })
+				fetchAllClosedTrades()
 			]);
 			matches = matchResult.data;
 			trades = tradeResult.data;
-			history = historyResult.data;
+			history = historyResult;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Tauschdaten konnten nicht geladen werden.';
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function fetchAllClosedTrades(): Promise<Trade[]> {
+		const allTrades: Trade[] = [];
+		let page = 1;
+		let total = Infinity;
+
+		while (allTrades.length < total) {
+			const result = await fetchClosedTrades(
+				page === 1 ? { per_page: 50 } : { page, per_page: 50 }
+			);
+			allTrades.push(...result.data);
+			total = result.total;
+			if (result.data.length === 0) break;
+			page++;
+		}
+
+		return allTrades;
 	}
 
 	function proposed(trade: Trade) {

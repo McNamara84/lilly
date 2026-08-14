@@ -40,6 +40,48 @@ impl CandidateItem {
     }
 }
 
+/// Reduces the compatibility join to a deterministic one-to-one assignment.
+/// Edition-specific wishes are assigned before generic wishes so a generic
+/// wish cannot consume the only offer that satisfies a specific edition.
+fn select_one_to_one_candidates(candidates: Vec<CandidateItem>) -> Vec<CandidateItem> {
+    let mut by_direction_and_issue = BTreeMap::<(u32, u32, u32), Vec<CandidateItem>>::new();
+    for candidate in candidates {
+        by_direction_and_issue
+            .entry((
+                candidate.offered_by_user_id,
+                candidate.wanted_by_user_id,
+                candidate.issue_id,
+            ))
+            .or_default()
+            .push(candidate);
+    }
+
+    let mut selected = Vec::new();
+    for mut items in by_direction_and_issue.into_values() {
+        items.sort_by_key(|item| {
+            (
+                item.wanted_edition_label.is_none(),
+                item.wanted_entry_id,
+                item.offer_entry_id,
+            )
+        });
+        let mut used_offers = BTreeSet::new();
+        let mut used_wishes = BTreeSet::new();
+        for item in items {
+            if used_offers.contains(&item.offer_entry_id)
+                || used_wishes.contains(&item.wanted_entry_id)
+            {
+                continue;
+            }
+            used_offers.insert(item.offer_entry_id);
+            used_wishes.insert(item.wanted_entry_id);
+            selected.push(item);
+        }
+    }
+    selected.sort();
+    selected
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ReconciliationStats {
     pub created: u32,
@@ -84,7 +126,8 @@ pub async fn reconcile_user_matches(
     transaction: &mut Transaction<'_, MySql>,
     user_id: u32,
 ) -> Result<ReconciliationStats, sqlx::Error> {
-    let candidates = find_candidate_items(transaction, user_id).await?;
+    let candidates =
+        select_one_to_one_candidates(find_candidate_items(transaction, user_id).await?);
     let mut by_pair = BTreeMap::<(u32, u32), Vec<CandidateItem>>::new();
     for candidate in candidates {
         by_pair.entry(candidate.pair()).or_default().push(candidate);
@@ -676,6 +719,18 @@ mod tests {
         }
     }
 
+    fn candidate_with_editions(
+        offer: u32,
+        wanted: u32,
+        offer_edition: Option<&str>,
+        wanted_edition: Option<&str>,
+    ) -> CandidateItem {
+        let mut item = candidate(offer, wanted, 3, 4, 5);
+        item.edition_label = offer_edition.map(str::to_string);
+        item.wanted_edition_label = wanted_edition.map(str::to_string);
+        item
+    }
+
     #[test]
     fn user_pairs_are_normalized_and_self_pairs_rejected() {
         assert_eq!(normalize_user_pair(2, 7), Some((2, 7)));
@@ -701,6 +756,47 @@ mod tests {
         assert_ne!(
             fingerprint_items(&[candidate(1, 2, 3, 4, 5)]),
             fingerprint_items(&[edition_changed])
+        );
+    }
+
+    #[test]
+    fn candidate_selection_is_deterministic_and_one_to_one() {
+        let candidates = vec![
+            candidate(11, 21, 3, 4, 5),
+            candidate(10, 20, 3, 4, 5),
+            candidate(11, 20, 3, 4, 5),
+            candidate(10, 21, 3, 4, 5),
+        ];
+        let mut reversed = candidates.clone();
+        reversed.reverse();
+
+        let selected = select_one_to_one_candidates(candidates);
+        assert_eq!(selected, select_one_to_one_candidates(reversed));
+        assert_eq!(selected.len(), 2);
+        assert_eq!(
+            selected
+                .iter()
+                .map(|item| (item.offer_entry_id, item.wanted_entry_id))
+                .collect::<Vec<_>>(),
+            vec![(10, 20), (11, 21)]
+        );
+    }
+
+    #[test]
+    fn candidate_selection_preserves_specific_and_generic_wishes() {
+        let candidates = vec![
+            candidate_with_editions(10, 20, Some("A"), None),
+            candidate_with_editions(10, 21, Some("A"), Some("A")),
+            candidate_with_editions(11, 20, Some("B"), None),
+        ];
+
+        let selected = select_one_to_one_candidates(candidates);
+        assert_eq!(
+            selected
+                .iter()
+                .map(|item| (item.offer_entry_id, item.wanted_entry_id))
+                .collect::<Vec<_>>(),
+            vec![(10, 21), (11, 20)]
         );
     }
 

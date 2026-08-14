@@ -1,6 +1,64 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
+
+type TradeFixtureItem = {
+	entry_id: number;
+	wanted_entry_id: number;
+	issue_id: number;
+	condition_grade: string;
+	edition_label: string | null;
+	wanted_edition_label: string | null;
+};
+
+type AcceptedTradeFixture = {
+	thread_id: number;
+	my_offers: TradeFixtureItem[];
+	partner_offers: TradeFixtureItem[];
+};
+
+async function requireSuccessful(response: APIResponse) {
+	if (!response.ok()) {
+		throw new Error(`Fixture restoration failed (${response.status()}): ${await response.text()}`);
+	}
+}
+
+async function restoreCompletedTradeFixture(
+	request: APIRequestContext,
+	received: TradeFixtureItem,
+	offered: TradeFixtureItem,
+	wantedNotes: string,
+	offerNotes: string
+) {
+	const removeReceived = await request.delete(`/api/v1/me/collection/${received.wanted_entry_id}`);
+	if (!removeReceived.ok()) {
+		throw new Error(
+			`Could not remove the received E2E entry (${removeReceived.status()}): ${await removeReceived.text()}`
+		);
+	}
+
+	await requireSuccessful(
+		await request.post('/api/v1/me/collection', {
+			data: {
+				issue_id: received.issue_id,
+				status: 'wanted',
+				edition_label: received.wanted_edition_label ?? '',
+				notes: wantedNotes
+			}
+		})
+	);
+	await requireSuccessful(
+		await request.post('/api/v1/me/collection', {
+			data: {
+				issue_id: offered.issue_id,
+				status: 'duplicate',
+				condition_grade: offered.condition_grade,
+				edition_label: offered.edition_label ?? '',
+				notes: offerNotes
+			}
+		})
+	);
+}
 
 async function firstMaddraxIssueId(page: Page): Promise<number> {
 	return page.evaluate(async () => {
@@ -103,6 +161,7 @@ test.describe('Trade lists', () => {
 		let tradeId: number | undefined;
 		let completed = false;
 		let partner: APIRequestContext | undefined;
+		let acceptedTrade: AcceptedTradeFixture | undefined;
 		try {
 			await page.goto('/trades');
 			const match = page
@@ -140,25 +199,8 @@ test.describe('Trade lists', () => {
 			expect(login.ok()).toBe(true);
 			const accepted = await partner.post(`/api/v1/me/trades/${tradeId}/accept`);
 			expect(accepted.ok()).toBe(true);
-			const trade = (await accepted.json()) as {
-				thread_id: number;
-				my_offers: Array<{
-					entry_id: number;
-					wanted_entry_id: number;
-					issue_id: number;
-					condition_grade: string;
-					edition_label: string | null;
-					wanted_edition_label: string | null;
-				}>;
-				partner_offers: Array<{
-					entry_id: number;
-					wanted_entry_id: number;
-					issue_id: number;
-					condition_grade: string;
-					edition_label: string | null;
-					wanted_edition_label: string | null;
-				}>;
-			};
+			const trade = (await accepted.json()) as AcceptedTradeFixture;
+			acceptedTrade = trade;
 			expect(trade.my_offers[0]).toMatchObject({
 				condition_grade: 'Z2',
 				edition_label: 'E2E-Variantcover',
@@ -207,14 +249,14 @@ test.describe('Trade lists', () => {
 			await expect(page.getByTestId('completion-waiting')).toBeVisible();
 
 			const secondCompletion = await partner.post(`/api/v1/me/trades/${tradeId}/complete`);
-			expect(secondCompletion.ok()).toBe(true);
+			completed = secondCompletion.ok();
+			expect(completed).toBe(true);
 			const completedTrade = (await secondCompletion.json()) as {
 				status: string;
 				completed_at: string | null;
 			};
 			expect(completedTrade.status).toBe('completed');
 			expect(completedTrade.completed_at).not.toBeNull();
-			completed = true;
 
 			// The accepted response is viewed as the partner: their `my_offers`
 			// are the issues received by the browser user.
@@ -258,11 +300,38 @@ test.describe('Trade lists', () => {
 				page.getByTestId('trade-summary-card').filter({ hasText: 'Abgeschlossen' })
 			).toBeVisible();
 		} finally {
-			if (tradeId !== undefined && !completed) {
-				const cancelled = await page.request.post(`/api/v1/me/trades/${tradeId}/cancel`);
-				expect(cancelled.ok()).toBe(true);
+			try {
+				if (completed && acceptedTrade && partner) {
+					// The response is from the partner's perspective: their offers were
+					// received by the browser user and vice versa.
+					const restorations = await Promise.allSettled([
+						restoreCompletedTradeFixture(
+							page.request,
+							acceptedTrade.my_offers[0],
+							acceptedTrade.partner_offers[0],
+							'Deterministic worker wish',
+							'Deterministic worker offer'
+						),
+						restoreCompletedTradeFixture(
+							partner,
+							acceptedTrade.partner_offers[0],
+							acceptedTrade.my_offers[0],
+							'Deterministic partner wish',
+							'Deterministic partner offer'
+						)
+					]);
+					const failedRestoration = restorations.find((result) => result.status === 'rejected');
+					expect(
+						failedRestoration,
+						'Both completed-trade fixtures must be restored'
+					).toBeUndefined();
+				} else if (tradeId !== undefined) {
+					const cancelled = await page.request.post(`/api/v1/me/trades/${tradeId}/cancel`);
+					expect(cancelled.ok()).toBe(true);
+				}
+			} finally {
+				await partner?.dispose();
 			}
-			await partner?.dispose();
 		}
 	});
 

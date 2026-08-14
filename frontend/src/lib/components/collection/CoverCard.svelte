@@ -38,7 +38,7 @@
 		: undefined}
 	aria-label="{entry.title} — #{entry.issue_number}{entry.status === 'missing'
 		? ', fehlend'
-		: `, ${entry.status === 'owned' ? 'Vorhanden' : entry.status === 'duplicate' ? 'Doppelt' : entry.status === 'wanted' ? 'Gesucht' : entry.status}${entry.condition_grade ? `, ${entry.condition_grade}` : ''}${entry.edition_label ? `, ${entry.edition_label}` : ''}`}"
+		: `, ${entry.status === 'owned' ? 'Vorhanden' : entry.status === 'duplicate' ? 'Doppelt' : entry.status === 'wanted' ? 'Gesucht' : entry.status}${entry.condition_grade ? `, ${entry.condition_grade}` : ''}${entry.edition_label ? `, ${entry.edition_label}` : ''}, Exemplar ${entry.copy_number ?? '–'}`}"
 	data-testid="cover-card"
 >
 	<!-- Cover image -->

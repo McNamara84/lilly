@@ -397,18 +397,34 @@ describe('Collection API', () => {
 	});
 
 	describe('fetchCollectionEntriesByIssue', () => {
-		it('fetches every copy for one issue through the persisted issue filter', async () => {
-			const copies = [
-				{ ...sampleEntry, id: 1, copy_number: 1, edition_label: '1. Auflage' },
-				{ ...sampleEntry, id: 2, copy_number: 2, edition_label: 'Variantcover' }
-			];
-			mockFetch.mockResolvedValue(
-				jsonResponse({ data: copies, page: 1, per_page: 100, total: copies.length })
-			);
+		it('fetches every page of copies through the persisted issue filter', async () => {
+			const firstPage = Array.from({ length: 100 }, (_, index) => ({
+				...sampleEntry,
+				id: index + 1,
+				copy_number: index + 1
+			}));
+			const secondPage = Array.from({ length: 55 }, (_, index) => ({
+				...sampleEntry,
+				id: index + 101,
+				copy_number: index + 101
+			}));
+			mockFetch
+				.mockResolvedValueOnce(
+					jsonResponse({ data: firstPage, page: 1, per_page: 100, total: 155 })
+				)
+				.mockResolvedValueOnce(
+					jsonResponse({ data: secondPage, page: 2, per_page: 100, total: 155 })
+				);
 
-			await expect(fetchCollectionEntriesByIssue(42)).resolves.toEqual(copies);
-			expect(mockFetch).toHaveBeenCalledWith(
+			await expect(fetchCollectionEntriesByIssue(42)).resolves.toHaveLength(155);
+			expect(mockFetch).toHaveBeenNthCalledWith(
+				1,
 				'/api/v1/me/collection?issue_id=42&page=1&per_page=100',
+				{ credentials: 'same-origin' }
+			);
+			expect(mockFetch).toHaveBeenNthCalledWith(
+				2,
+				'/api/v1/me/collection?issue_id=42&page=2&per_page=100',
 				{ credentials: 'same-origin' }
 			);
 		});
