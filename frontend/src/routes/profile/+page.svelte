@@ -88,10 +88,10 @@
 
 	async function saveProfile(event: SubmitEvent) {
 		event.preventDefault();
-		if (!validateProfileFields()) return;
-		profileSaving = true;
 		error = null;
 		success = null;
+		if (!validateProfileFields()) return;
+		profileSaving = true;
 		try {
 			const updated = await updateProfile({
 				display_name: displayName.trim(),
@@ -118,6 +118,8 @@
 		const file = input.files?.[0];
 		input.value = '';
 		if (!file) return;
+		error = null;
+		success = null;
 		if (!photoPolicy.allowed_media_types.includes(file.type)) {
 			error = 'Bitte wähle ein JPEG-, PNG- oder WebP-Bild.';
 			return;
@@ -127,8 +129,6 @@
 			return;
 		}
 		avatarSaving = true;
-		error = null;
-		success = null;
 		try {
 			profile = await uploadAvatar(file);
 			avatarVersion = Date.now();
@@ -288,7 +288,6 @@
 							type="text"
 							bind:value={displayName}
 							minlength="2"
-							maxlength="100"
 							required
 							disabled={profileSaving}
 							aria-invalid={fieldErrors.display_name ? 'true' : undefined}
@@ -310,7 +309,6 @@
 							id="profile-location-input"
 							type="text"
 							bind:value={location}
-							maxlength="255"
 							autocomplete="address-level2"
 							disabled={profileSaving}
 							aria-invalid={fieldErrors.location ? 'true' : undefined}

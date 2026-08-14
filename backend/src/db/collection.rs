@@ -449,7 +449,9 @@ pub async fn get_collection_stats(
     sqlx::query_as::<_, CollectionStatsRow>(
         "SELECT
             COUNT(ce.id) AS total_entries,
-            COUNT(CASE WHEN ce.status IN ('owned', 'duplicate') THEN 1 END) AS total_physical_owned,
+            (SELECT COUNT(*) FROM collection_entries physical_ce
+             WHERE physical_ce.user_id = ?
+               AND physical_ce.status IN ('owned', 'duplicate')) AS total_physical_owned,
             COUNT(DISTINCT CASE WHEN ce.status IN ('owned', 'duplicate') THEN ce.issue_id END) AS total_owned,
             COUNT(DISTINCT CASE WHEN ce.status = 'duplicate' THEN ce.issue_id END) AS total_duplicate,
             COUNT(DISTINCT CASE WHEN ce.status = 'wanted' THEN ce.issue_id END) AS total_wanted
@@ -458,6 +460,7 @@ pub async fn get_collection_stats(
          JOIN series s ON i.series_id = s.id
          WHERE ce.user_id = ? AND s.active = TRUE",
     )
+    .bind(user_id)
     .bind(user_id)
     .fetch_one(pool)
     .await

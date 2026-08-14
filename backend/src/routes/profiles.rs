@@ -664,6 +664,22 @@ mod tests {
         assert_eq!(public_stats["series_stats"][0]["owned_count"], 1);
         assert_eq!(public_stats["series_stats"][0]["progress_percent"], 10.0);
 
+        sqlx::query("UPDATE series SET active = FALSE WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let inactive_series_stats = collection::get_collection_stats(&pool, user_id)
+            .await
+            .unwrap();
+        assert_eq!(inactive_series_stats.total_physical_owned, 2);
+        assert_eq!(inactive_series_stats.total_owned, 0);
+        sqlx::query("UPDATE series SET active = TRUE WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
         let foreign_delete = app
             .clone()
             .oneshot(basic_request(

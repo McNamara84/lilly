@@ -138,6 +138,52 @@ describe('Profile Page', () => {
 		expect(mockUpdateProfile).not.toHaveBeenCalled();
 	});
 
+	it('accepts astral characters up to the codepoint limits without native UTF-16 maxima', async () => {
+		const displayName = '😀'.repeat(100);
+		const locationValue = '📚'.repeat(255);
+		mockUpdateProfile.mockResolvedValue({
+			...profile,
+			display_name: displayName,
+			location: locationValue
+		});
+		render(ProfilePage);
+		const user = userEvent.setup();
+		const name = await screen.findByTestId('profile-display-name-input');
+		const location = screen.getByTestId('profile-location-input');
+
+		expect(name).not.toHaveAttribute('maxlength');
+		expect(location).not.toHaveAttribute('maxlength');
+		await fireEvent.input(name, { target: { value: displayName } });
+		await fireEvent.input(location, { target: { value: locationValue } });
+		await user.click(screen.getByTestId('save-profile'));
+
+		await waitFor(() =>
+			expect(mockUpdateProfile).toHaveBeenCalledWith({
+				display_name: displayName,
+				location: locationValue
+			})
+		);
+		expect(screen.queryByText(/muss 2 bis 100 Zeichen/)).not.toBeInTheDocument();
+	});
+
+	it('clears a previous success message before client-side profile validation', async () => {
+		render(ProfilePage);
+		const user = userEvent.setup();
+		const name = await screen.findByTestId('profile-display-name-input');
+
+		await user.click(screen.getByTestId('save-profile'));
+		expect(await screen.findByTestId('profile-success')).toHaveTextContent(
+			'Profildaten gespeichert.'
+		);
+		await user.clear(name);
+		await user.type(name, 'X');
+		await user.click(screen.getByTestId('save-profile'));
+
+		expect(await screen.findByText(/muss 2 bis 100 Zeichen/)).toBeVisible();
+		expect(screen.queryByTestId('profile-success')).not.toBeInTheDocument();
+		expect(mockUpdateProfile).toHaveBeenCalledOnce();
+	});
+
 	it('validates the Unicode length of the optional location', async () => {
 		render(ProfilePage);
 		const user = userEvent.setup();
@@ -203,6 +249,20 @@ describe('Profile Page', () => {
 		);
 		await waitFor(() => expect(screen.getByTestId('profile-error')).toHaveTextContent('höchstens'));
 		expect(mockUploadAvatar).not.toHaveBeenCalled();
+	});
+
+	it('clears a previous avatar success before rejecting a new file locally', async () => {
+		render(ProfilePage);
+		const user = userEvent.setup({ applyAccept: false });
+		const input = await screen.findByTestId('profile-avatar-input');
+
+		await user.upload(input, new File(['avatar'], 'avatar.png', { type: 'image/png' }));
+		expect(await screen.findByTestId('profile-success')).toHaveTextContent('Avatar gespeichert.');
+		await user.upload(input, new File(['text'], 'avatar.txt', { type: 'text/plain' }));
+
+		expect(await screen.findByTestId('profile-error')).toHaveTextContent('JPEG-, PNG- oder WebP');
+		expect(screen.queryByTestId('profile-success')).not.toBeInTheDocument();
+		expect(mockUploadAvatar).toHaveBeenCalledOnce();
 	});
 
 	it('loads private account data and initializes both visibility toggles', async () => {
