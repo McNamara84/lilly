@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use axum::http::request::Parts;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::CookieJar;
+use hashlink::LruCache;
 use ipnet::IpNet;
 use sha2::{Digest, Sha256};
 
@@ -98,15 +99,28 @@ struct BucketKey {
     key: RateLimitKey,
 }
 
+// Keeps the in-memory limiter bounded even when clients submit attacker-controlled
+// identifiers such as random password-reset tokens. Active buckets are retained
+// preferentially by the LRU policy.
+const MAX_RATE_LIMIT_BUCKETS: usize = 20_000;
+
 #[derive(Clone)]
 struct RateLimiter {
-    attempts: Arc<tokio::sync::Mutex<HashMap<BucketKey, VecDeque<Instant>>>>,
+    attempts: Arc<tokio::sync::Mutex<LruCache<BucketKey, VecDeque<Instant>>>>,
 }
 
 impl RateLimiter {
     fn new() -> Self {
+        Self::with_capacity(MAX_RATE_LIMIT_BUCKETS)
+    }
+
+    fn with_capacity(max_buckets: usize) -> Self {
+        assert!(
+            max_buckets > 0,
+            "rate-limit bucket capacity must be positive"
+        );
         Self {
-            attempts: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            attempts: Arc::new(tokio::sync::Mutex::new(LruCache::new(max_buckets))),
         }
     }
 
@@ -129,14 +143,18 @@ impl RateLimiter {
         let window = Duration::from_secs(rule.window_seconds);
         let cutoff = now.checked_sub(window).unwrap_or(now);
         let mut attempts = self.attempts.lock().await;
-        for timestamps in attempts.values_mut() {
-            while timestamps.front().is_some_and(|attempt| *attempt <= cutoff) {
-                timestamps.pop_front();
-            }
-        }
-        attempts.retain(|_, timestamps| !timestamps.is_empty());
 
-        let bucket = attempts.entry(BucketKey { policy, key }).or_default();
+        let bucket_key = BucketKey { policy, key };
+        if !attempts.contains_key(&bucket_key) {
+            attempts.insert(bucket_key.clone(), VecDeque::new());
+        }
+        let bucket = attempts
+            .get_mut(&bucket_key)
+            .expect("a rate-limit bucket was just inserted or already existed");
+        while bucket.front().is_some_and(|attempt| *attempt <= cutoff) {
+            bucket.pop_front();
+        }
+
         if bucket.len() >= rule.max_requests {
             let retry_after = bucket.front().map_or(rule.window_seconds, |oldest| {
                 let elapsed = now.saturating_duration_since(*oldest);
@@ -517,6 +535,121 @@ mod tests {
                 .check_at(RateLimitPolicy::LoginClient, first, rule(1, 60), now)
                 .await
                 .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn limiter_only_prunes_the_bucket_being_checked() {
+        let limiter = RateLimiter::with_capacity(4);
+        let start = Instant::now();
+        let first = RateLimitKey::Token("first".to_string());
+        let second = RateLimitKey::Token("second".to_string());
+
+        limiter
+            .check_at(
+                RateLimitPolicy::PasswordResetConfirm,
+                first.clone(),
+                rule(2, 60),
+                start,
+            )
+            .await
+            .unwrap();
+        limiter
+            .check_at(
+                RateLimitPolicy::PasswordResetConfirm,
+                second.clone(),
+                rule(2, 60),
+                start,
+            )
+            .await
+            .unwrap();
+        limiter
+            .check_at(
+                RateLimitPolicy::PasswordResetConfirm,
+                first.clone(),
+                rule(2, 60),
+                start + Duration::from_secs(61),
+            )
+            .await
+            .unwrap();
+
+        let attempts = limiter.attempts.lock().await;
+        let first_bucket = BucketKey {
+            policy: RateLimitPolicy::PasswordResetConfirm,
+            key: first,
+        };
+        let second_bucket = BucketKey {
+            policy: RateLimitPolicy::PasswordResetConfirm,
+            key: second,
+        };
+        assert_eq!(attempts.peek(&first_bucket).unwrap().len(), 1);
+        assert_eq!(attempts.peek(&second_bucket).unwrap().len(), 1);
+        assert_eq!(attempts.peek(&second_bucket).unwrap().front(), Some(&start));
+    }
+
+    #[tokio::test]
+    async fn limiter_bounds_bucket_count_and_evicts_the_least_recently_used() {
+        let limiter = RateLimiter::with_capacity(2);
+        let start = Instant::now();
+        let first = RateLimitKey::Token("first".to_string());
+        let second = RateLimitKey::Token("second".to_string());
+        let third = RateLimitKey::Token("third".to_string());
+
+        for key in [&first, &second] {
+            limiter
+                .check_at(
+                    RateLimitPolicy::PasswordResetConfirm,
+                    key.clone(),
+                    rule(3, 60),
+                    start,
+                )
+                .await
+                .unwrap();
+        }
+        limiter
+            .check_at(
+                RateLimitPolicy::PasswordResetConfirm,
+                first.clone(),
+                rule(3, 60),
+                start + Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+        limiter
+            .check_at(
+                RateLimitPolicy::PasswordResetConfirm,
+                third.clone(),
+                rule(3, 60),
+                start + Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+
+        let attempts = limiter.attempts.lock().await;
+        assert_eq!(attempts.len(), 2);
+        assert!(
+            attempts
+                .peek(&BucketKey {
+                    policy: RateLimitPolicy::PasswordResetConfirm,
+                    key: first,
+                })
+                .is_some()
+        );
+        assert!(
+            attempts
+                .peek(&BucketKey {
+                    policy: RateLimitPolicy::PasswordResetConfirm,
+                    key: second,
+                })
+                .is_none()
+        );
+        assert!(
+            attempts
+                .peek(&BucketKey {
+                    policy: RateLimitPolicy::PasswordResetConfirm,
+                    key: third,
+                })
+                .is_some()
         );
     }
 

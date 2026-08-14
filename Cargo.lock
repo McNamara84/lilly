@@ -1542,6 +1542,7 @@ dependencies = [
  "chrono-tz",
  "cron",
  "dotenvy",
+ "hashlink",
  "hex",
  "http",
  "image",
