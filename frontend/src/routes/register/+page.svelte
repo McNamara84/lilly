@@ -7,6 +7,7 @@
 		type OAuthProvider
 	} from '$lib/api/auth';
 	import { checkPasswordStrength, MIN_SCORE } from '$lib/utils/password-strength';
+	import PasswordStrengthMeter from '$lib/components/auth/PasswordStrengthMeter.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -292,30 +293,7 @@
 					aria-describedby="password-strength-info{passwordError ? ' password-error' : ''}"
 				/>
 				{#if password}
-					<div class="mt-2" data-testid="password-strength">
-						<div class="flex items-center justify-between mb-1">
-							<span class="text-xs" style="color: var(--text-tertiary);">Passwortstärke</span>
-							<span class="text-xs font-medium" style="color: {passwordStrength.color};">
-								{passwordStrength.label}
-							</span>
-						</div>
-						<div
-							class="h-1.5 w-full rounded-full overflow-hidden"
-							style="background-color: var(--surface-raised);"
-							role="progressbar"
-							aria-valuenow={passwordStrength.score}
-							aria-valuemin={0}
-							aria-valuemax={4}
-							aria-label="Passwortstärke: {passwordStrength.label}"
-							id="password-strength-info"
-						>
-							<div
-								class="h-full rounded-full transition-all duration-300"
-								style="width: {(passwordStrength.score + 1) *
-									20}%; background-color: {passwordStrength.color};"
-							></div>
-						</div>
-					</div>
+					<PasswordStrengthMeter strength={passwordStrength} />
 				{/if}
 				{#if passwordError}
 					<p id="password-error" class="mt-1 text-xs" style="color: #ef4444;">

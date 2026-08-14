@@ -1,3 +1,13 @@
+{
+	servers {
+		# The host nginx proxy is the only public ingress and overwrites XFF.
+		# Docker reaches Caddy through a private bridge address.
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For X-Real-IP
+	}
+}
+
 :80 {
 	encode zstd gzip
 

@@ -1,6 +1,23 @@
 services:
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    environment:
+      MP_MAX_MESSAGES: "200"
+    ports:
+      - "127.0.0.1:8025:8025"
+
   backend:
     environment:
       ENABLE_DEMO_SEED: "true"
       E2E_WORKER_COUNT: "4"
       ENABLE_E2E_FIXTURE_ADAPTER: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_TLS_MODE: none
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: noreply@lilly.app
+      APP_BASE_URL: http://localhost
+    depends_on:
+      mailpit:
+        condition: service_started

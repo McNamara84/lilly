@@ -1,5 +1,5 @@
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -12,13 +12,16 @@ use validator::Validate;
 
 use super::AppState;
 use crate::auth::middleware::AuthUser;
+use crate::auth::oauth::{hash_secret, random_urlsafe_token};
 use crate::auth::{jwt, password};
-use crate::db::{refresh_tokens, users};
+use crate::db::{password_reset_tokens, refresh_tokens, users};
 use crate::error::AppError;
 use crate::models::user::{
-    LoginRequest, LoginResponse, MeResponse, MessageResponse, RegisterRequest, RegisterResponse,
-    ResendVerificationRequest, VerifyQuery, normalize_email,
+    LoginRequest, LoginResponse, MeResponse, MessageResponse, PasswordResetConfirmRequest,
+    PasswordResetRequest, RegisterRequest, RegisterResponse, ResendVerificationRequest,
+    VerifyQuery, normalize_email,
 };
+use crate::services::rate_limit::{PeerAddress, RateLimitPolicy};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -28,6 +31,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/auth/resend-verification",
             post(resend_verification),
+        )
+        .route(
+            "/api/v1/auth/password-reset/request",
+            post(request_password_reset),
+        )
+        .route(
+            "/api/v1/auth/password-reset/confirm",
+            post(confirm_password_reset),
         )
         .route("/api/v1/auth/refresh", post(refresh))
         .route("/api/v1/auth/logout", post(logout))
@@ -76,8 +87,19 @@ fn clear_cookie(name: &str, path: &str) -> Cookie<'static> {
 
 async fn register(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
     Json(mut payload): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<RegisterResponse>), AppError> {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::Register, &client)
+        .await?;
     payload.email = normalize_email(&payload.email)
         .map_err(|message| field_validation_error("email", message))?;
     payload
@@ -105,14 +127,8 @@ async fn register(
         ));
     }
 
-    // Check password strength with zxcvbn
-    let entropy = zxcvbn::zxcvbn(&payload.password, &[&payload.email, &payload.display_name]);
-    if entropy.score() < zxcvbn::Score::Two {
-        return Err(field_validation_error(
-            "password",
-            "Password is too weak. Please choose a stronger password.",
-        ));
-    }
+    password::validate_password_strength(&payload.password, &payload.email, &payload.display_name)
+        .map_err(|message| field_validation_error("password", message))?;
 
     // Check if email already exists — return same success message to prevent user enumeration
     if users::find_user_by_email(&state.inner.pool, &payload.email)
@@ -240,18 +256,34 @@ async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQ
         return Redirect::to(&redirect_err).into_response();
     }
 
-    tracing::info!("Email verified for user: {}", user.email);
+    tracing::info!(user_id = user.id, "Email address verified");
     Redirect::to(&redirect_ok).into_response()
 }
 
 async fn resend_verification(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
     Json(mut payload): Json<ResendVerificationRequest>,
 ) -> Result<Json<MessageResponse>, AppError> {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::ResendVerification, &client)
+        .await?;
     payload.email = normalize_email(&payload.email).map_err(AppError::BadRequest)?;
     payload
         .validate()
         .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
+    state
+        .inner
+        .request_security
+        .enforce_account(RateLimitPolicy::ResendVerification, &payload.email)
+        .await?;
 
     // Always return success to prevent user enumeration
     if let Ok(Some(user)) = users::find_user_by_email(&state.inner.pool, &payload.email).await
@@ -288,20 +320,36 @@ async fn resend_verification(
 
 async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
     jar: CookieJar,
     Json(mut payload): Json<LoginRequest>,
 ) -> Result<(CookieJar, Json<LoginResponse>), AppError> {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::LoginClient, &client)
+        .await?;
     payload.email = normalize_email(&payload.email).map_err(AppError::BadRequest)?;
     payload
         .validate()
         .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
+    state
+        .inner
+        .request_security
+        .enforce_account(RateLimitPolicy::LoginAccount, &payload.email)
+        .await?;
 
     let user = users::find_user_by_email(&state.inner.pool, &payload.email)
         .await?
         .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
     let password_hash = user.password_hash.as_ref().ok_or_else(|| {
-        tracing::warn!("Login attempt for OAuth-only account: {}", payload.email);
+        tracing::warn!("Password login attempted for an OAuth-only account");
         AppError::Unauthorized("Invalid email or password".to_string())
     })?;
 
@@ -375,8 +423,19 @@ pub(super) async fn authenticated_jar(
 
 async fn refresh(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<MessageResponse>), AppError> {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::Refresh, &client)
+        .await?;
     let raw_refresh_token = jar
         .get("refresh_token")
         .map(|c| c.value().to_string())
@@ -456,6 +515,162 @@ async fn refresh(
     ))
 }
 
+const PASSWORD_RESET_REQUEST_MESSAGE: &str =
+    "If an eligible account exists, a password reset email has been sent.";
+
+async fn request_password_reset(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
+    Json(mut payload): Json<PasswordResetRequest>,
+) -> Result<Json<MessageResponse>, AppError> {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::PasswordResetRequest, &client)
+        .await?;
+    payload.email = normalize_email(&payload.email)
+        .map_err(|message| field_validation_error("email", message))?;
+    payload
+        .validate()
+        .map_err(|errors| register_validation_error(&errors))?;
+    state
+        .inner
+        .request_security
+        .enforce_account(RateLimitPolicy::PasswordResetRequest, &payload.email)
+        .await?;
+
+    let now = Utc::now().naive_utc();
+    if let Err(error) = password_reset_tokens::delete_expired(&state.inner.pool, now).await {
+        tracing::warn!(error = %error, "Failed to clean expired password reset tokens");
+    }
+    let user = match users::find_user_by_email(&state.inner.pool, &payload.email).await {
+        Ok(Some(user)) if user.email_verified && user.password_hash.is_some() => Some(user),
+        Ok(_) => None,
+        Err(error) => {
+            tracing::error!(error = %error, "Password reset account lookup failed");
+            None
+        }
+    };
+    if let Some(user) = user {
+        let raw_token = random_urlsafe_token();
+        let token_hash = hash_secret(&raw_token);
+        let expires_at =
+            now + chrono::Duration::seconds(state.inner.password_reset_ttl_seconds.cast_signed());
+        match password_reset_tokens::replace_active_token(
+            &state.inner.pool,
+            user.id,
+            &token_hash,
+            now,
+            expires_at,
+        )
+        .await
+        {
+            Ok(()) => {
+                if let Err(error) = state
+                    .inner
+                    .email_service
+                    .send_password_reset_email(
+                        &user.email,
+                        &user.display_name,
+                        &raw_token,
+                        &state.inner.app_base_url,
+                        state.inner.password_reset_ttl_seconds,
+                    )
+                    .await
+                {
+                    tracing::error!(error = %error, "Failed to send password reset email");
+                }
+            }
+            Err(error) => {
+                tracing::error!(error = %error, "Failed to persist password reset token");
+            }
+        }
+    }
+
+    Ok(Json(MessageResponse {
+        message: PASSWORD_RESET_REQUEST_MESSAGE.to_string(),
+    }))
+}
+
+async fn confirm_password_reset(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
+    jar: CookieJar,
+    Json(payload): Json<PasswordResetConfirmRequest>,
+) -> Result<(CookieJar, Json<MessageResponse>), AppError> {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::PasswordResetConfirm, &client)
+        .await?;
+    payload
+        .validate()
+        .map_err(|errors| register_validation_error(&errors))?;
+    state
+        .inner
+        .request_security
+        .enforce_token(RateLimitPolicy::PasswordResetConfirm, &payload.token)
+        .await?;
+    if payload.password != payload.password_confirmation {
+        return Err(field_validation_error(
+            "password_confirmation",
+            "Passwords do not match",
+        ));
+    }
+
+    let now = Utc::now().naive_utc();
+    let token_hash = hash_secret(&payload.token);
+    let target = password_reset_tokens::find_valid_target(&state.inner.pool, &token_hash, now)
+        .await?
+        .ok_or_else(invalid_password_reset_token)?;
+    password::validate_password_strength(&payload.password, &target.email, &target.display_name)
+        .map_err(|message| field_validation_error("password", message))?;
+    let password_hash = password::hash_password(&payload.password).map_err(|error| {
+        AppError::InternalError(anyhow::anyhow!("Password hashing failed: {error}"))
+    })?;
+
+    match password_reset_tokens::consume_and_update_password(
+        &state.inner.pool,
+        &token_hash,
+        &password_hash,
+        now,
+    )
+    .await?
+    {
+        password_reset_tokens::ConsumePasswordResetResult::Updated => {
+            let jar = jar
+                .add(clear_cookie("access_token", "/api"))
+                .add(clear_cookie("refresh_token", "/api/v1/auth"));
+            Ok((
+                jar,
+                Json(MessageResponse {
+                    message: "Password reset successful. Please sign in again.".to_string(),
+                }),
+            ))
+        }
+        password_reset_tokens::ConsumePasswordResetResult::Invalid => {
+            Err(invalid_password_reset_token())
+        }
+    }
+}
+
+fn invalid_password_reset_token() -> AppError {
+    AppError::BadRequestWithCode {
+        message: "Password reset link is invalid or expired.".to_string(),
+        code: "PASSWORD_RESET_TOKEN_INVALID".to_string(),
+    }
+}
+
 async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -521,6 +736,7 @@ mod tests {
                 jwt_secret: "auth-route-test-secret".to_string(),
                 jwt_access_expiry: 900,
                 jwt_refresh_expiry: 2_592_000,
+                password_reset_ttl_seconds: 3_600,
                 email_service: EmailService::Log {
                     from: "test@example.test".to_string(),
                 },
@@ -539,6 +755,7 @@ mod tests {
                     timezone: "Europe/Berlin".to_string(),
                     adapters: Vec::new(),
                 },
+                request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
             }),
         }
     }
@@ -758,6 +975,290 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn password_reset_request_rate_limit_returns_retry_metadata() {
+        let pool = MySqlPoolOptions::new()
+            .connect_lazy("mysql://test:test@localhost/test")
+            .unwrap();
+        let mut state = test_state(pool);
+        let inner = Arc::get_mut(&mut state.inner).unwrap();
+        let limits = crate::config::RateLimitConfig {
+            password_reset_request: crate::config::RateLimitRule {
+                max_requests: 1,
+                window_seconds: 120,
+            },
+            ..crate::config::RateLimitConfig::default()
+        };
+        let request_security = crate::services::rate_limit::RequestSecurity::new(
+            limits,
+            Vec::new(),
+            "password-reset-limit-test",
+        );
+        let client = request_security.client_identity(&HeaderMap::new(), None);
+        request_security
+            .enforce_client(RateLimitPolicy::PasswordResetRequest, &client)
+            .await
+            .unwrap();
+        inner.request_security = request_security;
+        let app = Router::new().merge(router()).with_state(state);
+        let body = r#"{"email":"collector@example.test"}"#;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/password-reset/request")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry_after = response.headers()[header::RETRY_AFTER]
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert!((1..=120).contains(&retry_after));
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(json["code"], "RATE_LIMITED");
+        assert_eq!(json["retry_after_seconds"], retry_after);
+    }
+
+    #[tokio::test]
+    async fn password_reset_request_is_indistinguishable_for_eligible_and_ineligible_accounts() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = crate::auth::oauth::random_urlsafe_token();
+        let eligible_email = format!("reset-eligible-{suffix}@example.test");
+        let oauth_email = format!("reset-oauth-{suffix}@example.test");
+        let unknown_email = format!("reset-unknown-{suffix}@example.test");
+        sqlx::query(
+            "INSERT INTO users (email, password_hash, display_name, email_verified) \
+             VALUES (?, 'password-hash', 'Eligible', TRUE), \
+                    (?, NULL, 'OAuth only', TRUE)",
+        )
+        .bind(&eligible_email)
+        .bind(&oauth_email)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let app = Router::new()
+            .merge(router())
+            .with_state(test_state(pool.clone()));
+        let mut bodies = Vec::new();
+
+        for email in [&eligible_email, &oauth_email, &unknown_email] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/auth/password-reset/request")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            serde_json::json!({ "email": email }).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            bodies.push(to_bytes(response.into_body(), usize::MAX).await.unwrap());
+        }
+        assert_eq!(bodies[0], bodies[1]);
+        assert_eq!(bodies[1], bodies[2]);
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT \
+               (SELECT COUNT(*) FROM password_reset_tokens prt \
+                JOIN users u ON u.id = prt.user_id WHERE u.email = ?), \
+               (SELECT COUNT(*) FROM password_reset_tokens prt \
+                JOIN users u ON u.id = prt.user_id WHERE u.email = ?)",
+        )
+        .bind(&eligible_email)
+        .bind(&oauth_email)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (1, 0));
+        sqlx::query("DELETE FROM users WHERE email IN (?, ?)")
+            .bind(eligible_email)
+            .bind(oauth_email)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn password_reset_confirmation_changes_password_revokes_sessions_and_is_single_use() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = crate::auth::oauth::random_urlsafe_token();
+        let email = format!("reset-confirm-{suffix}@example.test");
+        let old_password = "old correct horse battery staple 2048";
+        let new_password = "new correct horse battery staple 2049";
+        let old_hash = password::hash_password(old_password).unwrap();
+        let result = sqlx::query(
+            "INSERT INTO users (email, password_hash, display_name, email_verified) \
+             VALUES (?, ?, 'Reset Confirmation', TRUE)",
+        )
+        .bind(&email)
+        .bind(old_hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+        #[allow(clippy::cast_possible_truncation)]
+        let user_id = result.last_insert_id() as u32;
+        let raw_token = crate::auth::oauth::random_urlsafe_token();
+        let now = Utc::now().naive_utc();
+        password_reset_tokens::replace_active_token(
+            &pool,
+            user_id,
+            &hash_secret(&raw_token),
+            now,
+            now + chrono::Duration::hours(1),
+        )
+        .await
+        .unwrap();
+        refresh_tokens::store_refresh_token(
+            &pool,
+            user_id,
+            &hash_token(&format!("refresh-{suffix}")),
+            now + chrono::Duration::hours(1),
+        )
+        .await
+        .unwrap();
+        let app = Router::new()
+            .merge(router())
+            .with_state(test_state(pool.clone()));
+        let request_body = serde_json::json!({
+            "token": raw_token,
+            "password": new_password,
+            "password_confirmation": new_password
+        })
+        .to_string();
+
+        let first = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/password-reset/confirm")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("cookie", "access_token=old; refresh_token=old")
+                    .body(Body::from(request_body.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        let cleared_cookies = first
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(cleared_cookies.len(), 2);
+        assert!(
+            cleared_cookies
+                .iter()
+                .all(|cookie| cookie.contains("Max-Age=0"))
+        );
+
+        let row: (String, bool) = sqlx::query_as(
+            "SELECT users.password_hash, refresh_tokens.revoked FROM users \
+             INNER JOIN refresh_tokens ON refresh_tokens.user_id = users.id \
+             WHERE users.id = ?",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(password::verify_password(new_password, &row.0).unwrap());
+        assert!(!password::verify_password(old_password, &row.0).unwrap());
+        assert!(row.1);
+
+        let repeated = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/password-reset/confirm")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(repeated.status(), StatusCode::BAD_REQUEST);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(repeated.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(json["code"], "PASSWORD_RESET_TOKEN_INVALID");
+
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn password_reset_confirmation_rejects_mismatched_passwords_before_database_access() {
+        let pool = MySqlPoolOptions::new()
+            .connect_lazy("mysql://test:test@localhost/test")
+            .unwrap();
+        let response = Router::new()
+            .merge(router())
+            .with_state(test_state(pool))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/password-reset/confirm")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "token": crate::auth::oauth::random_urlsafe_token(),
+                            "password": "correct horse battery staple 2049",
+                            "password_confirmation": "different horse battery staple 2050"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(
+            json["fields"]["password_confirmation"],
+            "Passwords do not match"
+        );
+    }
+
+    #[tokio::test]
     #[allow(clippy::too_many_lines)]
     async fn refresh_uses_the_current_database_role_after_promotion() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
@@ -826,6 +1327,7 @@ mod tests {
                 jwt_secret: "refresh-role-secret".to_string(),
                 jwt_access_expiry: 900,
                 jwt_refresh_expiry: 2_592_000,
+                password_reset_ttl_seconds: 3_600,
                 email_service: EmailService::Log {
                     from: "test@example.test".to_string(),
                 },
@@ -846,6 +1348,7 @@ mod tests {
                     timezone: "Europe/Berlin".to_string(),
                     adapters: Vec::new(),
                 },
+                request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
             }),
         };
         let response = Router::new()

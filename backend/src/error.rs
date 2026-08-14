@@ -1,4 +1,4 @@
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -7,6 +7,9 @@ use std::collections::BTreeMap;
 pub enum AppError {
     #[error("{0}")]
     BadRequest(String),
+
+    #[error("{message}")]
+    BadRequestWithCode { message: String, code: String },
 
     #[error("Validation failed")]
     Validation { fields: BTreeMap<String, String> },
@@ -30,7 +33,11 @@ pub enum AppError {
     },
 
     #[error("{message}")]
-    TooManyRequests { message: String, code: String },
+    TooManyRequests {
+        message: String,
+        code: String,
+        retry_after_seconds: u64,
+    },
 
     #[error("{0}")]
     #[allow(dead_code)]
@@ -71,8 +78,21 @@ impl From<jsonwebtoken::errors::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let retry_after_seconds = match &self {
+            Self::TooManyRequests {
+                retry_after_seconds,
+                ..
+            } => Some(*retry_after_seconds),
+            _ => None,
+        };
         let (status, message, code, fields) = match &self {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None, None),
+            AppError::BadRequestWithCode { message, code } => (
+                StatusCode::BAD_REQUEST,
+                message.clone(),
+                Some(code.clone()),
+                None,
+            ),
             AppError::Validation { fields } => (
                 StatusCode::BAD_REQUEST,
                 "Validation failed".to_string(),
@@ -93,7 +113,7 @@ impl IntoResponse for AppError {
             AppError::Forbidden { message, code } => {
                 (StatusCode::FORBIDDEN, message.clone(), code.clone(), None)
             }
-            AppError::TooManyRequests { message, code } => (
+            AppError::TooManyRequests { message, code, .. } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 message.clone(),
                 Some(code.clone()),
@@ -110,12 +130,25 @@ impl IntoResponse for AppError {
 
         let body = if let Some(fields) = fields {
             json!({ "error": message, "fields": fields })
+        } else if let (Some(code), Some(retry_after_seconds)) = (code.clone(), retry_after_seconds)
+        {
+            json!({
+                "error": message,
+                "code": code,
+                "retry_after_seconds": retry_after_seconds
+            })
         } else if let Some(code) = code {
             json!({ "error": message, "code": code })
         } else {
             json!({ "error": message })
         };
-        (status, axum::Json(body)).into_response()
+        let mut response = (status, axum::Json(body)).into_response();
+        if let Some(retry_after_seconds) = retry_after_seconds
+            && let Ok(value) = HeaderValue::from_str(&retry_after_seconds.to_string())
+        {
+            response.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+        response
     }
 }
 
@@ -128,6 +161,16 @@ mod tests {
     fn test_bad_request_status() {
         let error = AppError::BadRequest("invalid input".to_string());
         let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn bad_request_with_code_has_machine_readable_code() {
+        let response = AppError::BadRequestWithCode {
+            message: "Reset token invalid".to_string(),
+            code: "RESET_TOKEN_INVALID".to_string(),
+        }
+        .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -196,9 +239,11 @@ mod tests {
         let error = AppError::TooManyRequests {
             message: "Too many attempts".to_string(),
             code: "RATE_LIMITED".to_string(),
+            retry_after_seconds: 42,
         };
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "42");
     }
 
     #[test]

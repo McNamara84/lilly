@@ -45,6 +45,8 @@
 			return 'Registrierung erfolgreich! Bitte prüfe deine E-Mails und bestätige deine Adresse.';
 		if (params.get('verified') === 'true')
 			return 'E-Mail erfolgreich bestätigt! Du kannst dich jetzt anmelden.';
+		if (params.get('reset') === 'true')
+			return 'Passwort erfolgreich geändert. Du kannst dich jetzt neu anmelden.';
 		if (params.get('verify_error') === 'invalid') return '';
 		return '';
 	});
@@ -380,7 +382,14 @@
 
 		<!-- Links -->
 		<div class="mt-6 text-center space-y-2">
-			<p class="text-sm" style="color: var(--text-tertiary);">Passwort vergessen?</p>
+			<p class="text-sm">
+				<a
+					href={resolve('/forgot-password')}
+					style="color: var(--color-brand-500);"
+					class="font-medium"
+					data-testid="forgot-password-link">Passwort vergessen?</a
+				>
+			</p>
 			<p class="text-sm" style="color: var(--text-secondary);">
 				Noch kein Konto?
 				<a href={resolve('/register')} style="color: var(--color-brand-500);" class="font-medium"

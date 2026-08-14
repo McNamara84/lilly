@@ -239,6 +239,32 @@ If a new provider identity returns an email already used by LILLY, the applicati
 ten-minute linking request. The person must first authenticate the matching existing account and
 then explicitly confirm the link; email equality alone never creates a session or links accounts.
 
+### Password recovery and rate limiting
+
+Verified password accounts can request a reset from `/forgot-password`. LILLY always returns the
+same public response for existing, unknown, unverified and OAuth-only addresses. Reset links are
+single-use, expire after one hour by default and are stored only as SHA-256 hashes. Completing a
+reset revokes all refresh sessions atomically; an already issued access token expires after its
+configured short TTL.
+
+The backend applies a central in-memory sliding-window limiter to public and authenticated API
+traffic, with tighter policies for registration, login, verification mail, OAuth, refresh and both
+password-reset steps. A rejected request returns HTTP 429, a `Retry-After` header and a matching
+`retry_after_seconds` JSON value. Configure limits as `MAX_REQUESTS/WINDOW_SECONDS` and trust
+forwarding headers only from explicit proxy networks:
+
+```dotenv
+PASSWORD_RESET_TTL_SECONDS=3600
+TRUSTED_PROXY_CIDRS=172.16.0.0/12
+RATE_LIMIT_PASSWORD_RESET_REQUEST=5/900
+RATE_LIMIT_PASSWORD_RESET_CONFIRM=10/900
+RATE_LIMIT_PUBLIC_API=120/60
+RATE_LIMIT_AUTHENTICATED_API=600/60
+```
+
+The limiter is intentionally process-local for the single-backend MVP deployment. A future
+multi-instance deployment must replace it with a shared store.
+
 The bootstrap account configured through `ADMIN_EMAIL` must already exist. Its address is
 trimmed, lowercased and validated; a real promotion is written atomically with a retained
 role-change audit event. Additional existing users can be promoted without supplying or

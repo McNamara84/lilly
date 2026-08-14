@@ -32,6 +32,13 @@ export interface ApiError {
 	error: string;
 	code?: string;
 	fields?: Record<string, string>;
+	retry_after_seconds?: number;
+}
+
+export interface PasswordResetConfirmRequest {
+	token: string;
+	password: string;
+	password_confirmation: string;
 }
 
 export type OAuthProvider = 'google' | 'github';
@@ -73,6 +80,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
 		);
 		(error as ApiError & Error).code = errorBody?.code;
 		(error as ApiError & Error).fields = errorBody?.fields;
+		(error as ApiError & Error).retry_after_seconds = errorBody?.retry_after_seconds;
 		throw error;
 	}
 	return response.json();
@@ -183,4 +191,26 @@ export async function resendVerification(email: string): Promise<void> {
 		body: JSON.stringify({ email })
 	});
 	await handleResponse<{ message: string }>(response);
+}
+
+export async function requestPasswordReset(email: string): Promise<{ message: string }> {
+	const response = await fetch(`${API_BASE}/auth/password-reset/request`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ email })
+	});
+	return handleResponse<{ message: string }>(response);
+}
+
+export async function confirmPasswordReset(
+	data: PasswordResetConfirmRequest
+): Promise<{ message: string }> {
+	const response = await fetch(`${API_BASE}/auth/password-reset/confirm`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify(data)
+	});
+	return handleResponse<{ message: string }>(response);
 }

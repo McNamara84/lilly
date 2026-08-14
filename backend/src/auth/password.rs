@@ -18,6 +18,18 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, argon2::passw
         .is_ok())
 }
 
+pub fn validate_password_strength(
+    password: &str,
+    email: &str,
+    display_name: &str,
+) -> Result<(), &'static str> {
+    let entropy = zxcvbn::zxcvbn(password, &[email, display_name]);
+    if entropy.score() < zxcvbn::Score::Two {
+        return Err("Password is too weak. Please choose a stronger password.");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,5 +56,18 @@ mod tests {
         let hash1 = hash_password(password).expect("Failed to hash");
         let hash2 = hash_password(password).expect("Failed to hash");
         assert_ne!(hash1, hash2); // Different salts
+    }
+
+    #[test]
+    fn password_strength_rejects_weak_and_personal_passwords() {
+        assert!(validate_password_strength("password", "user@example.com", "User").is_err());
+        assert!(
+            validate_password_strength(
+                "correct horse battery staple! 2049",
+                "user@example.com",
+                "User"
+            )
+            .is_ok()
+        );
     }
 }

@@ -8,6 +8,7 @@ use crate::services::email::EmailService;
 use crate::services::import_scheduler::ImportSchedulerConfig;
 use crate::services::media::MediaStorage;
 use crate::services::oauth::OAuthService;
+use crate::services::rate_limit::RequestSecurity;
 
 pub mod admin;
 pub mod auth;
@@ -31,6 +32,7 @@ pub struct AppStateInner {
     pub jwt_secret: String,
     pub jwt_access_expiry: u64,
     pub jwt_refresh_expiry: u64,
+    pub password_reset_ttl_seconds: u64,
     pub email_service: EmailService,
     pub app_base_url: String,
     pub cookie_secure: bool,
@@ -42,4 +44,5 @@ pub struct AppStateInner {
     pub photo_upload_config: PhotoUploadConfig,
     pub media_storage: MediaStorage,
     pub import_scheduler_config: ImportSchedulerConfig,
+    pub request_security: RequestSecurity,
 }

@@ -5,9 +5,58 @@ pub struct E2eConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimitRule {
+    pub max_requests: usize,
+    pub window_seconds: u64,
+}
+
+impl RateLimitRule {
+    const fn new(max_requests: usize, window_seconds: u64) -> Self {
+        Self {
+            max_requests,
+            window_seconds,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RateLimitConfig {
+    pub register: RateLimitRule,
+    pub login_client: RateLimitRule,
+    pub login_account: RateLimitRule,
+    pub resend_verification: RateLimitRule,
+    pub password_reset_request: RateLimitRule,
+    pub password_reset_confirm: RateLimitRule,
+    pub oauth_start: RateLimitRule,
+    pub oauth_callback: RateLimitRule,
+    pub refresh: RateLimitRule,
+    pub public_api: RateLimitRule,
+    pub authenticated_api: RateLimitRule,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            register: RateLimitRule::new(5, 15 * 60),
+            login_client: RateLimitRule::new(30, 15 * 60),
+            login_account: RateLimitRule::new(10, 15 * 60),
+            resend_verification: RateLimitRule::new(5, 15 * 60),
+            password_reset_request: RateLimitRule::new(5, 15 * 60),
+            password_reset_confirm: RateLimitRule::new(10, 15 * 60),
+            oauth_start: RateLimitRule::new(10, 60),
+            oauth_callback: RateLimitRule::new(30, 5 * 60),
+            refresh: RateLimitRule::new(60, 60),
+            public_api: RateLimitRule::new(120, 60),
+            authenticated_api: RateLimitRule::new(600, 60),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SmtpTlsMode {
     StartTls,
     Tls,
+    None,
 }
 
 impl SmtpTlsMode {
@@ -20,7 +69,8 @@ impl SmtpTlsMode {
         {
             "starttls" => Self::StartTls,
             "tls" => Self::Tls,
-            _ => panic!("SMTP_TLS_MODE must be starttls or tls"),
+            "none" => Self::None,
+            _ => panic!("SMTP_TLS_MODE must be starttls, tls, or none"),
         }
     }
 }
@@ -59,6 +109,7 @@ pub struct AppConfig {
     pub jwt_secret: String,
     pub jwt_access_token_expiry: u64,
     pub jwt_refresh_token_expiry: u64,
+    pub password_reset_ttl_seconds: u64,
     pub backend_port: u16,
     pub smtp_host: Option<String>,
     pub smtp_port: u16,
@@ -80,6 +131,8 @@ pub struct AppConfig {
     pub import_schedule: String,
     pub import_timezone: String,
     pub import_scheduled_adapters: Vec<String>,
+    pub trusted_proxy_cidrs: Vec<ipnet::IpNet>,
+    pub rate_limits: RateLimitConfig,
 }
 
 impl AppConfig {
@@ -87,6 +140,7 @@ impl AppConfig {
         Self::from_lookup(|key| std::env::var(key).ok())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
         let demo_seed_enabled: bool = get("ENABLE_DEMO_SEED")
             .unwrap_or_else(|| "false".to_string())
@@ -122,6 +176,16 @@ impl AppConfig {
         );
         let app_base_url = get("APP_BASE_URL").unwrap_or_else(|| "http://localhost".to_string());
         let app_base_url = validate_app_base_url(&app_base_url);
+        let rate_limits = rate_limit_config(&get);
+        let trusted_proxy_cidrs = trusted_proxy_cidrs(&get);
+        let password_reset_ttl_seconds = get("PASSWORD_RESET_TTL_SECONDS")
+            .unwrap_or_else(|| "3600".to_string())
+            .parse()
+            .expect("PASSWORD_RESET_TTL_SECONDS must be a number");
+        assert!(
+            (300..=86_400).contains(&password_reset_ttl_seconds),
+            "PASSWORD_RESET_TTL_SECONDS must be between 300 and 86400"
+        );
 
         Self {
             database_url: get("DATABASE_URL").expect("DATABASE_URL must be set"),
@@ -134,6 +198,7 @@ impl AppConfig {
                 .unwrap_or_else(|| "2592000".to_string())
                 .parse()
                 .expect("JWT_REFRESH_TOKEN_EXPIRY must be a number"),
+            password_reset_ttl_seconds,
             backend_port: get("BACKEND_PORT")
                 .unwrap_or_else(|| "8080".to_string())
                 .parse()
@@ -183,8 +248,84 @@ impl AppConfig {
                 .filter(|adapter| !adapter.is_empty())
                 .map(ToString::to_string)
                 .collect(),
+            trusted_proxy_cidrs,
+            rate_limits,
         }
     }
+}
+
+fn rate_limit_config(get: &impl Fn(&str) -> Option<String>) -> RateLimitConfig {
+    let defaults = RateLimitConfig::default();
+    RateLimitConfig {
+        register: rate_limit_rule(get, "RATE_LIMIT_REGISTER", defaults.register),
+        login_client: rate_limit_rule(get, "RATE_LIMIT_LOGIN_CLIENT", defaults.login_client),
+        login_account: rate_limit_rule(get, "RATE_LIMIT_LOGIN_ACCOUNT", defaults.login_account),
+        resend_verification: rate_limit_rule(
+            get,
+            "RATE_LIMIT_RESEND_VERIFICATION",
+            defaults.resend_verification,
+        ),
+        password_reset_request: rate_limit_rule(
+            get,
+            "RATE_LIMIT_PASSWORD_RESET_REQUEST",
+            defaults.password_reset_request,
+        ),
+        password_reset_confirm: rate_limit_rule(
+            get,
+            "RATE_LIMIT_PASSWORD_RESET_CONFIRM",
+            defaults.password_reset_confirm,
+        ),
+        oauth_start: rate_limit_rule(get, "RATE_LIMIT_OAUTH_START", defaults.oauth_start),
+        oauth_callback: rate_limit_rule(get, "RATE_LIMIT_OAUTH_CALLBACK", defaults.oauth_callback),
+        refresh: rate_limit_rule(get, "RATE_LIMIT_REFRESH", defaults.refresh),
+        public_api: rate_limit_rule(get, "RATE_LIMIT_PUBLIC_API", defaults.public_api),
+        authenticated_api: rate_limit_rule(
+            get,
+            "RATE_LIMIT_AUTHENTICATED_API",
+            defaults.authenticated_api,
+        ),
+    }
+}
+
+fn rate_limit_rule(
+    get: &impl Fn(&str) -> Option<String>,
+    key: &str,
+    default: RateLimitRule,
+) -> RateLimitRule {
+    let Some(value) = get(key) else {
+        return default;
+    };
+    let (max_requests, window_seconds) = value
+        .trim()
+        .split_once('/')
+        .unwrap_or_else(|| panic!("{key} must use MAX_REQUESTS/WINDOW_SECONDS"));
+    let rule = RateLimitRule {
+        max_requests: max_requests
+            .parse()
+            .unwrap_or_else(|_| panic!("{key} max requests must be a number")),
+        window_seconds: window_seconds
+            .parse()
+            .unwrap_or_else(|_| panic!("{key} window seconds must be a number")),
+    };
+    assert!(
+        rule.max_requests > 0 && rule.window_seconds > 0,
+        "{key} values must be greater than zero"
+    );
+    rule
+}
+
+fn trusted_proxy_cidrs(get: &impl Fn(&str) -> Option<String>) -> Vec<ipnet::IpNet> {
+    get("TRUSTED_PROXY_CIDRS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .parse()
+                .unwrap_or_else(|_| panic!("TRUSTED_PROXY_CIDRS contains invalid CIDR: {value}"))
+        })
+        .collect()
 }
 
 fn validate_app_base_url(value: &str) -> String {
@@ -293,6 +434,7 @@ mod tests {
         });
         assert_eq!(config.jwt_access_token_expiry, 900);
         assert_eq!(config.jwt_refresh_token_expiry, 2_592_000);
+        assert_eq!(config.password_reset_ttl_seconds, 3_600);
         assert_eq!(config.backend_port, 8080);
         assert!(config.smtp_host.is_none());
         assert_eq!(config.smtp_port, 587);
@@ -324,6 +466,54 @@ mod tests {
             config.import_scheduled_adapters,
             vec!["maddrax", "john-sinclair"]
         );
+        assert!(config.trusted_proxy_cidrs.is_empty());
+        assert_eq!(config.rate_limits, RateLimitConfig::default());
+    }
+
+    #[test]
+    fn security_limits_and_trusted_proxies_are_configurable() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "PASSWORD_RESET_TTL_SECONDS" => Some("1800".to_string()),
+            "RATE_LIMIT_LOGIN_CLIENT" => Some("7/120".to_string()),
+            "TRUSTED_PROXY_CIDRS" => Some("10.0.0.0/8, 2001:db8::/32".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.password_reset_ttl_seconds, 1_800);
+        assert_eq!(config.rate_limits.login_client, RateLimitRule::new(7, 120));
+        assert_eq!(config.trusted_proxy_cidrs.len(), 2);
+        assert!(
+            config.trusted_proxy_cidrs[0]
+                .contains(&"10.2.3.4".parse::<std::net::IpAddr>().unwrap())
+        );
+        assert!(
+            config.trusted_proxy_cidrs[1]
+                .contains(&"2001:db8::42".parse::<std::net::IpAddr>().unwrap())
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "RATE_LIMIT_LOGIN_CLIENT must use MAX_REQUESTS/WINDOW_SECONDS")]
+    fn malformed_rate_limit_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "RATE_LIMIT_LOGIN_CLIENT" => Some("7".to_string()),
+            _ => None,
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "TRUSTED_PROXY_CIDRS contains invalid CIDR")]
+    fn malformed_trusted_proxy_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "TRUSTED_PROXY_CIDRS" => Some("not-a-network".to_string()),
+            _ => None,
+        });
     }
 
     #[test]
@@ -339,7 +529,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "SMTP_TLS_MODE must be starttls or tls")]
+    fn smtp_tls_mode_supports_explicit_test_only_plaintext() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "SMTP_TLS_MODE" => Some("none".to_string()),
+            _ => None,
+        });
+
+        assert_eq!(config.smtp_tls_mode, SmtpTlsMode::None);
+    }
+
+    #[test]
+    #[should_panic(expected = "SMTP_TLS_MODE must be starttls, tls, or none")]
     fn invalid_smtp_tls_mode_fails_configuration() {
         AppConfig::from_lookup(|key| match key {
             "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),

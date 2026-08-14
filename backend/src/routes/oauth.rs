@@ -1,12 +1,7 @@
-use std::collections::{HashMap, VecDeque};
-use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-use axum::extract::{ConnectInfo, Path, Query, Request, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -29,75 +24,14 @@ use crate::models::oauth::{
 };
 use crate::models::user::MessageResponse;
 use crate::services::oauth::OAuthServiceError;
+use crate::services::rate_limit::{PeerAddress, RateLimitPolicy};
 
-const OAUTH_START_RATE_LIMIT: usize = 10;
-const OAUTH_START_RATE_WINDOW: Duration = Duration::from_mins(1);
-const FORWARDED_FOR_HEADER: &str = "x-forwarded-for";
 const LINK_CSRF_HEADER: &str = "x-csrf-token";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum OAuthClientKey {
-    Address(IpAddr),
-    Unknown,
-}
-
-#[derive(Clone)]
-struct OAuthStartRateLimiter {
-    attempts: Arc<tokio::sync::Mutex<HashMap<OAuthClientKey, VecDeque<Instant>>>>,
-    limit: usize,
-    window: Duration,
-}
-
-impl OAuthStartRateLimiter {
-    fn production() -> Self {
-        Self::new(OAUTH_START_RATE_LIMIT, OAUTH_START_RATE_WINDOW)
-    }
-
-    fn new(limit: usize, window: Duration) -> Self {
-        Self {
-            attempts: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            limit,
-            window,
-        }
-    }
-
-    async fn allow(&self, client: OAuthClientKey) -> bool {
-        self.allow_at(client, Instant::now()).await
-    }
-
-    async fn allow_at(&self, client: OAuthClientKey, now: Instant) -> bool {
-        let cutoff = now.checked_sub(self.window).unwrap_or(now);
-        let mut attempts = self.attempts.lock().await;
-        for timestamps in attempts.values_mut() {
-            while timestamps.front().is_some_and(|attempt| *attempt <= cutoff) {
-                timestamps.pop_front();
-            }
-        }
-        attempts.retain(|_, timestamps| !timestamps.is_empty());
-
-        let timestamps = attempts.entry(client).or_default();
-        if timestamps.len() >= self.limit {
-            return false;
-        }
-        timestamps.push_back(now);
-        true
-    }
-}
-
 pub fn router() -> Router<AppState> {
-    router_with_rate_limiter(OAuthStartRateLimiter::production())
-}
-
-fn router_with_rate_limiter(rate_limiter: OAuthStartRateLimiter) -> Router<AppState> {
     Router::new()
         .route("/api/v1/auth/options", get(options))
-        .route(
-            "/api/v1/auth/oauth/{provider}/start",
-            post(start_oauth).layer(middleware::from_fn_with_state(
-                rate_limiter,
-                enforce_oauth_start_rate_limit,
-            )),
-        )
+        .route("/api/v1/auth/oauth/{provider}/start", post(start_oauth))
         .route(
             "/api/v1/auth/oauth/{provider}/callback",
             get(oauth_callback),
@@ -109,38 +43,6 @@ fn router_with_rate_limiter(rate_limiter: OAuthStartRateLimiter) -> Router<AppSt
                 .delete(cancel_link),
         )
         .route("/api/v1/me/privacy-consents", get(list_privacy_consents))
-}
-
-async fn enforce_oauth_start_rate_limit(
-    State(rate_limiter): State<OAuthStartRateLimiter>,
-    request: Request,
-    next: Next,
-) -> Response {
-    if rate_limiter.allow(oauth_client_key(&request)).await {
-        next.run(request).await
-    } else {
-        AppError::TooManyRequests {
-            message: "Too many OAuth start attempts; please try again later".to_string(),
-            code: "OAUTH_START_RATE_LIMITED".to_string(),
-        }
-        .into_response()
-    }
-}
-
-fn oauth_client_key(request: &Request) -> OAuthClientKey {
-    request
-        .headers()
-        .get(FORWARDED_FOR_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .and_then(|value| value.trim().parse::<IpAddr>().ok())
-        .or_else(|| {
-            request
-                .extensions()
-                .get::<ConnectInfo<SocketAddr>>()
-                .map(|ConnectInfo(address)| address.ip())
-        })
-        .map_or(OAuthClientKey::Unknown, OAuthClientKey::Address)
 }
 
 async fn options(State(state): State<AppState>) -> Json<AuthOptionsResponse> {
@@ -159,9 +61,20 @@ async fn options(State(state): State<AppState>) -> Json<AuthOptionsResponse> {
 async fn start_oauth(
     State(state): State<AppState>,
     Path(provider): Path<String>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
     jar: CookieJar,
     Json(payload): Json<OAuthStartRequest>,
 ) -> Result<(CookieJar, Json<OAuthStartResponse>), AppError> {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::OAuthStart, &client)
+        .await?;
     let provider = parse_provider(&provider)?;
     if !state.inner.oauth_service.is_enabled(provider) {
         return Err(AppError::ConflictWithCode {
@@ -239,8 +152,22 @@ async fn oauth_callback(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     Query(query): Query<OAuthCallbackQuery>,
+    headers: HeaderMap,
+    PeerAddress(peer_address): PeerAddress,
     jar: CookieJar,
 ) -> Response {
+    let client = state
+        .inner
+        .request_security
+        .client_identity(&headers, peer_address);
+    if let Err(error) = state
+        .inner
+        .request_security
+        .enforce_client(RateLimitPolicy::OAuthCallback, &client)
+        .await
+    {
+        return error.into_response();
+    }
     let Ok(provider) = OAuthProvider::from_str(&provider) else {
         return oauth_redirect(&state, "/login", "OAUTH_PROVIDER_DISABLED", jar).into_response();
     };
@@ -629,6 +556,7 @@ mod tests {
                 jwt_secret: "oauth-route-test-secret".to_string(),
                 jwt_access_expiry: 900,
                 jwt_refresh_expiry: 2_592_000,
+                password_reset_ttl_seconds: 3_600,
                 email_service: EmailService::Log {
                     from: "test@example.test".to_string(),
                 },
@@ -647,6 +575,7 @@ mod tests {
                     timezone: "Europe/Berlin".to_string(),
                     adapters: Vec::new(),
                 },
+                request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
             }),
         }
     }
@@ -841,43 +770,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oauth_start_rate_limit_is_per_client_and_recovers_after_the_window() {
-        let limiter = OAuthStartRateLimiter::new(2, Duration::from_mins(1));
-        let first_client = OAuthClientKey::Address("192.0.2.10".parse().unwrap());
-        let second_client = OAuthClientKey::Address("192.0.2.11".parse().unwrap());
-        let now = Instant::now();
-
-        assert!(limiter.allow_at(first_client, now).await);
-        assert!(
-            limiter
-                .allow_at(first_client, now + Duration::from_secs(1))
-                .await
+    async fn oauth_start_route_uses_the_shared_rate_limit() {
+        let mut state = test_state(lazy_pool(), OAuthService::disabled());
+        let inner = Arc::get_mut(&mut state.inner).unwrap();
+        let mut config = crate::config::RateLimitConfig::default();
+        config.oauth_start = crate::config::RateLimitRule {
+            max_requests: 2,
+            window_seconds: 60,
+        };
+        inner.request_security = crate::services::rate_limit::RequestSecurity::new(
+            config,
+            Vec::new(),
+            "oauth-limit-test",
         );
-        assert!(
-            !limiter
-                .allow_at(first_client, now + Duration::from_secs(2))
-                .await
-        );
-        assert!(
-            limiter
-                .allow_at(second_client, now + Duration::from_secs(2))
-                .await
-        );
-        assert!(
-            limiter
-                .allow_at(first_client, now + Duration::from_secs(61))
-                .await
-        );
-    }
-
-    #[tokio::test]
-    async fn oauth_start_route_rejects_only_the_client_over_its_limit() {
-        let app = Router::new()
-            .merge(router_with_rate_limiter(OAuthStartRateLimiter::new(
-                2,
-                Duration::from_mins(1),
-            )))
-            .with_state(test_state(lazy_pool(), OAuthService::disabled()));
+        let app = Router::new().merge(router()).with_state(state);
 
         for expected_status in [
             StatusCode::CONFLICT,
@@ -891,7 +797,6 @@ mod tests {
                         .method("POST")
                         .uri("/api/v1/auth/oauth/google/start")
                         .header(header::CONTENT_TYPE, "application/json")
-                        .header(FORWARDED_FOR_HEADER, "192.0.2.20")
                         .body(Body::from(r#"{"intent":"login"}"#))
                         .unwrap(),
                 )
@@ -899,20 +804,6 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), expected_status);
         }
-
-        let other_client = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/auth/oauth/google/start")
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .header(FORWARDED_FOR_HEADER, "192.0.2.21")
-                    .body(Body::from(r#"{"intent":"login"}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(other_client.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]

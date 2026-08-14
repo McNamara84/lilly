@@ -195,6 +195,7 @@ mod tests {
                     jwt_secret: TEST_JWT_SECRET.to_string(),
                     jwt_access_expiry: 900,
                     jwt_refresh_expiry: 2_592_000,
+                    password_reset_ttl_seconds: 3_600,
                     email_service: EmailService::Log {
                         from: "test@lilly.app".to_string(),
                     },
@@ -215,6 +216,7 @@ mod tests {
                         timezone: "Europe/Berlin".to_string(),
                         adapters: Vec::new(),
                     },
+                    request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
                 }),
             })
     }
