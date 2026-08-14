@@ -1730,6 +1730,29 @@ mod tests {
     }
 
     #[test]
+    fn future_issue_still_requires_valid_identity_and_provenance() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 8).unwrap();
+        let future = NaiveDate::from_ymd_opt(2026, 8, 15).unwrap();
+
+        let mismatched_number = sync_issue(696, "Wrong future issue", Vec::new(), future);
+        let number_error =
+            prepare_issue_for_import(SYNC_DESCRIPTOR, 695, mismatched_number, today).unwrap_err();
+        assert_eq!(
+            number_error.to_string(),
+            "Parse error: Returned issue number 696 does not match requested issue 695"
+        );
+
+        let mut invalid_source = sync_issue(695, "Untrusted future issue", Vec::new(), future);
+        invalid_source.source.source_url = "https://untrusted.example/issues/695".to_string();
+        let source_error =
+            prepare_issue_for_import(SYNC_DESCRIPTOR, 695, invalid_source, today).unwrap_err();
+        assert_eq!(
+            source_error.to_string(),
+            "Parse error: Source host 'untrusted.example' is not allowed for 'sync-test-wiki'"
+        );
+    }
+
+    #[test]
     fn published_or_undated_issue_still_requires_complete_metadata() {
         let today = NaiveDate::from_ymd_opt(2026, 8, 8).unwrap();
         let published = sync_issue(695, "Published stub", Vec::new(), today);
