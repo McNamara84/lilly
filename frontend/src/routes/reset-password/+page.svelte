@@ -28,6 +28,13 @@
 							? 'Passwort ist zu schwach'
 							: '')
 	);
+	let passwordDescription = $derived(
+		password
+			? `reset-password-strength${passwordError ? ' new-password-error' : ''}`
+			: passwordError
+				? 'new-password-error'
+				: undefined
+	);
 	let confirmationError = $derived(
 		serverFieldErrors.password_confirmation ||
 			(confirmationTouched && !passwordConfirmation
@@ -138,7 +145,7 @@
 						class="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
 						style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-primary);"
 						aria-invalid={passwordError ? 'true' : undefined}
-						aria-describedby="reset-password-strength{passwordError ? ' new-password-error' : ''}"
+						aria-describedby={passwordDescription}
 					/>
 					{#if password}
 						<PasswordStrengthMeter {strength} id="reset-password-strength" />

@@ -53,6 +53,24 @@ describe('Reset Password Page', () => {
 		expect(screen.getByText(/Passwörter stimmen nicht überein/i)).toBeInTheDocument();
 	});
 
+	it('only references rendered password descriptions', async () => {
+		render(ResetPasswordPage);
+		const user = userEvent.setup();
+		const password = screen.getByLabelText('Neues Passwort');
+
+		expect(password).not.toHaveAttribute('aria-describedby');
+
+		await user.type(password, 'password');
+		expect(password).toHaveAttribute('aria-describedby', 'reset-password-strength');
+		expect(document.getElementById('reset-password-strength')).toBeInTheDocument();
+
+		await user.clear(password);
+		await user.tab();
+		expect(password).toHaveAttribute('aria-describedby', 'new-password-error');
+		expect(document.getElementById('reset-password-strength')).not.toBeInTheDocument();
+		expect(document.getElementById('new-password-error')).toBeInTheDocument();
+	});
+
 	it('submits a valid password and removes the token from browser history', async () => {
 		const { confirmPasswordReset } = await import('$lib/api/auth');
 		const { goto, replaceState } = await import('$app/navigation');

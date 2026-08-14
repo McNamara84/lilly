@@ -109,11 +109,10 @@ describe('Auth API Client', () => {
 					})
 			});
 
-			try {
-				await login({ email: 'test@test.com', password: 'pwd' });
-			} catch (error) {
-				expect((error as Error & { retry_after_seconds?: number }).retry_after_seconds).toBe(42);
-			}
+			await expect(login({ email: 'test@test.com', password: 'pwd' })).rejects.toHaveProperty(
+				'retry_after_seconds',
+				42
+			);
 		});
 	});
 
