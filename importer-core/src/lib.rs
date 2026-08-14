@@ -10,4 +10,7 @@ pub use adapter::{
 };
 pub use contract::verify_adapter_contract;
 pub use progress::{LogProgressReporter, ProgressReporter};
-pub use types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
+pub use types::{
+    CoverData, CoverFetchResult, CoverIdentity, IssueData, SeriesData, SeriesStatus,
+    SourceReference,
+};

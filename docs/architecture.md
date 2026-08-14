@@ -53,7 +53,7 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 | **Dateispeicher**     | Lokales Dateisystem        | Strukturiertes Verzeichnis, Caddy Static Serving, automatische Bildkompression                          |
 | **Reverse Proxy**     | Caddy v2                   | Automatisches HTTPS via Let's Encrypt, minimale Konfiguration, HTTP/2 + HTTP/3                          |
 | **Containerisierung** | Docker + Docker Compose    | Multi-Container-Setup, isolierte Services, einfaches Deployment                                         |
-| **Wiki-Importer**     | Rust (reqwest + scraper)   | CLI-Tool und Cronjob-fähig, MediaWiki-API + HTML-Parsing, modulare Adapter                              |
+| **Wiki-Importer**     | Rust (reqwest)             | CLI-Tool und Cronjob-fähig, strukturierte MediaWiki-API, modulare Adapter                               |
 | **i18n**              | Paraglide.js (SvelteKit)   | Typsichere Übersetzungen, Tree-Shaking, initiale Sprache Deutsch                                        |
 
 ### 2.2 Begründung der Kernentscheidungen
@@ -98,7 +98,7 @@ Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Enc
 │  └────────────┘  ┌────────────────────────┐                  │
 │                  │   Wiki-Importer (Cron)  │                  │
 │                  │   Rust CLI: reqwest +   │                  │
-│                  │   scraper → MariaDB     │                  │
+│                  │   MediaWiki → MariaDB   │                  │
 │                  └────────────────────────┘                   │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -475,10 +475,10 @@ Admin-WebUI als asynchrone Tokio-Background-Tasks.
 
 Das Kernkonzept ist ein Adapter-Pattern mit Trait-basierter Architektur:
 
-- **Trait `WikiAdapter`:** Definiert `source_descriptor()`, `fetch_series_metadata()`, `fetch_issue_list()`, `fetch_issue_details(number)` und `fetch_cover(number)`. Der statische Descriptor identifiziert Quelle und Zielserie bereits vor dem ersten Netzwerkzugriff.
+- **Trait `WikiAdapter`:** Definiert `source_descriptor()`, `fetch_series_metadata()`, `fetch_issue_list()`, `fetch_issue_details(number)` und `fetch_cover(number, known_source_sha1)`. Der statische Descriptor identifiziert Quelle und Zielserie bereits vor dem ersten Netzwerkzugriff.
 - **`AdapterRegistry`:** Zentrale Registrierung aller verfügbaren Adapter. Doppelte Namen werden abgelehnt, die Ausgabe ist deterministisch sortiert. Das Backend erhält die produktive Registry ausschließlich von `importer-adapters::builtin_registry()` und stellt sie via `AppState` bereit.
 - **`ProgressReporter`-Trait:** Entkoppelt die Fortschrittsmeldung von der Persistenz. Das Backend implementiert dieses Trait mit DB-Writes in die `import_jobs`-Tabelle, das CLI könnte es mit stdout-Output implementieren.
-- **`MaddraxAdapter` (v0.9):** Erster konkreter Adapter für de.maddraxikon.com. Nutzt eine Kombination aus MediaWiki-API (für strukturierte Daten) und HTML-Scraping (für Tabellen und Cover via `reqwest` + `scraper`).
+- **`MaddraxAdapter` (v1.0):** Adapter für de.maddraxikon.com. Nutzt strukturierte MediaWiki-API-Antworten für Metadaten und die exakte, heftnummernbezogene Coverauswahl.
 
 **Crate-Struktur:**
 
@@ -488,7 +488,7 @@ importer-core/             # Quellenunabhängiger Vertrag
     ├── lib.rs             # Öffentliche API und Re-Exports
     ├── adapter.rs         # WikiAdapter-Trait + AdapterRegistry
     ├── contract.rs        # Wiederverwendbare Adapter-Vertragsprüfung
-    ├── types.rs           # SeriesData, IssueData, CoverData
+    ├── types.rs           # SeriesData, IssueData, CoverData, CoverIdentity
     └── progress.rs        # ProgressReporter-Trait
 importer-adapters/         # Konkrete Quellen und lokale Fixtures
 ├── src/
@@ -506,7 +506,7 @@ importer-adapters/         # Konkrete Quellen und lokale Fixtures
 3. **Quellenprüfung:** Serien- und Heftdaten werden normalisiert und gegen `source_key`, Quell-ID, HTTPS-Host und Pflichtfelder validiert.
 4. **Vollscan:** Jeder Lauf liest die aktuelle Heftliste vollständig. Jedes gemeldete Heft erhält genau ein Ergebnis: `created`, `updated`, `unchanged`, `skipped` oder `failed`.
 5. **Idempotenter Vergleich:** Vorhandene Metadaten und Relationen werden gebündelt geladen. Nur neue oder geänderte Datensätze werden atomar geschrieben; unveränderte Relationen bleiben unberührt.
-6. **Cover:** Cover werden nur für neue Hefte oder bei fehlendem lokalem Cover geladen. Ein Coverfehler zerstört keine validen bibliografischen Daten.
+6. **Cover:** Die technische MediaWiki-Dateiidentität wird bei jedem Vollscan verglichen. Nur fehlende oder geänderte Bildrevisionen werden geladen; ein Coverfehler zerstört keine validen bibliografischen Daten.
 7. **Recovery:** Abbruchwünsche werden vor Abruf und Persistenz geprüft. Neustart-Waisen enden als `interrupted`; ein zulässiger Retry erzeugt einen neuen verknüpften Vollscan.
 8. **Polling und Prüfung:** Die Adminseite pollt den Job alle drei Sekunden, zeigt Detailzähler und Fehlerkontext und stoppt bei jedem terminalen Status.
 9. **Aktivierung:** Importierte Serien bleiben inaktiv, bis ein Admin die Stichprobe geprüft und die Serie explizit aktiviert hat.

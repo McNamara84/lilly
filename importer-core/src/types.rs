@@ -59,6 +59,27 @@ pub struct CoverData {
     pub content_type: String,
 }
 
+/// Stable technical identity of one source image revision.
+///
+/// This intentionally contains no licence or attribution fields. Those belong
+/// to the separate, broader cover-provenance work.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoverIdentity {
+    pub file_name: String,
+    pub source_sha1: String,
+    pub source_updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CoverFetchResult {
+    Missing,
+    Unchanged(CoverIdentity),
+    Downloaded {
+        data: CoverData,
+        identity: CoverIdentity,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +152,31 @@ mod tests {
         };
         assert_eq!(data.content_type, "image/jpeg");
         assert_eq!(data.bytes.len(), 3);
+    }
+
+    #[test]
+    fn test_cover_fetch_result_construction() {
+        let identity = CoverIdentity {
+            file_name: "005tibi.jpg".to_string(),
+            source_sha1: "a2cd7afc8bc68e58cafbcdd30c947bb9ad44f04e".to_string(),
+            source_updated_at: chrono::DateTime::parse_from_rfc3339("2012-11-25T10:07:13Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        };
+        let result = CoverFetchResult::Downloaded {
+            data: CoverData {
+                bytes: vec![0xFF, 0xD8, 0xFF],
+                content_type: "image/jpeg".to_string(),
+            },
+            identity: identity.clone(),
+        };
+
+        assert!(matches!(
+            result,
+            CoverFetchResult::Downloaded {
+                identity: actual,
+                ..
+            } if actual == identity
+        ));
     }
 }

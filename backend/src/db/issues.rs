@@ -4,6 +4,17 @@ use crate::models::series::{Issue, IssueResponse};
 use sqlx::{MySqlConnection, MySqlPool};
 
 /// Complete issue metadata written as one atomic replacement.
+pub enum CoverUpdate<'a> {
+    Keep,
+    Set {
+        local_path: &'a str,
+        source_file: &'a str,
+        source_sha1: &'a str,
+        source_updated_at: chrono::NaiveDateTime,
+    },
+    Clear,
+}
+
 pub struct IssueMetadataUpdate<'a> {
     pub series_id: u32,
     pub issue_number: u32,
@@ -12,8 +23,7 @@ pub struct IssueMetadataUpdate<'a> {
     pub part_number: Option<u32>,
     pub part_total: Option<u32>,
     pub cycle: Option<&'a str>,
-    pub cover_url: Option<&'a str>,
-    pub cover_local_path: Option<&'a str>,
+    pub cover: CoverUpdate<'a>,
     pub source_key: &'a str,
     pub source_record_id: &'a str,
     pub source_wiki_url: Option<&'a str>,
@@ -35,7 +45,8 @@ pub async fn find_issues_by_series(
 
     sqlx::query_as::<_, Issue>(
         "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
-         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url, \
+         cover_url, cover_local_path, cover_source_file, cover_source_sha1, \
+         cover_source_updated_at, source_key, source_record_id, source_wiki_url, \
          metadata_synced_at, created_at \
          FROM issues WHERE series_id = ? ORDER BY issue_number LIMIT ? OFFSET ?",
     )
@@ -52,7 +63,8 @@ pub async fn find_all_issues_by_series(
 ) -> Result<Vec<Issue>, sqlx::Error> {
     sqlx::query_as::<_, Issue>(
         "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
-         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url, \
+         cover_url, cover_local_path, cover_source_file, cover_source_sha1, \
+         cover_source_updated_at, source_key, source_record_id, source_wiki_url, \
          metadata_synced_at, created_at \
          FROM issues WHERE series_id = ? ORDER BY issue_number",
     )
@@ -67,7 +79,8 @@ pub async fn find_issue_by_id(
 ) -> Result<Option<Issue>, sqlx::Error> {
     sqlx::query_as::<_, Issue>(
         "SELECT id, series_id, issue_number, title, published_at, part_number, part_total, cycle, \
-         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url, \
+         cover_url, cover_local_path, cover_source_file, cover_source_sha1, \
+         cover_source_updated_at, source_key, source_record_id, source_wiki_url, \
          metadata_synced_at, created_at \
          FROM issues WHERE id = ?",
     )
@@ -93,6 +106,7 @@ pub async fn replace_issue_metadata(
 ) -> Result<u32, sqlx::Error> {
     let mut transaction = pool.begin().await?;
     let issue_id = upsert_issue(&mut transaction, update).await?;
+    apply_cover_update(&mut transaction, issue_id, &update.cover).await?;
     set_issue_persons(&mut transaction, issue_id, update.authors, "author").await?;
     set_issue_persons(
         &mut transaction,
@@ -132,13 +146,11 @@ async fn upsert_issue(
 
     sqlx::query(
         "INSERT INTO issues (series_id, issue_number, title, published_at, part_number, part_total, cycle, \
-         cover_url, cover_local_path, source_key, source_record_id, source_wiki_url) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         source_key, source_record_id, source_wiki_url) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          ON DUPLICATE KEY UPDATE title = VALUES(title), \
          published_at = VALUES(published_at), part_number = VALUES(part_number), \
          part_total = VALUES(part_total), cycle = VALUES(cycle), \
-         cover_url = COALESCE(VALUES(cover_url), cover_url), \
-         cover_local_path = COALESCE(VALUES(cover_local_path), cover_local_path), \
          source_key = VALUES(source_key), source_record_id = VALUES(source_record_id), \
          source_wiki_url = VALUES(source_wiki_url)",
     )
@@ -149,8 +161,6 @@ async fn upsert_issue(
     .bind(update.part_number)
     .bind(update.part_total)
     .bind(update.cycle)
-    .bind(update.cover_url)
-    .bind(update.cover_local_path)
     .bind(update.source_key)
     .bind(update.source_record_id)
     .bind(update.source_wiki_url)
@@ -164,6 +174,46 @@ async fn upsert_issue(
             .fetch_one(&mut *connection)
             .await?;
     Ok(row.0)
+}
+
+async fn apply_cover_update(
+    connection: &mut MySqlConnection,
+    issue_id: u32,
+    update: &CoverUpdate<'_>,
+) -> Result<(), sqlx::Error> {
+    match update {
+        CoverUpdate::Keep => Ok(()),
+        CoverUpdate::Set {
+            local_path,
+            source_file,
+            source_sha1,
+            source_updated_at,
+        } => {
+            sqlx::query(
+                "UPDATE issues SET cover_url = NULL, cover_local_path = ?, cover_source_file = ?, \
+                 cover_source_sha1 = ?, cover_source_updated_at = ? WHERE id = ?",
+            )
+            .bind(local_path)
+            .bind(source_file)
+            .bind(source_sha1)
+            .bind(source_updated_at)
+            .bind(issue_id)
+            .execute(connection)
+            .await?;
+            Ok(())
+        }
+        CoverUpdate::Clear => {
+            sqlx::query(
+                "UPDATE issues SET cover_url = NULL, cover_local_path = NULL, \
+                 cover_source_file = NULL, cover_source_sha1 = NULL, \
+                 cover_source_updated_at = NULL WHERE id = ?",
+            )
+            .bind(issue_id)
+            .execute(connection)
+            .await?;
+            Ok(())
+        }
+    }
 }
 
 /// Return all issue numbers already stored for a given series.

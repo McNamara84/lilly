@@ -1,12 +1,11 @@
 use async_trait::async_trait;
 use reqwest::Client;
-use scraper::{Html, Selector};
 use std::time::Duration;
 
-use crate::cover_image::download_cover_image;
-use crate::http::parse_json;
+use crate::cover_image::{CoverReference, cover_reference_from_page, download_cover_image};
+use crate::http::{parse_json, validate_mediawiki_response};
 use lilly_importer_core::{
-    AdapterError, CoverData, IssueData, SeriesData, SeriesStatus, SourceDescriptor,
+    AdapterError, CoverFetchResult, IssueData, SeriesData, SeriesStatus, SourceDescriptor,
     SourceReference, WikiAdapter,
 };
 
@@ -245,7 +244,7 @@ impl WikiAdapter for MaddraxAdapter {
     }
 
     fn version(&self) -> &'static str {
-        "0.9"
+        "1.0"
     }
 
     fn source_descriptor(&self) -> SourceDescriptor {
@@ -380,11 +379,15 @@ impl WikiAdapter for MaddraxAdapter {
         ))
     }
 
-    async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+    async fn fetch_cover(
+        &self,
+        issue_number: u32,
+        known_source_sha1: Option<&str>,
+    ) -> Result<CoverFetchResult, AdapterError> {
         self.rate_limit().await;
 
         let url = format!(
-            "{}/api.php?action=parse&page={}&prop=text&redirects=1&format=json",
+            "{}/api.php?action=query&generator=images&titles={}&redirects=1&gimlimit=max&prop=imageinfo&iiprop=url%7Csha1%7Ctimestamp&format=json&formatversion=2",
             self.request_base_url,
             urlencoding::encode(&format!("Quelle:MX{issue_number}"))
         );
@@ -392,18 +395,20 @@ impl WikiAdapter for MaddraxAdapter {
         let response = self.client.get(&url).send().await?.error_for_status()?;
         let json = parse_json(response).await?;
 
-        let html = json["parse"]["text"]["*"]
-            .as_str()
-            .ok_or_else(|| AdapterError::Parse("Missing parse.text in API response".to_string()))?;
-
-        // Extract image URL synchronously to avoid holding Html across await
-        let img_url = extract_cover_url(html);
-
-        let Some(img_url) = img_url else {
-            return Ok(None);
+        let Some(reference) = extract_cover_reference(&json, issue_number)? else {
+            return Ok(CoverFetchResult::Missing);
         };
 
-        download_cover_image(&self.client, &img_url).await.map(Some)
+        if known_source_sha1 == Some(reference.identity.source_sha1.as_str()) {
+            return Ok(CoverFetchResult::Unchanged(reference.identity));
+        }
+
+        let data = download_cover_image(&self.client, &reference.download_url).await?;
+
+        Ok(CoverFetchResult::Downloaded {
+            data,
+            identity: reference.identity,
+        })
     }
 }
 
@@ -520,31 +525,42 @@ fn parse_multipart_and_notes(raw: &str) -> (Option<u32>, Option<u32>, Vec<String
     (part_number, part_total, notes)
 }
 
-fn extract_cover_url(html: &str) -> Option<String> {
-    let document = Html::parse_document(html);
-    let selectors = [
-        "img.mw-file-element",
-        "img.thumbimage",
-        ".infobox img",
-        "table.wikitable img",
-    ];
-
-    for sel_str in &selectors {
-        if let Ok(sel) = Selector::parse(sel_str)
-            && let Some(img) = document.select(&sel).next()
-            && let Some(src) = img.value().attr("src")
-        {
-            let url = if src.starts_with("//") {
-                format!("https:{src}")
-            } else if src.starts_with('/') {
-                format!("{MADDRAXIKON_BASE}{src}")
-            } else {
-                src.to_string()
-            };
-            return Some(url);
-        }
+fn extract_cover_reference(
+    json: &serde_json::Value,
+    issue_number: u32,
+) -> Result<Option<CoverReference>, AdapterError> {
+    validate_mediawiki_response(json)?;
+    let Some(pages) = json["query"]["pages"].as_array() else {
+        return Ok(None);
+    };
+    let candidates = pages
+        .iter()
+        .filter(|page| {
+            page["title"]
+                .as_str()
+                .is_some_and(|title| is_issue_cover_title(title, issue_number))
+        })
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return Ok(None);
     }
-    None
+    if candidates.len() > 1 {
+        return Err(AdapterError::Parse(format!(
+            "Issue {issue_number} has multiple canonical cover candidates"
+        )));
+    }
+    cover_reference_from_page(candidates[0]).map(Some)
+}
+
+fn is_issue_cover_title(title: &str, issue_number: u32) -> bool {
+    let file_name = title.rsplit(':').next().unwrap_or(title);
+    let Some((stem, extension)) = file_name.rsplit_once('.') else {
+        return false;
+    };
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "jpg" | "jpeg" | "png" | "webp"
+    ) && stem.eq_ignore_ascii_case(&format!("{issue_number:03}tibi"))
 }
 
 fn parse_german_date(s: &str) -> Option<chrono::NaiveDate> {
@@ -586,6 +602,14 @@ fn parse_german_date(s: &str) -> Option<chrono::NaiveDate> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
     use super::*;
 
     #[test]
@@ -603,7 +627,7 @@ mod tests {
     #[test]
     fn test_adapter_version() {
         let adapter = MaddraxAdapter::new().unwrap();
-        assert_eq!(adapter.version(), "0.9");
+        assert_eq!(adapter.version(), "1.0");
     }
 
     #[test]
@@ -793,36 +817,150 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_cover_url_mw_file_element() {
-        let html = r#"<td><a href="/index.php?title=Datei:001tibi.jpg" class="mw-file-description"><img src="/images/thumb/1/10/001tibi.jpg/200px-001tibi.jpg" class="mw-file-element" /></a></td>"#;
-        let result = extract_cover_url(html);
+    fn structured_cover_selection_rejects_unrelated_images_and_order() {
+        for issue_number in [5, 18, 35, 38] {
+            let expected = format!("{issue_number:03}tibi.jpg");
+            let response = cover_query_fixture(&[
+                image_page("Disambig-dark.jpg", "1"),
+                image_page(&format!("Tibi{issue_number:03}skizze.jpg"), "2"),
+                image_page(&expected, "3"),
+                image_page(&format!("{issue_number:03}tibi-bulgarien.jpg"), "4"),
+            ]);
+
+            let reference = extract_cover_reference(&response, issue_number)
+                .unwrap()
+                .unwrap();
+            assert_eq!(reference.identity.file_name, expected);
+        }
+    }
+
+    #[test]
+    fn structured_cover_selection_is_independent_of_page_order() {
+        let first = cover_query_fixture(&[
+            image_page("Disambig-dark.jpg", "1"),
+            image_page("005tibi.jpg", "2"),
+        ]);
+        let second = cover_query_fixture(&[
+            image_page("005tibi.jpg", "2"),
+            image_page("Disambig-dark.jpg", "1"),
+        ]);
+
         assert_eq!(
-            result,
-            Some(format!(
-                "{MADDRAXIKON_BASE}/images/thumb/1/10/001tibi.jpg/200px-001tibi.jpg"
-            ))
+            extract_cover_reference(&first, 5).unwrap(),
+            extract_cover_reference(&second, 5).unwrap()
         );
     }
 
     #[test]
-    fn test_extract_cover_url_thumbimage() {
-        let html = r#"<div><img class="thumbimage" src="//example.com/cover.jpg" /></div>"#;
-        let result = extract_cover_url(html);
-        assert_eq!(result, Some("https://example.com/cover.jpg".to_string()));
+    fn structured_cover_selection_requires_exactly_one_canonical_candidate() {
+        let missing = cover_query_fixture(&[
+            image_page("Disambig-dark.jpg", "1"),
+            image_page("Tibi005skizze.jpg", "2"),
+            image_page("005tibi-bulgarien.jpg", "3"),
+        ]);
+        assert_eq!(extract_cover_reference(&missing, 5).unwrap(), None);
+
+        let ambiguous = cover_query_fixture(&[
+            image_page("005tibi.jpg", "1"),
+            image_page("005tibi.png", "2"),
+        ]);
+        assert!(matches!(
+            extract_cover_reference(&ambiguous, 5),
+            Err(AdapterError::Parse(message)) if message.contains("multiple canonical")
+        ));
     }
 
     #[test]
-    fn test_extract_cover_url_relative() {
-        let html = r#"<div class="infobox"><img src="/images/cover.jpg" /></div>"#;
-        let result = extract_cover_url(html);
-        assert_eq!(result, Some(format!("{MADDRAXIKON_BASE}/images/cover.jpg")));
+    fn cover_title_matching_is_strict_and_supports_later_issues() {
+        assert!(is_issue_cover_title("Datei:001tibi.jpg", 1));
+        assert!(is_issue_cover_title("File:409TIBI.WEBP", 409));
+        assert!(!is_issue_cover_title("Datei:Disambig-dark.jpg", 5));
+        assert!(!is_issue_cover_title("Datei:Tibi005skizze.jpg", 5));
+        assert!(!is_issue_cover_title("Datei:005tibi-bulgarien.jpg", 5));
+        assert!(!is_issue_cover_title("Datei:006tibi.jpg", 5));
+        assert!(!is_issue_cover_title("Datei:005tibi.gif", 5));
     }
 
-    #[test]
-    fn test_extract_cover_url_none() {
-        let html = r"<div><p>No images here</p></div>";
-        let result = extract_cover_url(html);
-        assert!(result.is_none());
+    #[tokio::test]
+    async fn known_source_sha1_skips_only_the_image_download() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let image_downloads = Arc::new(AtomicUsize::new(0));
+        let server_downloads = image_downloads.clone();
+        let mut encoded_image = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(ImageBuffer::from_pixel(1, 1, Rgba([20, 40, 60, 255])))
+            .write_to(&mut encoded_image, ImageFormat::Png)
+            .unwrap();
+        let encoded_image = encoded_image.into_inner();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut request = vec![0_u8; 8 * 1024];
+                let length = stream.read(&mut request).await.unwrap();
+                let request = String::from_utf8_lossy(&request[..length]);
+                let (content_type, body) = if request.starts_with("GET /cover.png ") {
+                    server_downloads.fetch_add(1, Ordering::SeqCst);
+                    ("image/png", encoded_image.clone())
+                } else {
+                    let body = serde_json::json!({
+                        "query": { "pages": [{
+                            "title": "Datei:005tibi.png",
+                            "imageinfo": [{
+                                "url": format!("http://{address}/cover.png"),
+                                "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "timestamp": "2026-08-14T12:00:00Z"
+                            }]
+                        }] }
+                    })
+                    .to_string()
+                    .into_bytes();
+                    ("application/json", body)
+                };
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(headers.as_bytes()).await.unwrap();
+                stream.write_all(&body).await.unwrap();
+            }
+        });
+        let adapter = MaddraxAdapter::new()
+            .unwrap()
+            .with_delay(Duration::ZERO)
+            .with_request_base_url(format!("http://{address}"));
+
+        assert!(matches!(
+            adapter
+                .fetch_cover(5, Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+                .await
+                .unwrap(),
+            CoverFetchResult::Unchanged(_)
+        ));
+        assert_eq!(image_downloads.load(Ordering::SeqCst), 0);
+
+        assert!(matches!(
+            adapter.fetch_cover(5, None).await.unwrap(),
+            CoverFetchResult::Downloaded { .. }
+        ));
+        assert_eq!(image_downloads.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    fn image_page(file_name: &str, sha_digit: &str) -> serde_json::Value {
+        serde_json::json!({
+            "title": format!("Datei:{file_name}"),
+            "imageinfo": [{
+                "url": format!("https://de.maddraxikon.com/images/{file_name}"),
+                "sha1": sha_digit.repeat(40),
+                "timestamp": "2026-08-14T12:00:00Z"
+            }]
+        })
+    }
+
+    fn cover_query_fixture(pages: &[serde_json::Value]) -> serde_json::Value {
+        serde_json::json!({ "query": { "pages": pages } })
     }
 
     #[test]

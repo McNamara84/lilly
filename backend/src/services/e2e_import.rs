@@ -1,7 +1,17 @@
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use lilly_importer_core::adapter::{AdapterError, ReferenceRecord, SourceDescriptor, WikiAdapter};
-use lilly_importer_core::types::{CoverData, IssueData, SeriesData, SeriesStatus, SourceReference};
+use lilly_importer_core::types::{
+    CoverData, CoverFetchResult, CoverIdentity, IssueData, SeriesData, SeriesStatus,
+    SourceReference,
+};
+
+const COVER_SHA1: &str = "e2e0000000000000000000000000000000000000";
+const COVER_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
+    0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 240, 31, 0, 5,
+    0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
 
 const DESCRIPTOR: SourceDescriptor = SourceDescriptor {
     source_key: "e2e-fixture",
@@ -87,8 +97,30 @@ impl WikiAdapter for E2eFixtureAdapter {
         })
     }
 
-    async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
-        Ok(None)
+    async fn fetch_cover(
+        &self,
+        issue_number: u32,
+        known_source_sha1: Option<&str>,
+    ) -> Result<CoverFetchResult, AdapterError> {
+        if issue_number != 1 {
+            return Err(AdapterError::NotFound(format!("cover {issue_number}")));
+        }
+        let identity = CoverIdentity {
+            file_name: "001tibi.png".to_string(),
+            source_sha1: COVER_SHA1.to_string(),
+            source_updated_at: "2026-08-14T12:00:00Z".parse().unwrap(),
+        };
+        if known_source_sha1 == Some(COVER_SHA1) {
+            Ok(CoverFetchResult::Unchanged(identity))
+        } else {
+            Ok(CoverFetchResult::Downloaded {
+                data: CoverData {
+                    bytes: COVER_PNG.to_vec(),
+                    content_type: "image/png".to_string(),
+                },
+                identity,
+            })
+        }
     }
 }
 
@@ -111,7 +143,12 @@ mod tests {
         );
         assert_eq!(adapter.reference_records().len(), 1);
         assert_eq!(adapter.reference_records()[0].issue_number, 1);
-        assert!(adapter.fetch_cover(1).await.unwrap().is_none());
+        let cover = adapter.fetch_cover(1, None).await.unwrap();
+        assert!(matches!(cover, CoverFetchResult::Downloaded { .. }));
+        assert!(matches!(
+            adapter.fetch_cover(1, Some(COVER_SHA1)).await.unwrap(),
+            CoverFetchResult::Unchanged(_)
+        ));
     }
 
     #[tokio::test]

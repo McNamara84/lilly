@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::types::{CoverData, IssueData, SeriesData, SourceReference};
+use crate::types::{CoverFetchResult, IssueData, SeriesData, SourceReference};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceDescriptor {
@@ -91,12 +91,19 @@ pub trait WikiAdapter: Send + Sync {
     /// mandatory field.
     async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError>;
 
-    /// Fetch an optional, sanitized reference cover.
+    /// Resolve and conditionally fetch an optional, sanitized reference cover.
     ///
-    /// `Ok(None)` means the source has no permitted cover; transport or invalid
-    /// image failures must be returned explicitly and are handled as warnings by
-    /// orchestration without discarding valid bibliographic metadata.
-    async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError>;
+    /// [`CoverFetchResult::Missing`] is reserved for a successful source response
+    /// that authoritatively contains no canonical cover. When `known_source_sha1`
+    /// matches the current source revision, adapters return
+    /// [`CoverFetchResult::Unchanged`] without downloading the image body. Every
+    /// adapter error, including [`AdapterError::NotFound`], must be returned
+    /// explicitly and is handled without discarding a previously stored cover.
+    async fn fetch_cover(
+        &self,
+        issue_number: u32,
+        known_source_sha1: Option<&str>,
+    ) -> Result<CoverFetchResult, AdapterError>;
 }
 
 pub struct AdapterRegistry {
@@ -377,8 +384,12 @@ mod tests {
                 },
             })
         }
-        async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
-            Ok(None)
+        async fn fetch_cover(
+            &self,
+            _issue_number: u32,
+            _known_source_sha1: Option<&str>,
+        ) -> Result<CoverFetchResult, AdapterError> {
+            Ok(CoverFetchResult::Missing)
         }
     }
 
@@ -451,10 +462,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mock_adapter_fetch_cover_returns_none() {
+    async fn test_mock_adapter_fetch_cover_returns_missing() {
         let adapter = MockAdapter;
-        let cover = adapter.fetch_cover(1).await.unwrap();
-        assert!(cover.is_none());
+        let cover = adapter.fetch_cover(1, None).await.unwrap();
+        assert_eq!(cover, CoverFetchResult::Missing);
     }
 
     #[tokio::test]

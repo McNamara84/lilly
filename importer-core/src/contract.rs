@@ -3,8 +3,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    AdapterError, WikiAdapter, normalize_and_validate_issue, normalize_and_validate_series,
-    validate_reference_record,
+    AdapterError, CoverFetchResult, WikiAdapter, normalize_and_validate_issue,
+    normalize_and_validate_series, validate_reference_record,
 };
 
 /// Exercise the source-independent success and idempotency contract.
@@ -55,13 +55,24 @@ pub async fn verify_adapter_contract(adapter: &dyn WikiAdapter) -> Result<(), Ad
             )));
         }
 
-        let first_cover = adapter.fetch_cover(reference.issue_number).await?;
-        let second_cover = adapter.fetch_cover(reference.issue_number).await?;
+        let first_cover = adapter.fetch_cover(reference.issue_number, None).await?;
+        let second_cover = adapter.fetch_cover(reference.issue_number, None).await?;
         if first_cover != second_cover {
             return Err(contract_error(&format!(
                 "cover {} is not idempotent",
                 reference.issue_number
             )));
+        }
+        if let CoverFetchResult::Downloaded { identity, .. } = &first_cover {
+            let unchanged = adapter
+                .fetch_cover(reference.issue_number, Some(&identity.source_sha1))
+                .await?;
+            if unchanged != CoverFetchResult::Unchanged(identity.clone()) {
+                return Err(contract_error(&format!(
+                    "cover {} ignores its known source revision",
+                    reference.issue_number
+                )));
+            }
         }
     }
 
@@ -92,8 +103,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        CoverData, IssueData, ReferenceRecord, SeriesData, SeriesStatus, SourceDescriptor,
-        SourceReference,
+        CoverData, CoverIdentity, IssueData, ReferenceRecord, SeriesData, SeriesStatus,
+        SourceDescriptor, SourceReference,
     };
 
     const DESCRIPTOR: SourceDescriptor = SourceDescriptor {
@@ -219,15 +230,33 @@ mod tests {
             })
         }
 
-        async fn fetch_cover(&self, _issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+        async fn fetch_cover(
+            &self,
+            _issue_number: u32,
+            known_source_sha1: Option<&str>,
+        ) -> Result<CoverFetchResult, AdapterError> {
             let call = self.cover_calls.fetch_add(1, Ordering::SeqCst);
             if self.mode == FailureMode::ChangingCover && call > 0 {
-                Ok(Some(CoverData {
-                    bytes: vec![1, 2, 3],
-                    content_type: "image/png".to_string(),
-                }))
+                let identity = CoverIdentity {
+                    file_name: "001tibi.png".to_string(),
+                    source_sha1: "1111111111111111111111111111111111111111".to_string(),
+                    source_updated_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+                        .unwrap()
+                        .with_timezone(&chrono::Utc),
+                };
+                if known_source_sha1 == Some(identity.source_sha1.as_str()) {
+                    Ok(CoverFetchResult::Unchanged(identity))
+                } else {
+                    Ok(CoverFetchResult::Downloaded {
+                        data: CoverData {
+                            bytes: vec![1, 2, 3],
+                            content_type: "image/png".to_string(),
+                        },
+                        identity,
+                    })
+                }
             } else {
-                Ok(None)
+                Ok(CoverFetchResult::Missing)
             }
         }
     }

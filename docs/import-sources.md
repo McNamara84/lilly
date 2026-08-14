@@ -28,7 +28,37 @@ Pflichtfelder sind Heftnummer, Titel, mindestens ein Autor, Ersterscheinungsdatu
 
 Jeder manuelle und geplante Lauf liest die aktuelle Quellliste vollständig und vergleicht jedes gemeldete Heft kanonisch mit MariaDB. Das Ergebnis ist genau eine der Kategorien `created`, `updated`, `unchanged`, `skipped` oder `failed`. Zukünftige Hefte werden zentral als `skipped` gezählt. Hefte, die nur lokal vorkommen, werden protokolliert, aber weder gelöscht noch deaktiviert.
 
-Cover werden nur für neue Hefte oder bei fehlendem lokalem Cover geladen. Ein Coverfehler wird mit Quellenkontext gespeichert, verhindert aber nicht das Schreiben valider bibliografischer Metadaten. Beide Adapter warten standardmäßig 500 ms zwischen Wiki-Zugriffen. Transiente Transportfehler sowie HTTP 408, 429 und 5xx werden sowohl bei der vollständigen Quellliste als auch bei Heftdetails höchstens dreimal versucht; erst der letzte fehlgeschlagene Listenversuch beendet den Lauf und wird als Fehler der Phase `list` gespeichert. Andere HTTP-4xx-, Parse-, Validierungs- und sonstige nicht transiente Fehler werden nicht wiederholt.
+Cover werden bei jedem Vollabgleich über strukturierte MediaWiki-Daten geprüft. Die lokal
+gespeicherte technische Dateiidentität besteht aus Dateiname, MediaWiki-SHA-1 und
+Quellzeitstempel. Stimmt die bekannte SHA-1 mit der Quelle überein, wird die Bilddatei nicht
+erneut geladen. Bestehende Cover ohne diese Identität werden beim ersten Lauf nach dem
+Deployment einmalig neu geprüft und damit gegebenenfalls korrigiert. Nur ein erfolgreicher
+Quellabruf mit `CoverFetchResult::Missing` bestätigt, dass kein kanonisches Cover vorhanden
+ist, und entfernt die alte gemeinsame Referenz. Bei jedem Adapterfehler – einschließlich
+`NotFound`, MediaWiki-API-, Transport-, Format- und Speicherfehlern – bleibt das zuletzt
+funktionierende Cover erhalten. Coverfehler werden mit Quellenkontext gespeichert,
+verhindern aber nicht das Schreiben valider bibliografischer Metadaten.
+
+Für Maddrax ist ausschließlich ein auf der aufgelösten Heftseite eingebundenes Bild mit dem
+exakten Basisnamen `<dreistellige Heftnummer>tibi` und der Endung JPEG, PNG oder WebP ein
+Coverkandidat, beispielsweise `005tibi.jpg`. Hinweisgrafiken wie `Disambig-dark.jpg`,
+Skizzen, Rückseiten und Übersetzungsvarianten werden nicht berücksichtigt. Bei keinem oder
+mehreren exakten Kandidaten wird kein Cover ausgewählt; die bibliografischen Daten werden
+mit einer Coverwarnung weiter importiert. Ein nicht mehr vorhandener Kandidat entfernt eine
+alte Referenz, während bei mehreren widersprüchlichen Kandidaten das zuletzt funktionierende
+Cover erhalten bleibt.
+
+In der John-Sinclair-Übersicht sind ASCII-Bindestrich (`-`), Gedankenstrich (`–`) und
+Geviertstrich (`—`) als Trenner zwischen Nummer und Titel erlaubt. Die angezeigte Nummer
+muss weiterhin exakt zur Nummer im kanonischen Linkziel passen. Fehlende kanonische Links,
+Nummerabweichungen und mehrdeutige Zeilen bleiben blockierende Listenfehler.
+
+Beide Adapter warten standardmäßig 500 ms zwischen Wiki-Zugriffen. Transiente
+Transportfehler sowie HTTP 408, 429 und 5xx werden sowohl bei der vollständigen Quellliste
+als auch bei Heftdetails höchstens dreimal versucht; erst der letzte fehlgeschlagene
+Listenversuch beendet den Lauf und wird als Fehler der Phase `list` gespeichert. Andere
+HTTP-4xx-, Parse-, Validierungs- und sonstige nicht transiente Fehler werden nicht
+wiederholt.
 
 ## Betrieb und Recovery
 

@@ -36,7 +36,7 @@ Die Implementierung kommt in `importer-adapters/src/adapters/<name>.rs` und erf�
 ```rust
 use async_trait::async_trait;
 use lilly_importer_core::{
-    AdapterError, CoverData, IssueData, SeriesData, SourceDescriptor, WikiAdapter,
+    AdapterError, CoverFetchResult, IssueData, SeriesData, SourceDescriptor, WikiAdapter,
 };
 
 pub struct ExampleAdapter;
@@ -60,11 +60,22 @@ impl WikiAdapter for ExampleAdapter {
         todo!()
     }
 
-    async fn fetch_cover(&self, number: u32) -> Result<Option<CoverData>, AdapterError> {
+    async fn fetch_cover(
+        &self,
+        number: u32,
+        known_source_sha1: Option<&str>,
+    ) -> Result<CoverFetchResult, AdapterError> {
         todo!()
     }
 }
 ```
+
+Der Cover-Abruf löst zuerst die technische Dateiidentität auf. Nur eine erfolgreiche,
+eindeutige Quellantwort ohne kanonischen Kandidaten liefert `CoverFetchResult::Missing`; bei
+passender `known_source_sha1` folgt `CoverFetchResult::Unchanged`, andernfalls `Downloaded`
+mit Bilddaten und Identität. Mehrdeutige Antworten und alle Abruffehler müssen als
+`AdapterError` zurückgegeben werden, damit die Orchestrierung ein vorhandenes Cover behält.
+So kann sie Altbestände korrigieren, ohne unveränderte Bilddateien erneut zu laden.
 
 Pflichtfelder eines Hefts sind positive Heftnummer, Titel, mindestens ein Autor,
 Erscheinungsdatum und vollständige Provenienz. Adapter liefern Transportfehler als

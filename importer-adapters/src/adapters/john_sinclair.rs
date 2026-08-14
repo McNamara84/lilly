@@ -7,10 +7,10 @@ use chrono::NaiveDate;
 use chrono::Utc;
 use reqwest::Client;
 
-use crate::cover_image::download_cover_image;
-use crate::http::parse_json;
+use crate::cover_image::{CoverReference, cover_reference_from_page, download_cover_image};
+use crate::http::{parse_json, validate_mediawiki_response};
 use lilly_importer_core::{
-    AdapterError, CoverData, IssueData, SeriesData, SeriesStatus, SourceDescriptor,
+    AdapterError, CoverFetchResult, IssueData, SeriesData, SeriesStatus, SourceDescriptor,
     SourceReference, WikiAdapter,
 };
 
@@ -140,8 +140,9 @@ impl JohnSinclairAdapter {
     }
 
     fn parse_overview(wikitext: &str) -> Result<Vec<IssueSummary>, AdapterError> {
-        let title_link = regex::Regex::new(r"\[\[(JS\s+(\d+)\s*-\s*[^|\]]+)(?:\|([^\]]+))?\]\]")
-            .map_err(|error| AdapterError::Parse(format!("Invalid title regex: {error}")))?;
+        let title_link =
+            regex::Regex::new(r"\[\[(JS\s+(\d+)\s*[-–—]\s*[^|\]]+)(?:\|([^\]]+))?\]\]")
+                .map_err(|error| AdapterError::Parse(format!("Invalid title regex: {error}")))?;
         let mut summaries = HashMap::new();
 
         for raw_line in wikitext.lines() {
@@ -178,16 +179,21 @@ impl JohnSinclairAdapter {
                     ))
                 })?;
             if canonical_number != displayed_number {
-                tracing::warn!(
-                    displayed_number,
-                    canonical_number,
-                    "John Sinclair overview number differs from canonical page title"
-                );
+                return Err(AdapterError::Parse(format!(
+                    "Displayed issue number {displayed_number} differs from canonical number \
+                     {canonical_number}"
+                )));
             }
 
             let fallback_title = page_title
-                .split_once('-')
-                .map_or(page_title.as_str(), |(_, title)| title)
+                .find(['-', '–', '—'])
+                .map_or(page_title.as_str(), |separator| {
+                    let separator_length = page_title[separator..]
+                        .chars()
+                        .next()
+                        .map_or(0, char::len_utf8);
+                    &page_title[separator + separator_length..]
+                })
                 .trim();
             let title = captures
                 .get(3)
@@ -250,7 +256,7 @@ impl WikiAdapter for JohnSinclairAdapter {
     }
 
     fn version(&self) -> &'static str {
-        "0.1"
+        "0.2"
     }
 
     fn source_descriptor(&self) -> SourceDescriptor {
@@ -325,7 +331,11 @@ impl WikiAdapter for JohnSinclairAdapter {
         Ok(map_issue_details(summary, &wikitext))
     }
 
-    async fn fetch_cover(&self, issue_number: u32) -> Result<Option<CoverData>, AdapterError> {
+    async fn fetch_cover(
+        &self,
+        issue_number: u32,
+        known_source_sha1: Option<&str>,
+    ) -> Result<CoverFetchResult, AdapterError> {
         self.ensure_index().await?;
         let page_title = self
             .issue_index
@@ -337,19 +347,25 @@ impl WikiAdapter for JohnSinclairAdapter {
 
         self.rate_limit().await;
         let url = format!(
-            "{}/api.php?action=query&generator=images&titles={}&gimlimit=max&prop=imageinfo&iiprop=url&format=json",
+            "{}/api.php?action=query&generator=images&titles={}&gimlimit=max&prop=imageinfo&iiprop=url%7Csha1%7Ctimestamp&format=json&formatversion=2",
             self.request_base_url,
             urlencoding::encode(&page_title)
         );
         let response = self.client.get(url).send().await?.error_for_status()?;
         let json = parse_json(response).await?;
-        let Some(image_url) = extract_cover_url(&json, issue_number) else {
-            return Ok(None);
+        let Some(reference) = extract_cover_reference(&json, issue_number)? else {
+            return Ok(CoverFetchResult::Missing);
         };
 
-        download_cover_image(&self.client, &image_url)
-            .await
-            .map(Some)
+        if known_source_sha1 == Some(reference.identity.source_sha1.as_str()) {
+            return Ok(CoverFetchResult::Unchanged(reference.identity));
+        }
+
+        let data = download_cover_image(&self.client, &reference.download_url).await?;
+        Ok(CoverFetchResult::Downloaded {
+            data,
+            identity: reference.identity,
+        })
     }
 }
 
@@ -493,20 +509,42 @@ fn parse_german_date(value: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value.trim(), "%d.%m.%Y").ok()
 }
 
-fn extract_cover_url(json: &serde_json::Value, issue_number: u32) -> Option<String> {
-    json["query"]["pages"]
-        .as_object()?
-        .values()
-        .find_map(|page| {
-            let title = page["title"].as_str()?;
-            if !is_issue_cover_title(title, issue_number) {
-                return None;
-            }
-            page["imageinfo"]
-                .as_array()?
-                .iter()
-                .find_map(|image_info| image_info["url"].as_str().map(ToString::to_string))
-        })
+fn extract_cover_reference(
+    json: &serde_json::Value,
+    issue_number: u32,
+) -> Result<Option<CoverReference>, AdapterError> {
+    validate_mediawiki_response(json)?;
+    let pages = &json["query"]["pages"];
+    let candidates = if let Some(pages) = pages.as_array() {
+        pages
+            .iter()
+            .filter(|page| {
+                page["title"]
+                    .as_str()
+                    .is_some_and(|title| is_issue_cover_title(title, issue_number))
+            })
+            .collect::<Vec<_>>()
+    } else if let Some(pages) = pages.as_object() {
+        pages
+            .values()
+            .filter(|page| {
+                page["title"]
+                    .as_str()
+                    .is_some_and(|title| is_issue_cover_title(title, issue_number))
+            })
+            .collect::<Vec<_>>()
+    } else {
+        return Ok(None);
+    };
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    if candidates.len() > 1 {
+        return Err(AdapterError::Parse(format!(
+            "Issue {issue_number} has multiple canonical cover candidates"
+        )));
+    }
+    cover_reference_from_page(candidates[0]).map(Some)
 }
 
 fn is_issue_cover_title(title: &str, issue_number: u32) -> bool {
@@ -530,7 +568,7 @@ mod tests {
     #[test]
     fn parse_overview_uses_canonical_number_and_extracts_metadata() {
         let summaries = JohnSinclairAdapter::parse_overview(OVERVIEW_FIXTURE).unwrap();
-        assert_eq!(summaries.len(), 6);
+        assert_eq!(summaries.len(), 7);
         let first = &summaries[0];
         assert_eq!(first.issue_number, 1);
         assert_eq!(first.title, "Im Nachtclub der Vampire");
@@ -540,7 +578,8 @@ mod tests {
             first.published_at,
             Some(NaiveDate::from_ymd_opt(1978, 1, 17).unwrap())
         );
-        assert_eq!(summaries[3].issue_number, 2391);
+        assert_eq!(summaries[3].issue_number, 689);
+        assert_eq!(summaries[4].issue_number, 2391);
     }
 
     #[test]
@@ -555,6 +594,38 @@ mod tests {
             (summaries[0].part_number, summaries[0].part_total),
             (None, None)
         );
+    }
+
+    #[test]
+    fn parse_overview_accepts_supported_title_separators_including_issue_689() {
+        let fixture = "\
+| 688 || [[JS 0688 - Der Kult|Der Kult]] || [[Jason Dark]] || || || 09.09.1991\n\
+| 689 || [[JS 0689 – Draculas Blutuhr|Draculas Blutuhr]] || [[Jason Dark]] || || || 16.09.1991\n\
+| 690 || [[JS 0690 — Leilas Totenzauber|Leilas Totenzauber]] || [[Jason Dark]] || || || 23.09.1991
+| 691 || [[JS 0691 – Das Auge des Dämons]] || [[Jason Dark]] || || || 30.09.1991";
+        let summaries = JohnSinclairAdapter::parse_overview(fixture).unwrap();
+
+        assert_eq!(
+            summaries
+                .iter()
+                .map(|summary| (summary.issue_number, summary.title.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (688, "Der Kult"),
+                (689, "Draculas Blutuhr"),
+                (690, "Leilas Totenzauber"),
+                (691, "Das Auge des Dämons")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_overview_rejects_a_number_mismatch() {
+        let invalid = "| 689 || [[JS 0690 – Draculas Blutuhr|Draculas Blutuhr]] || [[Jason Dark]] || || || 16.09.1991";
+        assert!(matches!(
+            JohnSinclairAdapter::parse_overview(invalid),
+            Err(AdapterError::Parse(message)) if message.contains("differs from canonical")
+        ));
     }
 
     #[test]
@@ -628,37 +699,57 @@ mod tests {
     }
 
     #[test]
-    fn cover_url_is_selected_by_issue_specific_file_title() {
+    fn cover_is_selected_by_issue_specific_file_title() {
         let cover = serde_json::json!({
             "query": { "pages": {
                 "1": {
                     "title": "Datei:Gruselroman-Wiki Logo.png",
-                    "imageinfo": [{ "url": "https://example.test/logo.png" }]
+                    "imageinfo": [{
+                        "url": "https://example.test/logo.png",
+                        "sha1": "1111111111111111111111111111111111111111",
+                        "timestamp": "2026-08-14T12:00:00Z"
+                    }]
                 },
                 "2": {
                     "title": "Datei:JS 2391.jpg",
-                    "imageinfo": [{ "url": "https://example.test/cover.jpg" }]
+                    "imageinfo": [{
+                        "url": "https://example.test/cover.jpg",
+                        "sha1": "2222222222222222222222222222222222222222",
+                        "timestamp": "2026-08-14T12:00:00Z"
+                    }]
                 },
                 "3": {
                     "title": "Datei:JS 2392.jpg",
-                    "imageinfo": [{ "url": "https://example.test/other-cover.jpg" }]
+                    "imageinfo": [{
+                        "url": "https://example.test/other-cover.jpg",
+                        "sha1": "3333333333333333333333333333333333333333",
+                        "timestamp": "2026-08-14T12:00:00Z"
+                    }]
                 }
             } }
         });
         assert_eq!(
-            extract_cover_url(&cover, 2391).as_deref(),
-            Some("https://example.test/cover.jpg")
+            extract_cover_reference(&cover, 2391)
+                .unwrap()
+                .unwrap()
+                .download_url,
+            "https://example.test/cover.jpg"
         );
         assert_eq!(
-            extract_cover_url(
+            extract_cover_reference(
                 &serde_json::json!({ "query": { "pages": {
                     "1": {
                         "title": "Datei:Gruselroman-Wiki Logo.png",
-                        "imageinfo": [{ "url": "https://example.test/logo.png" }]
+                        "imageinfo": [{
+                            "url": "https://example.test/logo.png",
+                            "sha1": "1111111111111111111111111111111111111111",
+                            "timestamp": "2026-08-14T12:00:00Z"
+                        }]
                     }
                 } } }),
                 2391,
-            ),
+            )
+            .unwrap(),
             None
         );
     }
@@ -676,7 +767,7 @@ mod tests {
         let adapter = JohnSinclairAdapter::new().unwrap();
         assert_eq!(adapter.name(), "john-sinclair");
         assert_eq!(adapter.display_name(), "Geisterjäger John Sinclair");
-        assert_eq!(adapter.version(), "0.1");
+        assert_eq!(adapter.version(), "0.2");
         assert_eq!(adapter.delay, Duration::from_millis(DEFAULT_DELAY_MS));
         let descriptor = adapter.source_descriptor();
         assert_eq!(descriptor.source_key, "gruselroman-wiki");
