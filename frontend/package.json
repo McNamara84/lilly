@@ -18,6 +18,7 @@
 		"test:e2e:all": "playwright test --project=chromium --project=firefox --project=webkit",
 		"test:e2e:mobile": "playwright test --project=mobile-chrome",
 		"test:e2e:ui": "playwright test --ui --project=chromium",
+		"test:lighthouse": "lhci autorun --config=./lighthouserc.cjs",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
 		"format": "prettier --write .",
@@ -26,6 +27,7 @@
 	"devDependencies": {
 		"@axe-core/playwright": "^4.12.1",
 		"@eslint/js": "^10.0.1",
+		"@lhci/cli": "^0.15.1",
 		"@playwright/test": "^1.62.1",
 		"@sveltejs/kit": "^2.70.2",
 		"@sveltejs/package": "^2.5.8",
@@ -36,6 +38,7 @@
 		"@vitest/coverage-v8": "^4.1.10",
 		"eslint": "^10.8.1",
 		"eslint-plugin-svelte": "^3.22.0",
+		"fake-indexeddb": "^6.2.5",
 		"globals": "^17.9.0",
 		"jsdom": "^30.0.1",
 		"prettier": "^3.9.6",

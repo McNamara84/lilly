@@ -9,6 +9,7 @@
 		type CollectionPhoto,
 		type PhotoPolicy
 	} from '$lib/api/media';
+	import { getOfflineStatus } from '$lib/offline/status.svelte';
 
 	interface Props {
 		entryId: number;
@@ -32,6 +33,7 @@
 	let uploadController: AbortController | null = null;
 	let deleteController: AbortController | null = null;
 	let viewerReturnFocus: HTMLElement | null = null;
+	const offline = getOfflineStatus();
 
 	const remainingSlots = $derived(Math.max(0, policy.max_photos - photos.length));
 	const acceptedTypes = $derived(policy.allowed_media_types.join(','));
@@ -39,6 +41,7 @@
 
 	$effect(() => {
 		const currentEntryId = entryId;
+		const isOnline = offline.online;
 		const controller = new AbortController();
 		uploadController?.abort();
 		deleteController?.abort();
@@ -52,6 +55,11 @@
 		currentFileName = '';
 		loading = true;
 		message = null;
+		if (!isOnline) {
+			loading = false;
+			showMessage('Eigene Fotos sind offline nicht verfügbar.', 'status');
+			return () => controller.abort();
+		}
 		Promise.all([
 			fetchPhotoPolicy(controller.signal).catch(() => DEFAULT_PHOTO_POLICY),
 			fetchCollectionPhotos(currentEntryId, controller.signal)
@@ -79,7 +87,7 @@
 	});
 
 	function openFilePicker() {
-		if (!uploading && remainingSlots > 0) fileInput?.click();
+		if (offline.online && !uploading && remainingSlots > 0) fileInput?.click();
 	}
 
 	async function handleFileSelection(event: Event) {
@@ -90,16 +98,16 @@
 
 	async function handleDrop(event: DragEvent) {
 		event.preventDefault();
-		if (uploading || remainingSlots === 0) return;
+		if (!offline.online || uploading || remainingSlots === 0) return;
 		await uploadFiles(event.dataTransfer?.files ?? null);
 	}
 
 	function allowDrop(event: DragEvent) {
-		if (!uploading && remainingSlots > 0) event.preventDefault();
+		if (offline.online && !uploading && remainingSlots > 0) event.preventDefault();
 	}
 
 	async function uploadFiles(files: FileList | null) {
-		if (!files?.length || uploading) return;
+		if (!offline.online || !files?.length || uploading) return;
 		const uploadEntryId = entryId;
 		message = null;
 		const candidates = Array.from(files).slice(0, remainingSlots);
@@ -161,7 +169,13 @@
 	}
 
 	async function removePhoto(photo: CollectionPhoto) {
-		if (deletingId !== null || !window.confirm('Dieses Foto wirklich löschen?')) return;
+		if (
+			!offline.online ||
+			deletingId !== null ||
+			!window.confirm('Dieses Foto wirklich löschen?')
+		) {
+			return;
+		}
 		const deleteEntryId = entryId;
 		const controller = new AbortController();
 		deleteController = controller;
@@ -298,7 +312,7 @@
 							type="button"
 							class="absolute right-1 top-1 rounded-md px-2 py-1 text-xs font-semibold cursor-pointer"
 							style="background: rgb(0 0 0 / 75%); color: white;"
-							disabled={deletingId !== null}
+							disabled={!offline.online || deletingId !== null}
 							onclick={() => removePhoto(photo)}
 							aria-label="Foto {photo.sort_order + 1} löschen"
 							data-testid="delete-photo-{photo.id}"
@@ -337,7 +351,7 @@
 			capture="environment"
 			multiple
 			onchange={handleFileSelection}
-			disabled={uploading || remainingSlots === 0}
+			disabled={!offline.online || uploading || remainingSlots === 0}
 			aria-label="Fotos aufnehmen oder auswählen"
 			data-testid="photo-file-input"
 		/>
@@ -346,7 +360,7 @@
 			type="button"
 			class="w-full rounded-lg border-2 border-dashed p-4 text-center transition-colors"
 			style="border-color: var(--glass-border); background: var(--glass); color: var(--text-secondary);"
-			disabled={uploading || remainingSlots === 0}
+			disabled={!offline.online || uploading || remainingSlots === 0}
 			onclick={openFilePicker}
 			ondragover={allowDrop}
 			ondrop={handleDrop}
@@ -367,6 +381,8 @@
 						style={`width: ${progress}%; background: var(--color-brand-500);`}
 					></span>
 				</span>
+			{:else if !offline.online}
+				<span class="text-sm font-medium">Foto-Upload benötigt eine Internetverbindung</span>
 			{:else if remainingSlots === 0}
 				<span class="text-sm font-medium">Alle vier Foto-Slots sind belegt</span>
 			{:else}

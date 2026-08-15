@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+
+use crate::models::series::{IssueResponse, SeriesResponse};
 use validator::Validate;
 
 // ---------------------------------------------------------------------------
@@ -16,6 +18,7 @@ pub struct CollectionEntry {
     pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
+    pub revision: u64,
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
 }
@@ -24,7 +27,7 @@ pub struct CollectionEntry {
 // Request DTOs
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Clone, Deserialize, Serialize, Validate)]
 pub struct AddCollectionEntryRequest {
     pub issue_id: u32,
     pub condition_grade: Option<String>,
@@ -34,12 +37,49 @@ pub struct AddCollectionEntryRequest {
     pub edition_label: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Clone, Deserialize, Serialize, Validate)]
 pub struct UpdateCollectionEntryRequest {
     pub condition_grade: Option<String>,
     pub status: Option<String>,
     pub notes: Option<String>,
     pub edition_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum CollectionSyncMutation {
+    Create {
+        mutation_id: String,
+        entry: AddCollectionEntryRequest,
+    },
+    Update {
+        mutation_id: String,
+        entry_id: u32,
+        base_revision: u64,
+        changes: UpdateCollectionEntryRequest,
+    },
+}
+
+impl CollectionSyncMutation {
+    pub fn mutation_id(&self) -> &str {
+        match self {
+            Self::Create { mutation_id, .. } | Self::Update { mutation_id, .. } => mutation_id,
+        }
+    }
+
+    pub const fn operation(&self) -> &'static str {
+        match self {
+            Self::Create { .. } => "create",
+            Self::Update { .. } => "update",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CollectionSyncRequest {
+    pub mutations: Vec<CollectionSyncMutation>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -73,7 +113,7 @@ const fn default_per_page() -> u32 {
 // Response DTOs
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CollectionEntryResponse {
     pub id: u32,
     pub issue_id: u32,
@@ -89,8 +129,43 @@ pub struct CollectionEntryResponse {
     pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
+    pub revision: Option<u64>,
     pub created_at: Option<chrono::NaiveDateTime>,
     pub updated_at: Option<chrono::NaiveDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OfflineCollectionSnapshotResponse {
+    pub schema_version: u8,
+    pub snapshot_version: String,
+    pub user_id: u32,
+    pub generated_at: chrono::DateTime<chrono::Utc>,
+    pub series: Vec<SeriesResponse>,
+    pub issues: Vec<IssueResponse>,
+    pub collection_entries: Vec<CollectionEntryResponse>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CollectionSyncStatus {
+    Applied,
+    AlreadyApplied,
+    Conflict,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CollectionSyncResult {
+    pub mutation_id: String,
+    pub status: CollectionSyncStatus,
+    pub entry: Option<CollectionEntryResponse>,
+    pub error: Option<String>,
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CollectionSyncResponse {
+    pub results: Vec<CollectionSyncResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -139,6 +214,7 @@ pub struct CollectionEntryRow {
     pub condition_grade: Option<String>,
     pub status: String,
     pub notes: Option<String>,
+    pub revision: u64,
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
     pub issue_number: u32,
@@ -167,6 +243,7 @@ impl From<&CollectionEntryRow> for CollectionEntryResponse {
             condition_grade: r.condition_grade.clone(),
             status: r.status.clone(),
             notes: r.notes.clone(),
+            revision: Some(r.revision),
             created_at: Some(r.created_at),
             updated_at: Some(r.updated_at),
         }
@@ -190,6 +267,26 @@ const VALID_COLLECTION_SORTS: &[&str] = &[
 const VALID_SORT_DIRECTIONS: &[&str] = &["asc", "desc"];
 pub const MAX_COLLECTION_NOTE_LENGTH: usize = 10_000;
 pub const MAX_EDITION_LABEL_LENGTH: usize = 120;
+pub const MAX_SYNC_MUTATIONS: usize = 100;
+
+pub fn validate_mutation_id(mutation_id: &str) -> Result<(), String> {
+    let bytes = mutation_id.as_bytes();
+    if bytes.len() != 36 {
+        return Err("mutation_id must be a UUID".to_string());
+    }
+
+    for (index, byte) in bytes.iter().enumerate() {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            if *byte != b'-' {
+                return Err("mutation_id must be a UUID".to_string());
+            }
+        } else if !byte.is_ascii_hexdigit() {
+            return Err("mutation_id must be a UUID".to_string());
+        }
+    }
+
+    Ok(())
+}
 
 pub fn validate_condition_grade(grade: &str) -> Result<(), String> {
     if VALID_CONDITION_GRADES.contains(&grade) {
@@ -422,6 +519,7 @@ mod tests {
             condition_grade: Some("Z2".to_string()),
             status: "owned".to_string(),
             notes: Some("Nice copy".to_string()),
+            revision: 7,
             created_at: chrono::NaiveDateTime::default(),
             updated_at: chrono::NaiveDateTime::default(),
             issue_number: 42,
@@ -442,6 +540,7 @@ mod tests {
         assert_eq!(response.notes, Some("Nice copy".to_string()));
         assert_eq!(response.copy_number, Some(1));
         assert_eq!(response.edition_label.as_deref(), Some("1. Auflage"));
+        assert_eq!(response.revision, Some(7));
         assert!(response.created_at.is_some());
         assert!(response.updated_at.is_some());
     }
@@ -472,5 +571,33 @@ mod tests {
         assert!(req.condition_grade.is_none());
         assert!(req.status.is_none());
         assert!(req.notes.is_none());
+    }
+
+    #[test]
+    fn mutation_id_accepts_uuid_shape_and_rejects_other_values() {
+        assert!(validate_mutation_id("18b89e92-36d8-4e12-a5c2-6f79a78fb929").is_ok());
+        assert!(validate_mutation_id("18B89E92-36D8-4E12-A5C2-6F79A78FB929").is_ok());
+        assert!(validate_mutation_id("not-a-uuid").is_err());
+        assert!(validate_mutation_id("18b89e9236d84e12a5c26f79a78fb9290000").is_err());
+        assert!(validate_mutation_id("18b89e92_36d8-4e12-a5c2-6f79a78fb929").is_err());
+    }
+
+    #[test]
+    fn sync_mutation_exposes_stable_identity_and_operation() {
+        let mutation: CollectionSyncMutation = serde_json::from_str(
+            r#"{
+                "operation": "update",
+                "mutation_id": "18b89e92-36d8-4e12-a5c2-6f79a78fb929",
+                "entry_id": 42,
+                "base_revision": 3,
+                "changes": {"condition_grade": "Z2"}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            mutation.mutation_id(),
+            "18b89e92-36d8-4e12-a5c2-6f79a78fb929"
+        );
+        assert_eq!(mutation.operation(), "update");
     }
 }

@@ -1,4 +1,18 @@
 import type { ConditionGrade } from '$lib/collection/conditions';
+import {
+	getCachedProfile,
+	listStoredCollectionEntries,
+	mergeCollectionEntries,
+	replaceOfflineSnapshot
+} from '$lib/offline/database';
+import {
+	queueCollectionCreate,
+	queueCollectionUpdate,
+	readLocalCollection,
+	synchronizeCollection
+} from '$lib/offline/collection';
+import { isNetworkFailure } from '$lib/offline/network';
+import type { CollectionSyncResponse, OfflineSnapshot } from '$lib/offline/types';
 
 const API_BASE = '/api/v1';
 
@@ -21,8 +35,10 @@ export interface CollectionEntry {
 	condition_grade: ConditionGrade | null;
 	status: CollectionStatus;
 	notes: string | null;
+	revision?: number | null;
 	created_at: string | null;
 	updated_at: string | null;
+	sync_state?: 'pending' | 'synced' | 'conflict';
 }
 
 export interface PaginatedCollection {
@@ -67,6 +83,7 @@ export interface UpdateCollectionEntryRequest {
 	status?: PersistedCollectionStatus;
 	notes?: string;
 	edition_label?: string;
+	base_revision?: number;
 }
 
 export type PersistedCollectionStatus = 'owned' | 'duplicate' | 'wanted';
@@ -93,15 +110,28 @@ export interface CollectionQueryParams {
 // Helpers
 // ---------------------------------------------------------------------------
 
+export class CollectionApiError extends Error {
+	constructor(
+		message: string,
+		public readonly status: number,
+		public readonly code?: string
+	) {
+		super(message);
+		this.name = 'CollectionApiError';
+	}
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
 	if (!response.ok) {
 		const errorBody = await response
 			.json()
 			.catch(() => ({ error: 'An unexpected error occurred' }));
-		throw new Error(
+		throw new CollectionApiError(
 			typeof errorBody?.error === 'string' && errorBody.error
 				? errorBody.error
-				: 'An unexpected error occurred'
+				: 'An unexpected error occurred',
+			response.status,
+			typeof errorBody?.code === 'string' ? errorBody.code : undefined
 		);
 	}
 	return response.json();
@@ -130,8 +160,23 @@ export async function fetchCollection(
 	const qs = buildQueryString(params);
 	const init: RequestInit = { credentials: 'same-origin' };
 	if (signal) init.signal = signal;
-	const response = await fetch(`${API_BASE}/me/collection${qs}`, init);
-	return handleResponse<PaginatedCollection>(response);
+	try {
+		const response = await fetch(`${API_BASE}/me/collection${qs}`, init);
+		const result = await handleResponse<PaginatedCollection>(response);
+		const profile = await getCachedProfile().catch(() => null);
+		if (profile) {
+			void mergeCollectionEntries(
+				profile.id,
+				result.data.filter((entry) => entry.id > 0)
+			).catch(() => undefined);
+		}
+		return result;
+	} catch (error) {
+		if (!isNetworkFailure(error)) throw error;
+		const profile = await getCachedProfile().catch(() => null);
+		if (!profile) throw error;
+		return readLocalCollection(profile.id, params);
+	}
 }
 
 async function fetchAllCollectionPages(
@@ -156,9 +201,40 @@ export async function fetchAllCollectionEntries(seriesSlug: string): Promise<Col
 	return fetchAllCollectionPages({ series_slug: seriesSlug });
 }
 
-export async function addToCollection(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
+async function addToCollectionOnline(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
 	const response = await fetch(`${API_BASE}/me/collection`, {
 		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify(body)
+	});
+	return handleResponse<CollectionEntry>(response);
+}
+
+export async function addToCollection(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
+	const profile = await getCachedProfile().catch(() => null);
+	if (!profile) return addToCollectionOnline(body);
+
+	const queued = await queueCollectionCreate(profile.id, body);
+	try {
+		const response = await synchronizeCollection(profile.id, sendCollectionSync);
+		const result = response?.results.find(
+			(candidate) => candidate.mutation_id === queued.mutation.mutation_id
+		);
+		if (result?.status === 'rejected') throw new Error(result.error ?? 'Änderung abgelehnt');
+		return result?.entry ?? queued.entry;
+	} catch (error) {
+		if (isNetworkFailure(error)) return queued.entry;
+		throw error;
+	}
+}
+
+async function updateCollectionEntryOnline(
+	id: number,
+	body: UpdateCollectionEntryRequest
+): Promise<CollectionEntry> {
+	const response = await fetch(`${API_BASE}/me/collection/${id}`, {
+		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
 		credentials: 'same-origin',
 		body: JSON.stringify(body)
@@ -170,13 +246,28 @@ export async function updateCollectionEntry(
 	id: number,
 	body: UpdateCollectionEntryRequest
 ): Promise<CollectionEntry> {
-	const response = await fetch(`${API_BASE}/me/collection/${id}`, {
-		method: 'PATCH',
-		headers: { 'Content-Type': 'application/json' },
-		credentials: 'same-origin',
-		body: JSON.stringify(body)
-	});
-	return handleResponse<CollectionEntry>(response);
+	const profile = await getCachedProfile().catch(() => null);
+	if (!profile) return updateCollectionEntryOnline(id, body);
+
+	const entries = await listStoredCollectionEntries(profile.id).catch(() => []);
+	if (!entries.some((entry) => entry.id === id)) {
+		const online = await updateCollectionEntryOnline(id, body);
+		void mergeCollectionEntries(profile.id, [online]).catch(() => undefined);
+		return online;
+	}
+
+	const queued = await queueCollectionUpdate(profile.id, id, body);
+	try {
+		const response = await synchronizeCollection(profile.id, sendCollectionSync);
+		const result = response?.results.find(
+			(candidate) => candidate.mutation_id === queued.mutation.mutation_id
+		);
+		if (result?.status === 'rejected') throw new Error(result.error ?? 'Änderung abgelehnt');
+		return result?.entry ?? queued.entry;
+	} catch (error) {
+		if (isNetworkFailure(error)) return queued.entry;
+		throw error;
+	}
 }
 
 export async function deleteCollectionEntry(id: number): Promise<void> {
@@ -214,4 +305,34 @@ export async function fetchCollectionEntryByIssue(
 
 export async function fetchCollectionEntriesByIssue(issueId: number): Promise<CollectionEntry[]> {
 	return fetchAllCollectionPages({ issue_id: issueId });
+}
+
+export async function fetchOfflineSnapshot(): Promise<OfflineSnapshot> {
+	const response = await fetch(`${API_BASE}/me/collection/offline-snapshot`, {
+		credentials: 'same-origin'
+	});
+	return handleResponse<OfflineSnapshot>(response);
+}
+
+export async function refreshOfflineSnapshot(): Promise<void> {
+	const snapshot = await fetchOfflineSnapshot();
+	await replaceOfflineSnapshot(snapshot);
+}
+
+export async function sendCollectionSync(
+	mutations: Record<string, unknown>[]
+): Promise<CollectionSyncResponse> {
+	const response = await fetch(`${API_BASE}/me/collection/sync`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ mutations })
+	});
+	return handleResponse<CollectionSyncResponse>(response);
+}
+
+export async function syncPendingCollectionChanges(): Promise<CollectionSyncResponse | null> {
+	const profile = await getCachedProfile().catch(() => null);
+	if (!profile) return null;
+	return synchronizeCollection(profile.id, sendCollectionSync);
 }

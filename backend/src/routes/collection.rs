@@ -2,16 +2,19 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
+use sha2::{Digest, Sha256};
 
 use super::AppState;
 use crate::auth::middleware::AuthUser;
-use crate::db::collection;
+use crate::db::{collection, issues, series};
 use crate::error::AppError;
 use crate::models::collection::{
     AddCollectionEntryRequest, CollectionEntryResponse, CollectionQueryParams,
-    CollectionStatsResponse, PaginatedCollectionResponse, SeriesStatsEntry,
-    UpdateCollectionEntryRequest, normalize_collection_note, normalize_edition_label,
-    validate_collection_sort, validate_condition_grade, validate_missing_collection_sort,
+    CollectionStatsResponse, CollectionSyncMutation, CollectionSyncRequest, CollectionSyncResponse,
+    CollectionSyncResult, CollectionSyncStatus, MAX_SYNC_MUTATIONS, OfflineCollectionSnapshotResponse,
+    PaginatedCollectionResponse, SeriesStatsEntry, UpdateCollectionEntryRequest,
+    normalize_collection_note, normalize_edition_label, validate_collection_sort,
+    validate_condition_grade, validate_missing_collection_sort, validate_mutation_id,
     validate_sort_direction, validate_status_condition,
 };
 use crate::services::trade_matching;
@@ -20,6 +23,11 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/me/collection", get(list_collection))
         .route("/api/v1/me/collection", post(add_to_collection))
+        .route(
+            "/api/v1/me/collection/offline-snapshot",
+            get(offline_snapshot),
+        )
+        .route("/api/v1/me/collection/sync", post(sync_collection))
         .route("/api/v1/me/collection/{id}", patch(update_entry))
         .route("/api/v1/me/collection/{id}", delete(delete_entry))
         .route(
@@ -68,6 +76,7 @@ async fn list_collection(
                 condition_grade: None,
                 status: "missing".to_string(),
                 notes: None,
+                revision: None,
                 created_at: None,
                 updated_at: None,
             })
@@ -95,6 +104,261 @@ async fn list_collection(
         per_page: params.per_page.clamp(1, 100),
         total,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/me/collection/offline-snapshot
+// ---------------------------------------------------------------------------
+
+async fn offline_snapshot(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<OfflineCollectionSnapshotResponse>, AppError> {
+    let catalog_series = series::find_all_series(&state.inner.pool, true).await?;
+    let catalog_series = catalog_series
+        .into_iter()
+        .filter(|item| matches!(item.slug.as_str(), "maddrax" | "john-sinclair"))
+        .collect::<Vec<_>>();
+
+    let mut catalog_issues = Vec::new();
+    for item in &catalog_series {
+        let issue_rows = issues::find_all_issues_by_series(&state.inner.pool, item.id).await?;
+        catalog_issues.extend(issues::build_issue_responses(&state.inner.pool, &issue_rows).await?);
+    }
+
+    let collection_entries =
+        collection::find_all_collection_entries_for_user(&state.inner.pool, auth.user_id)
+            .await?
+            .iter()
+            .map(CollectionEntryResponse::from)
+            .collect();
+    let generated_at = chrono::Utc::now();
+
+    Ok(Json(OfflineCollectionSnapshotResponse {
+        schema_version: 1,
+        snapshot_version: generated_at.timestamp_millis().to_string(),
+        user_id: auth.user_id,
+        generated_at,
+        series: catalog_series
+            .iter()
+            .map(crate::models::series::SeriesResponse::from)
+            .collect(),
+        issues: catalog_issues,
+        collection_entries,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/me/collection/sync
+// ---------------------------------------------------------------------------
+
+async fn sync_collection(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(body): Json<CollectionSyncRequest>,
+) -> Result<Json<CollectionSyncResponse>, AppError> {
+    if body.mutations.len() > MAX_SYNC_MUTATIONS {
+        return Err(AppError::BadRequest(format!(
+            "A sync request must not contain more than {MAX_SYNC_MUTATIONS} mutations"
+        )));
+    }
+
+    let mut results = Vec::with_capacity(body.mutations.len());
+    for mutation in body.mutations {
+        results.push(process_sync_mutation(&state, &auth, mutation).await?);
+    }
+
+    Ok(Json(CollectionSyncResponse { results }))
+}
+
+async fn process_sync_mutation(
+    state: &AppState,
+    auth: &AuthUser,
+    mutation: CollectionSyncMutation,
+) -> Result<CollectionSyncResult, AppError> {
+    if let Err(message) = validate_mutation_id(mutation.mutation_id()) {
+        return Ok(rejected_sync_result(
+            mutation.mutation_id(),
+            message,
+            "invalid_mutation_id",
+        ));
+    }
+
+    let fingerprint = mutation_fingerprint(&mutation)?;
+    let mut receipt_transaction = state.inner.pool.begin().await?;
+    if let Some(receipt) = collection::find_mutation_receipt_on_connection(
+        &mut receipt_transaction,
+        auth.user_id,
+        mutation.mutation_id(),
+    )
+    .await?
+    {
+        receipt_transaction.commit().await?;
+        if receipt.operation != mutation.operation()
+            || receipt.request_fingerprint != fingerprint
+        {
+            return Ok(rejected_sync_result(
+                mutation.mutation_id(),
+                "mutation_id was already used for a different request".to_string(),
+                "mutation_id_reused",
+            ));
+        }
+        let mut result = receipt.result_json.0;
+        if result.status == CollectionSyncStatus::Applied {
+            result.status = CollectionSyncStatus::AlreadyApplied;
+        }
+        return Ok(result);
+    }
+    receipt_transaction.commit().await?;
+
+    let result = match mutation.clone() {
+        CollectionSyncMutation::Create {
+            mutation_id,
+            entry,
+        } => match add_to_collection(State(state.clone()), auth.clone(), Json(entry)).await {
+            Ok((_, Json(entry))) => CollectionSyncResult {
+                mutation_id,
+                status: CollectionSyncStatus::Applied,
+                entry: Some(entry),
+                error: None,
+                code: None,
+            },
+            Err(error) => sync_result_from_error(mutation.mutation_id(), error)?,
+        },
+        CollectionSyncMutation::Update {
+            mutation_id,
+            entry_id,
+            base_revision,
+            mut changes,
+        } => {
+            changes.base_revision = Some(base_revision);
+            match update_entry(
+                State(state.clone()),
+                auth.clone(),
+                Path(entry_id),
+                Json(changes),
+            )
+            .await
+            {
+                Ok(Json(entry)) => CollectionSyncResult {
+                    mutation_id,
+                    status: CollectionSyncStatus::Applied,
+                    entry: Some(entry),
+                    error: None,
+                    code: None,
+                },
+                Err(AppError::ConflictWithCode { message, code })
+                    if code == "collection_revision_conflict" =>
+                {
+                    let current = collection::find_entry_row_by_id_and_user(
+                        &state.inner.pool,
+                        entry_id,
+                        auth.user_id,
+                    )
+                    .await?;
+                    CollectionSyncResult {
+                        mutation_id,
+                        status: CollectionSyncStatus::Conflict,
+                        entry: current.as_ref().map(CollectionEntryResponse::from),
+                        error: Some(message),
+                        code: Some(code),
+                    }
+                }
+                Err(error) => sync_result_from_error(mutation.mutation_id(), error)?,
+            }
+        }
+    };
+
+    let mut transaction = state.inner.pool.begin().await?;
+    if let Some(receipt) = collection::find_mutation_receipt_on_connection(
+        &mut transaction,
+        auth.user_id,
+        mutation.mutation_id(),
+    )
+    .await?
+    {
+        transaction.commit().await?;
+        if receipt.operation == mutation.operation()
+            && receipt.request_fingerprint == fingerprint
+        {
+            let mut stored = receipt.result_json.0;
+            if stored.status == CollectionSyncStatus::Applied {
+                stored.status = CollectionSyncStatus::AlreadyApplied;
+            }
+            return Ok(stored);
+        }
+        return Ok(rejected_sync_result(
+            mutation.mutation_id(),
+            "mutation_id was already used for a different request".to_string(),
+            "mutation_id_reused",
+        ));
+    }
+    collection::insert_mutation_receipt_on_connection(
+        &mut transaction,
+        auth.user_id,
+        mutation.mutation_id(),
+        mutation.operation(),
+        &fingerprint,
+        &result,
+    )
+    .await?;
+    transaction.commit().await?;
+
+    Ok(result)
+}
+
+fn mutation_fingerprint(mutation: &CollectionSyncMutation) -> Result<String, AppError> {
+    let payload = serde_json::to_vec(mutation).map_err(|error| {
+        AppError::InternalError(anyhow::anyhow!("Failed to fingerprint sync mutation: {error}"))
+    })?;
+    Ok(hex::encode(Sha256::digest(payload)))
+}
+
+fn sync_result_from_error(
+    mutation_id: &str,
+    error: AppError,
+) -> Result<CollectionSyncResult, AppError> {
+    let (status, message, code) = match error {
+        AppError::BadRequest(message) => (CollectionSyncStatus::Rejected, message, None),
+        AppError::BadRequestWithCode { message, code } => {
+            (CollectionSyncStatus::Rejected, message, Some(code))
+        }
+        AppError::Validation { fields } => (
+            CollectionSyncStatus::Rejected,
+            format!("Validation failed: {fields:?}"),
+            None,
+        ),
+        AppError::PayloadTooLarge(message) => (CollectionSyncStatus::Rejected, message, None),
+        AppError::Conflict(message) => (CollectionSyncStatus::Conflict, message, None),
+        AppError::ConflictWithCode { message, code } => {
+            (CollectionSyncStatus::Conflict, message, Some(code))
+        }
+        AppError::NotFound(message) => (CollectionSyncStatus::Rejected, message, None),
+        AppError::Forbidden { message, code } => (CollectionSyncStatus::Rejected, message, code),
+        other => return Err(other),
+    };
+
+    Ok(CollectionSyncResult {
+        mutation_id: mutation_id.to_string(),
+        status,
+        entry: None,
+        error: Some(message),
+        code,
+    })
+}
+
+fn rejected_sync_result(
+    mutation_id: &str,
+    message: String,
+    code: &str,
+) -> CollectionSyncResult {
+    CollectionSyncResult {
+        mutation_id: mutation_id.to_string(),
+        status: CollectionSyncStatus::Rejected,
+        entry: None,
+        error: Some(message),
+        code: Some(code.to_string()),
+    }
 }
 
 fn validate_collection_query(params: &CollectionQueryParams) -> Result<(), AppError> {
@@ -282,20 +546,7 @@ async fn update_entry(
         ));
     }
 
-    // Ensure the entry exists and belongs to the user
-    let existing = collection::find_entry_by_id_and_user(&state.inner.pool, entry_id, auth.user_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Collection entry {entry_id} not found")))?;
-
-    let final_status = body.status.as_deref().unwrap_or(&existing.status);
-    let final_condition = body
-        .condition_grade
-        .as_deref()
-        .or(existing.condition_grade.as_deref());
-    validate_status_condition(final_status, final_condition).map_err(AppError::BadRequest)?;
-
     // A present but empty note explicitly clears the stored value. Omitting the
-    // field leaves it unchanged, preserving PATCH semantics.
     let notes_param = body
         .notes
         .as_deref()
@@ -318,6 +569,29 @@ async fn update_entry(
         )
         .await?;
     }
+
+    let existing = collection::find_entry_by_id_and_user_on_connection(
+        &mut transaction,
+        entry_id,
+        auth.user_id,
+    )
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Collection entry {entry_id} not found")))?;
+    if let Some(base_revision) = body.base_revision
+        && existing.revision != base_revision
+    {
+        return Err(AppError::ConflictWithCode {
+            message: "The collection entry changed on the server".to_string(),
+            code: "collection_revision_conflict".to_string(),
+        });
+    }
+
+    let final_status = body.status.as_deref().unwrap_or(&existing.status);
+    let final_condition = body
+        .condition_grade
+        .as_deref()
+        .or(existing.condition_grade.as_deref());
+    validate_status_condition(final_status, final_condition).map_err(AppError::BadRequest)?;
 
     let photo_storage_keys = if final_status == "wanted" && existing.status != "wanted" {
         crate::db::media::enqueue_entry_photo_deletions(&mut transaction, entry_id, auth.user_id)
@@ -740,6 +1014,7 @@ mod tests {
                 status: None,
                 notes: None,
                 edition_label: Some("   ".to_string()),
+                base_revision: None,
             }),
         )
         .await
@@ -774,8 +1049,8 @@ mod tests {
         assert!(filtered.data.iter().all(|entry| entry.issue_id == issue_id));
 
         let overlong = add_to_collection(
-            State(state),
-            auth,
+            State(state.clone()),
+            auth.clone(),
             Json(AddCollectionEntryRequest {
                 issue_id,
                 condition_grade: Some("Z2".to_string()),
@@ -789,6 +1064,148 @@ mod tests {
         )
         .await;
         assert!(matches!(overlong, Err(AppError::BadRequest(_))));
+
+        let sync_issue_id = insert_issue(&pool, series_id, 3, "Offline Sync Target").await;
+        let create_mutation = CollectionSyncMutation::Create {
+            mutation_id: "18b89e92-36d8-4e12-a5c2-6f79a78fb929".to_string(),
+            entry: AddCollectionEntryRequest {
+                issue_id: sync_issue_id,
+                condition_grade: Some("Z2".to_string()),
+                status: Some("owned".to_string()),
+                notes: Some("offline angelegt".to_string()),
+                copy_number: None,
+                edition_label: None,
+            },
+        };
+        let Json(first_sync) = sync_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(CollectionSyncRequest {
+                mutations: vec![create_mutation.clone()],
+            }),
+        )
+        .await
+        .expect("offline create must sync");
+        assert_eq!(first_sync.results[0].status, CollectionSyncStatus::Applied);
+        let synced_entry = first_sync.results[0]
+            .entry
+            .clone()
+            .expect("applied mutation must return the entry");
+        assert_eq!(synced_entry.revision, Some(1));
+
+        let Json(retried_sync) = sync_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(CollectionSyncRequest {
+                mutations: vec![create_mutation],
+            }),
+        )
+        .await
+        .expect("identical retry must succeed");
+        assert_eq!(
+            retried_sync.results[0].status,
+            CollectionSyncStatus::AlreadyApplied
+        );
+        let sync_copy_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM collection_entries WHERE user_id = ? AND issue_id = ?",
+        )
+        .bind(user_id)
+        .bind(sync_issue_id)
+        .fetch_one(&pool)
+        .await
+        .expect("synced entry count must be readable");
+        assert_eq!(sync_copy_count, 1);
+
+        let Json(reused_id) = sync_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(CollectionSyncRequest {
+                mutations: vec![CollectionSyncMutation::Create {
+                    mutation_id: "18b89e92-36d8-4e12-a5c2-6f79a78fb929".to_string(),
+                    entry: AddCollectionEntryRequest {
+                        issue_id: sync_issue_id,
+                        condition_grade: Some("Z4".to_string()),
+                        status: Some("owned".to_string()),
+                        notes: None,
+                        copy_number: None,
+                        edition_label: None,
+                    },
+                }],
+            }),
+        )
+        .await
+        .expect("reused ID must produce an item result");
+        assert_eq!(reused_id.results[0].status, CollectionSyncStatus::Rejected);
+        assert_eq!(
+            reused_id.results[0].code.as_deref(),
+            Some("mutation_id_reused")
+        );
+
+        let Json(conflict) = sync_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(CollectionSyncRequest {
+                mutations: vec![CollectionSyncMutation::Update {
+                    mutation_id: "c3fccac0-0ed0-4df5-a743-ab2872790eb5".to_string(),
+                    entry_id: synced_entry.id,
+                    base_revision: 0,
+                    changes: UpdateCollectionEntryRequest {
+                        condition_grade: Some("Z1".to_string()),
+                        status: None,
+                        notes: None,
+                        edition_label: None,
+                        base_revision: None,
+                    },
+                }],
+            }),
+        )
+        .await
+        .expect("stale update must produce a conflict result");
+        assert_eq!(conflict.results[0].status, CollectionSyncStatus::Conflict);
+        assert_eq!(
+            conflict.results[0].entry.as_ref().and_then(|entry| entry.revision),
+            Some(1)
+        );
+
+        let Json(applied_update) = sync_collection(
+            State(state.clone()),
+            auth.clone(),
+            Json(CollectionSyncRequest {
+                mutations: vec![CollectionSyncMutation::Update {
+                    mutation_id: "cd591217-c507-4cc3-b876-2864cf9c7526".to_string(),
+                    entry_id: synced_entry.id,
+                    base_revision: 1,
+                    changes: UpdateCollectionEntryRequest {
+                        condition_grade: Some("Z1".to_string()),
+                        status: None,
+                        notes: None,
+                        edition_label: None,
+                        base_revision: None,
+                    },
+                }],
+            }),
+        )
+        .await
+        .expect("current update must be applied");
+        assert_eq!(
+            applied_update.results[0]
+                .entry
+                .as_ref()
+                .and_then(|entry| entry.revision),
+            Some(2)
+        );
+
+        let Json(snapshot) = offline_snapshot(State(state), auth)
+            .await
+            .expect("offline snapshot must load");
+        assert_eq!(snapshot.user_id, user_id);
+        assert_eq!(snapshot.schema_version, 1);
+        assert!(
+            snapshot
+                .collection_entries
+                .iter()
+                .any(|entry| entry.id == synced_entry.id && entry.revision == Some(2))
+        );
 
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(user_id)
