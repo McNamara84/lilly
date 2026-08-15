@@ -1,3 +1,5 @@
+// Lighthouse CI loads its configuration through CommonJS.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { chromium } = require('@playwright/test');
 
 const baseUrl = process.env.LIGHTHOUSE_BASE_URL || 'http://localhost';

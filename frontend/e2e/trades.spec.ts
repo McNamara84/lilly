@@ -304,14 +304,19 @@ test.describe('Trade lists', () => {
 				if (completed && acceptedTrade && partner) {
 					// The response is from the partner's perspective: their offers were
 					// received by the browser user and vice versa.
-					const restorations = await Promise.allSettled([
+					// Restore both sides sequentially. The cleanup touches the same completed
+					// trade pair in inverse directions, so parallel cleanup can deadlock in
+					// MariaDB even though the user-visible completion itself succeeded.
+					const browserRestoration = await Promise.allSettled([
 						restoreCompletedTradeFixture(
 							page.request,
 							acceptedTrade.my_offers[0],
 							acceptedTrade.partner_offers[0],
 							'Deterministic worker wish',
 							'Deterministic worker offer'
-						),
+						)
+					]);
+					const partnerRestoration = await Promise.allSettled([
 						restoreCompletedTradeFixture(
 							partner,
 							acceptedTrade.partner_offers[0],
@@ -320,6 +325,7 @@ test.describe('Trade lists', () => {
 							'Deterministic partner offer'
 						)
 					]);
+					const restorations = [...browserRestoration, ...partnerRestoration];
 					const failedRestoration = restorations.find((result) => result.status === 'rejected');
 					expect(
 						failedRestoration,

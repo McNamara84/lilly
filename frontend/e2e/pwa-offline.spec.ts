@@ -1,21 +1,22 @@
 import { expect, test, unauthenticatedTest } from './fixtures';
 
-unauthenticatedTest('web app manifest is installable and exposes maskable icons', async ({
-	request
-}) => {
-	const response = await request.get('/manifest.webmanifest');
-	expect(response.ok()).toBe(true);
-	const manifest = (await response.json()) as {
-		display: string;
-		start_url: string;
-		icons: { src: string; sizes: string; purpose?: string }[];
-	};
-	expect(manifest.display).toBe('standalone');
-	expect(manifest.start_url).toBe('/collection');
-	expect(manifest.icons.some((icon) => icon.sizes === '192x192')).toBe(true);
-	expect(manifest.icons.some((icon) => icon.sizes === '512x512')).toBe(true);
-	expect(manifest.icons.some((icon) => icon.purpose === 'maskable')).toBe(true);
-});
+unauthenticatedTest(
+	'web app manifest is installable and exposes maskable icons',
+	async ({ request }) => {
+		const response = await request.get('/manifest.webmanifest');
+		expect(response.ok()).toBe(true);
+		const manifest = (await response.json()) as {
+			display: string;
+			start_url: string;
+			icons: { src: string; sizes: string; purpose?: string }[];
+		};
+		expect(manifest.display).toBe('standalone');
+		expect(manifest.start_url).toBe('/collection');
+		expect(manifest.icons.some((icon) => icon.sizes === '192x192')).toBe(true);
+		expect(manifest.icons.some((icon) => icon.sizes === '512x512')).toBe(true);
+		expect(manifest.icons.some((icon) => icon.purpose === 'maskable')).toBe(true);
+	}
+);
 
 test('collection reloads offline and a merged create/edit syncs exactly once', async ({
 	page,
@@ -32,25 +33,24 @@ test('collection reloads offline and a merged create/edit syncs exactly once', a
 			await navigator.serviceWorker.ready;
 		});
 		await expect
-			.poll(
-				() =>
-					page.evaluate(
-						() =>
-							new Promise<number>((resolve, reject) => {
-								const request = indexedDB.open('lilly-offline');
-								request.onerror = () => reject(request.error);
-								request.onsuccess = () => {
-									const database = request.result;
-									const transaction = database.transaction('issues', 'readonly');
-									const count = transaction.objectStore('issues').count();
-									count.onerror = () => reject(count.error);
-									count.onsuccess = () => {
-										database.close();
-										resolve(count.result);
-									};
+			.poll(() =>
+				page.evaluate(
+					() =>
+						new Promise<number>((resolve, reject) => {
+							const request = indexedDB.open('lilly-offline');
+							request.onerror = () => reject(request.error);
+							request.onsuccess = () => {
+								const database = request.result;
+								const transaction = database.transaction('issues', 'readonly');
+								const count = transaction.objectStore('issues').count();
+								count.onerror = () => reject(count.error);
+								count.onsuccess = () => {
+									database.close();
+									resolve(count.result);
 								};
-							})
-					)
+							};
+						})
+				)
 			)
 			.toBeGreaterThan(0);
 
@@ -69,7 +69,9 @@ test('collection reloads offline and a merged create/edit syncs exactly once', a
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 		await page.getByTestId('series-card').first().click();
 		await expect(page.getByTestId('series-status-grid')).toBeVisible();
-		const missingCell = page.locator('[data-testid="series-status-cell"][data-status="missing"]').first();
+		const missingCell = page
+			.locator('[data-testid="series-status-cell"][data-status="missing"]')
+			.first();
 		await expect(missingCell).toBeVisible();
 		const missingCellIndex = await missingCell.evaluate((element) =>
 			Array.from(element.parentElement?.children ?? []).indexOf(element)

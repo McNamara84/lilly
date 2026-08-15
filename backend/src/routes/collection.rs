@@ -11,11 +11,11 @@ use crate::error::AppError;
 use crate::models::collection::{
     AddCollectionEntryRequest, CollectionEntryResponse, CollectionQueryParams,
     CollectionStatsResponse, CollectionSyncMutation, CollectionSyncRequest, CollectionSyncResponse,
-    CollectionSyncResult, CollectionSyncStatus, MAX_SYNC_MUTATIONS, OfflineCollectionSnapshotResponse,
-    PaginatedCollectionResponse, SeriesStatsEntry, UpdateCollectionEntryRequest,
-    normalize_collection_note, normalize_edition_label, validate_collection_sort,
-    validate_condition_grade, validate_missing_collection_sort, validate_mutation_id,
-    validate_sort_direction, validate_status_condition,
+    CollectionSyncResult, CollectionSyncStatus, MAX_SYNC_MUTATIONS,
+    OfflineCollectionSnapshotResponse, PaginatedCollectionResponse, SeriesStatsEntry,
+    UpdateCollectionEntryRequest, normalize_collection_note, normalize_edition_label,
+    validate_collection_sort, validate_condition_grade, validate_missing_collection_sort,
+    validate_mutation_id, validate_sort_direction, validate_status_condition,
 };
 use crate::services::trade_matching;
 
@@ -185,63 +185,82 @@ async fn process_sync_mutation(
     }
 
     let fingerprint = mutation_fingerprint(&mutation)?;
+    if let Some(result) = find_stored_sync_result(state, auth, &mutation, &fingerprint).await? {
+        return Ok(result);
+    }
+
+    let result = apply_sync_mutation(state, auth, &mutation).await?;
+    persist_sync_result(state, auth, &mutation, &fingerprint, result).await
+}
+
+async fn find_stored_sync_result(
+    state: &AppState,
+    auth: &AuthUser,
+    mutation: &CollectionSyncMutation,
+    fingerprint: &str,
+) -> Result<Option<CollectionSyncResult>, AppError> {
     let mut receipt_transaction = state.inner.pool.begin().await?;
-    if let Some(receipt) = collection::find_mutation_receipt_on_connection(
+    let receipt = collection::find_mutation_receipt_on_connection(
         &mut receipt_transaction,
         auth.user_id,
         mutation.mutation_id(),
     )
-    .await?
-    {
-        receipt_transaction.commit().await?;
-        if receipt.operation != mutation.operation()
-            || receipt.request_fingerprint != fingerprint
-        {
-            return Ok(rejected_sync_result(
+    .await?;
+    receipt_transaction.commit().await?;
+
+    Ok(receipt.map(|receipt| {
+        if receipt.operation != mutation.operation() || receipt.request_fingerprint != fingerprint {
+            rejected_sync_result(
                 mutation.mutation_id(),
                 "mutation_id was already used for a different request".to_string(),
                 "mutation_id_reused",
-            ));
+            )
+        } else {
+            let mut result = receipt.result_json.0;
+            if result.status == CollectionSyncStatus::Applied {
+                result.status = CollectionSyncStatus::AlreadyApplied;
+            }
+            result
         }
-        let mut result = receipt.result_json.0;
-        if result.status == CollectionSyncStatus::Applied {
-            result.status = CollectionSyncStatus::AlreadyApplied;
-        }
-        return Ok(result);
-    }
-    receipt_transaction.commit().await?;
+    }))
+}
 
-    let result = match mutation.clone() {
-        CollectionSyncMutation::Create {
-            mutation_id,
-            entry,
-        } => match add_to_collection(State(state.clone()), auth.clone(), Json(entry)).await {
-            Ok((_, Json(entry))) => CollectionSyncResult {
-                mutation_id,
-                status: CollectionSyncStatus::Applied,
-                entry: Some(entry),
-                error: None,
-                code: None,
-            },
-            Err(error) => sync_result_from_error(mutation.mutation_id(), error)?,
-        },
+async fn apply_sync_mutation(
+    state: &AppState,
+    auth: &AuthUser,
+    mutation: &CollectionSyncMutation,
+) -> Result<CollectionSyncResult, AppError> {
+    let result = match mutation {
+        CollectionSyncMutation::Create { mutation_id, entry } => {
+            match add_to_collection(State(state.clone()), auth.clone(), Json(entry.clone())).await {
+                Ok((_, Json(entry))) => CollectionSyncResult {
+                    mutation_id: mutation_id.clone(),
+                    status: CollectionSyncStatus::Applied,
+                    entry: Some(entry),
+                    error: None,
+                    code: None,
+                },
+                Err(error) => sync_result_from_error(mutation.mutation_id(), error)?,
+            }
+        }
         CollectionSyncMutation::Update {
             mutation_id,
             entry_id,
             base_revision,
-            mut changes,
+            changes,
         } => {
-            changes.base_revision = Some(base_revision);
+            let mut changes = changes.clone();
+            changes.base_revision = Some(*base_revision);
             match update_entry(
                 State(state.clone()),
                 auth.clone(),
-                Path(entry_id),
+                Path(*entry_id),
                 Json(changes),
             )
             .await
             {
                 Ok(Json(entry)) => CollectionSyncResult {
-                    mutation_id,
+                    mutation_id: mutation_id.clone(),
                     status: CollectionSyncStatus::Applied,
                     entry: Some(entry),
                     error: None,
@@ -252,12 +271,12 @@ async fn process_sync_mutation(
                 {
                     let current = collection::find_entry_row_by_id_and_user(
                         &state.inner.pool,
-                        entry_id,
+                        *entry_id,
                         auth.user_id,
                     )
                     .await?;
                     CollectionSyncResult {
-                        mutation_id,
+                        mutation_id: mutation_id.clone(),
                         status: CollectionSyncStatus::Conflict,
                         entry: current.as_ref().map(CollectionEntryResponse::from),
                         error: Some(message),
@@ -269,6 +288,16 @@ async fn process_sync_mutation(
         }
     };
 
+    Ok(result)
+}
+
+async fn persist_sync_result(
+    state: &AppState,
+    auth: &AuthUser,
+    mutation: &CollectionSyncMutation,
+    fingerprint: &str,
+    result: CollectionSyncResult,
+) -> Result<CollectionSyncResult, AppError> {
     let mut transaction = state.inner.pool.begin().await?;
     if let Some(receipt) = collection::find_mutation_receipt_on_connection(
         &mut transaction,
@@ -278,9 +307,7 @@ async fn process_sync_mutation(
     .await?
     {
         transaction.commit().await?;
-        if receipt.operation == mutation.operation()
-            && receipt.request_fingerprint == fingerprint
-        {
+        if receipt.operation == mutation.operation() && receipt.request_fingerprint == fingerprint {
             let mut stored = receipt.result_json.0;
             if stored.status == CollectionSyncStatus::Applied {
                 stored.status = CollectionSyncStatus::AlreadyApplied;
@@ -298,7 +325,7 @@ async fn process_sync_mutation(
         auth.user_id,
         mutation.mutation_id(),
         mutation.operation(),
-        &fingerprint,
+        fingerprint,
         &result,
     )
     .await?;
@@ -309,7 +336,9 @@ async fn process_sync_mutation(
 
 fn mutation_fingerprint(mutation: &CollectionSyncMutation) -> Result<String, AppError> {
     let payload = serde_json::to_vec(mutation).map_err(|error| {
-        AppError::InternalError(anyhow::anyhow!("Failed to fingerprint sync mutation: {error}"))
+        AppError::InternalError(anyhow::anyhow!(
+            "Failed to fingerprint sync mutation: {error}"
+        ))
     })?;
     Ok(hex::encode(Sha256::digest(payload)))
 }
@@ -319,7 +348,9 @@ fn sync_result_from_error(
     error: AppError,
 ) -> Result<CollectionSyncResult, AppError> {
     let (status, message, code) = match error {
-        AppError::BadRequest(message) => (CollectionSyncStatus::Rejected, message, None),
+        AppError::BadRequest(message)
+        | AppError::PayloadTooLarge(message)
+        | AppError::NotFound(message) => (CollectionSyncStatus::Rejected, message, None),
         AppError::BadRequestWithCode { message, code } => {
             (CollectionSyncStatus::Rejected, message, Some(code))
         }
@@ -328,12 +359,10 @@ fn sync_result_from_error(
             format!("Validation failed: {fields:?}"),
             None,
         ),
-        AppError::PayloadTooLarge(message) => (CollectionSyncStatus::Rejected, message, None),
         AppError::Conflict(message) => (CollectionSyncStatus::Conflict, message, None),
         AppError::ConflictWithCode { message, code } => {
             (CollectionSyncStatus::Conflict, message, Some(code))
         }
-        AppError::NotFound(message) => (CollectionSyncStatus::Rejected, message, None),
         AppError::Forbidden { message, code } => (CollectionSyncStatus::Rejected, message, code),
         other => return Err(other),
     };
@@ -347,11 +376,7 @@ fn sync_result_from_error(
     })
 }
 
-fn rejected_sync_result(
-    mutation_id: &str,
-    message: String,
-    code: &str,
-) -> CollectionSyncResult {
+fn rejected_sync_result(mutation_id: &str, message: String, code: &str) -> CollectionSyncResult {
     CollectionSyncResult {
         mutation_id: mutation_id.to_string(),
         status: CollectionSyncStatus::Rejected,
@@ -1163,7 +1188,10 @@ mod tests {
         .expect("stale update must produce a conflict result");
         assert_eq!(conflict.results[0].status, CollectionSyncStatus::Conflict);
         assert_eq!(
-            conflict.results[0].entry.as_ref().and_then(|entry| entry.revision),
+            conflict.results[0]
+                .entry
+                .as_ref()
+                .and_then(|entry| entry.revision),
             Some(1)
         );
 

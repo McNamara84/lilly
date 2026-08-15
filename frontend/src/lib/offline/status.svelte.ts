@@ -10,6 +10,33 @@ let lastSyncedAt = $state<string | null>(null);
 let syncError = $state<string | null>(null);
 let initialized = false;
 
+interface OfflineStatusLabelInput {
+	online: boolean;
+	syncing: boolean;
+	pendingCount: number;
+	conflictCount: number;
+	syncError: string | null;
+}
+
+export function formatOfflineStatusLabel(status: OfflineStatusLabelInput): string {
+	if (!status.online) {
+		if (status.conflictCount > 0) return `Offline · ${status.conflictCount} Konflikt(e)`;
+		if (status.pendingCount > 0) {
+			return `Offline · ${status.pendingCount} Änderung(en) ausstehend`;
+		}
+		return 'Offline';
+	}
+	if (status.syncing) return 'Wird synchronisiert …';
+	if (status.conflictCount > 0) return `${status.conflictCount} Konflikt(e)`;
+	if (status.pendingCount > 0) return `${status.pendingCount} Änderung(en) ausstehend`;
+	if (status.syncError) return 'Synchronisierung fehlgeschlagen';
+	return 'Synchronisiert';
+}
+
+export function shouldProbeConnectivity(reportedOnline: boolean, serviceWorkerControlled: boolean) {
+	return !reportedOnline || serviceWorkerControlled;
+}
+
 export function getOfflineStatus() {
 	return {
 		get online() {
@@ -65,15 +92,44 @@ export async function synchronizeNow(): Promise<void> {
 	}
 }
 
+export async function refreshConnectivity(): Promise<boolean> {
+	if (typeof navigator === 'undefined' || !navigator.onLine) {
+		online = false;
+		syncing = false;
+		return false;
+	}
+
+	try {
+		await fetch('/api/v1/health', {
+			cache: 'no-store',
+			credentials: 'same-origin'
+		});
+		online = true;
+		return true;
+	} catch {
+		online = false;
+		syncing = false;
+		return false;
+	}
+}
+
+export async function reconnectAndSynchronize(): Promise<void> {
+	const wasOffline = !online;
+	const reachable = await refreshConnectivity();
+	if (wasOffline && reachable) await synchronizeNow();
+}
+
 export function initializeOfflineStatus(): void {
 	if (initialized || typeof window === 'undefined') return;
 	initialized = true;
 	online = navigator.onLine;
+	if (shouldProbeConnectivity(navigator.onLine, Boolean(navigator.serviceWorker?.controller))) {
+		void refreshConnectivity();
+	}
 	void refreshOfflineStatus().catch(() => undefined);
 
 	window.addEventListener('online', () => {
-		online = true;
-		void synchronizeNow();
+		void reconnectAndSynchronize();
 	});
 	window.addEventListener('offline', () => {
 		online = false;
@@ -82,6 +138,9 @@ export function initializeOfflineStatus(): void {
 	window.addEventListener('lilly:offline-change', () => {
 		void refreshOfflineStatus().catch(() => undefined);
 	});
+	window.setInterval(() => {
+		if (!online) void reconnectAndSynchronize();
+	}, 5_000);
 
 	if (typeof BroadcastChannel !== 'undefined') {
 		const channel = new BroadcastChannel('lilly-offline');

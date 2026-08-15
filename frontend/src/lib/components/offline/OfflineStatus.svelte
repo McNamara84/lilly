@@ -7,6 +7,7 @@
 	} from '$lib/offline/collection';
 	import type { StoredConflict } from '$lib/offline/types';
 	import {
+		formatOfflineStatusLabel,
 		getOfflineStatus,
 		refreshOfflineStatus,
 		synchronizeNow
@@ -22,14 +23,7 @@
 	let showConflicts = $state(false);
 	let conflicts = $state<StoredConflict[]>([]);
 
-	let label = $derived.by(() => {
-		if (!status.online) return 'Offline';
-		if (status.syncing) return 'Wird synchronisiert …';
-		if (status.conflictCount > 0) return `${status.conflictCount} Konflikt(e)`;
-		if (status.pendingCount > 0) return `${status.pendingCount} Änderung(en) ausstehend`;
-		if (status.syncError) return 'Synchronisierung fehlgeschlagen';
-		return 'Synchronisiert';
-	});
+	let label = $derived(formatOfflineStatusLabel(status));
 
 	async function toggleConflicts() {
 		showConflicts = !showConflicts;

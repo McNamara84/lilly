@@ -41,20 +41,20 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 
 ### 2.1 Übersicht
 
-| Komponente            | Technologie                | Details                                                                                                 |
-| --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Frontend**          | Svelte 5 / SvelteKit       | Runes-Reaktivität, SSR + CSR, Manifest und SvelteKit-Service-Worker                                   |
-| **UI-Framework**      | Skeleton UI + Tailwind CSS | Svelte-native Komponentenbibliothek, Tailwind für Utility-First-Styling, Dark/Light Mode                |
-| **Backend / API**     | Rust + Axum                | Async HTTP-Framework auf Basis von Tokio, Tower-Middleware, modularer Router                            |
-| **Datenbank**         | MariaDB 12.3 LTS           | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität                      |
-| **DB-Zugriff**        | SQLx                       | Compile-time verified SQL-Queries, async, kein ORM-Overhead, Migrations-System                          |
-| **Authentifizierung** | Eigenbau: JWT + argon2id   | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub               |
-| **API-Spezifikation** | OpenAPI 3.1 / Swagger      | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool                                              |
-| **Dateispeicher**     | Lokales Dateisystem        | Strukturiertes Verzeichnis, Caddy Static Serving, automatische Bildkompression                          |
-| **Reverse Proxy**     | Caddy v2                   | Automatisches HTTPS via Let's Encrypt, minimale Konfiguration, HTTP/2 + HTTP/3                          |
-| **Containerisierung** | Docker + Docker Compose    | Multi-Container-Setup, isolierte Services, einfaches Deployment                                         |
-| **Wiki-Importer**     | Rust (reqwest)             | CLI-Tool und Cronjob-fähig, strukturierte MediaWiki-API, modulare Adapter                               |
-| **i18n**              | Paraglide.js (SvelteKit)   | Typsichere Übersetzungen, Tree-Shaking, initiale Sprache Deutsch                                        |
+| Komponente            | Technologie                | Details                                                                                   |
+| --------------------- | -------------------------- | ----------------------------------------------------------------------------------------- |
+| **Frontend**          | Svelte 5 / SvelteKit       | Runes-Reaktivität, SSR + CSR, Manifest und SvelteKit-Service-Worker                       |
+| **UI-Framework**      | Skeleton UI + Tailwind CSS | Svelte-native Komponentenbibliothek, Tailwind für Utility-First-Styling, Dark/Light Mode  |
+| **Backend / API**     | Rust + Axum                | Async HTTP-Framework auf Basis von Tokio, Tower-Middleware, modularer Router              |
+| **Datenbank**         | MariaDB 12.3 LTS           | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität        |
+| **DB-Zugriff**        | SQLx                       | Compile-time verified SQL-Queries, async, kein ORM-Overhead, Migrations-System            |
+| **Authentifizierung** | Eigenbau: JWT + argon2id   | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub |
+| **API-Spezifikation** | OpenAPI 3.1 / Swagger      | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool                                |
+| **Dateispeicher**     | Lokales Dateisystem        | Strukturiertes Verzeichnis, Caddy Static Serving, automatische Bildkompression            |
+| **Reverse Proxy**     | Caddy v2                   | Automatisches HTTPS via Let's Encrypt, minimale Konfiguration, HTTP/2 + HTTP/3            |
+| **Containerisierung** | Docker + Docker Compose    | Multi-Container-Setup, isolierte Services, einfaches Deployment                           |
+| **Wiki-Importer**     | Rust (reqwest)             | CLI-Tool und Cronjob-fähig, strukturierte MediaWiki-API, modulare Adapter                 |
+| **i18n**              | Paraglide.js (SvelteKit)   | Typsichere Übersetzungen, Tree-Shaking, initiale Sprache Deutsch                          |
 
 ### 2.2 Begründung der Kernentscheidungen
 
@@ -543,7 +543,7 @@ SvelteKit baut `frontend/src/service-worker.ts` zusammen mit dem versionierten W
 
 - **Lesen:** Ein authentifizierter Snapshot enthält ausschließlich den aktuellen Benutzerbezug, die aktiven MVP-Kataloge und die eigene Sammlung. `profiles`, `series`, `issues`, `collection_entries`, `mutations`, `conflicts` und `metadata` sind getrennte IndexedDB-Stores; private Schlüssel enthalten immer die Benutzer-ID.
 - **Offline-Auth:** Nur ein echter Netzwerkfehler darf den zuletzt online bestätigten Benutzerkontext wiederherstellen. Eine 401-/Refresh-Ablehnung öffnet niemals eine Offline-Sitzung.
-- **Schreiben:** Anlegen und Ändern werden zuerst mit Client-UUID und Basisrevision dauerhaft gespeichert und anschließend optimistisch dargestellt. Sync startet beim App-Start, beim `online`-Ereignis und manuell.
+- **Schreiben:** Anlegen und Ändern werden zuerst mit Client-UUID und Basisrevision dauerhaft gespeichert und anschließend optimistisch dargestellt. Sync startet beim App-Start, beim `online`-Ereignis und manuell. Solange die App offline ist, prüft sie zusätzlich alle fünf Sekunden den nicht cachebaren Health-Endpunkt und synchronisiert bei wiederhergestellter Erreichbarkeit; das fängt Browser ab, die nach einem Service-Worker-Reload kein zuverlässiges `online`-Ereignis liefern.
 - **Idempotenz und Konflikte:** Das Backend speichert `(user_id, mutation_id)` samt Request-Fingerprint und Ergebnis. Wiederholungen ändern nichts doppelt; veraltete Revisionen werden geparkt. Der Nutzer entscheidet sichtbar zwischen Serverstand und erneutem Anwenden des lokalen Stands.
 - **Logout:** Profilkontext, Sammlung, Queue, Konflikte und Snapshot-Metadaten des abgemeldeten Benutzers werden gelöscht. Der unpersönliche App-Shell-Cache darf bestehen bleiben.
 - **Fotos:** Foto-Uploads sind im MVP bewusst onlinepflichtig. Ausgewählte Dateien werden nicht dauerhaft in einer Offline-Queue abgelegt; die UI meldet Übertragungsfehler und lässt vorhandene Fotos unverändert.
