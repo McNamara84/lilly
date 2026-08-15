@@ -185,62 +185,102 @@ async fn process_sync_mutation(
     }
 
     let fingerprint = mutation_fingerprint(&mutation)?;
-    if let Some(result) = find_stored_sync_result(state, auth, &mutation, &fingerprint).await? {
-        return Ok(result);
-    }
-
-    let result = apply_sync_mutation(state, auth, &mutation).await?;
-    persist_sync_result(state, auth, &mutation, &fingerprint, result).await
-}
-
-async fn find_stored_sync_result(
-    state: &AppState,
-    auth: &AuthUser,
-    mutation: &CollectionSyncMutation,
-    fingerprint: &str,
-) -> Result<Option<CollectionSyncResult>, AppError> {
-    let mut receipt_transaction = state.inner.pool.begin().await?;
-    let receipt = collection::find_mutation_receipt_on_connection(
-        &mut receipt_transaction,
+    let mut transaction = state.inner.pool.begin().await?;
+    let reservation = rejected_sync_result(
+        mutation.mutation_id(),
+        "Mutation is being processed".to_string(),
+        "mutation_processing",
+    );
+    match collection::insert_mutation_receipt_on_connection(
+        &mut transaction,
         auth.user_id,
         mutation.mutation_id(),
+        mutation.operation(),
+        &fingerprint,
+        &reservation,
+    )
+    .await
+    {
+        Ok(()) => {}
+        Err(error) if is_unique_violation(&error) => {
+            let receipt = collection::find_mutation_receipt_on_connection(
+                &mut transaction,
+                auth.user_id,
+                mutation.mutation_id(),
+            )
+            .await?
+            .ok_or_else(|| {
+                AppError::InternalError(anyhow::anyhow!(
+                    "Duplicate mutation receipt disappeared before it could be read"
+                ))
+            })?;
+            transaction.commit().await?;
+            return Ok(stored_sync_result(receipt, &mutation, &fingerprint));
+        }
+        Err(error) => return Err(error.into()),
+    }
+
+    sqlx::query("SAVEPOINT collection_sync_mutation")
+        .execute(&mut *transaction)
+        .await?;
+    let outcome = apply_sync_mutation(auth, &mutation, &mut transaction).await?;
+    if outcome.result.status == CollectionSyncStatus::Applied {
+        sqlx::query("RELEASE SAVEPOINT collection_sync_mutation")
+            .execute(&mut *transaction)
+            .await?;
+    } else {
+        sqlx::query("ROLLBACK TO SAVEPOINT collection_sync_mutation")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("RELEASE SAVEPOINT collection_sync_mutation")
+            .execute(&mut *transaction)
+            .await?;
+    }
+    let receipt_updated = collection::update_mutation_receipt_result_on_connection(
+        &mut transaction,
+        auth.user_id,
+        mutation.mutation_id(),
+        &outcome.result,
     )
     .await?;
-    receipt_transaction.commit().await?;
+    if !receipt_updated {
+        return Err(AppError::InternalError(anyhow::anyhow!(
+            "Failed to finalize mutation receipt"
+        )));
+    }
+    transaction.commit().await?;
 
-    Ok(receipt.map(|receipt| {
-        if receipt.operation != mutation.operation() || receipt.request_fingerprint != fingerprint {
-            rejected_sync_result(
-                mutation.mutation_id(),
-                "mutation_id was already used for a different request".to_string(),
-                "mutation_id_reused",
-            )
-        } else {
-            let mut result = receipt.result_json.0;
-            if result.status == CollectionSyncStatus::Applied {
-                result.status = CollectionSyncStatus::AlreadyApplied;
-            }
-            result
-        }
-    }))
+    if let Some(entry_id) = outcome.photo_deletion_entry_id {
+        process_collection_photo_deletions(state, entry_id, outcome.photo_storage_keys).await;
+    }
+
+    Ok(outcome.result)
 }
 
 async fn apply_sync_mutation(
-    state: &AppState,
     auth: &AuthUser,
     mutation: &CollectionSyncMutation,
-) -> Result<CollectionSyncResult, AppError> {
-    let result = match mutation {
+    transaction: &mut sqlx::Transaction<'_, sqlx::MySql>,
+) -> Result<SyncMutationOutcome, AppError> {
+    let outcome = match mutation {
         CollectionSyncMutation::Create { mutation_id, entry } => {
-            match add_to_collection(State(state.clone()), auth.clone(), Json(entry.clone())).await {
-                Ok((_, Json(entry))) => CollectionSyncResult {
-                    mutation_id: mutation_id.clone(),
-                    status: CollectionSyncStatus::Applied,
-                    entry: Some(entry),
-                    error: None,
-                    code: None,
+            match add_to_collection_in_transaction(transaction, auth, entry).await {
+                Ok(entry) => SyncMutationOutcome {
+                    result: CollectionSyncResult {
+                        mutation_id: mutation_id.clone(),
+                        status: CollectionSyncStatus::Applied,
+                        entry: Some(entry),
+                        error: None,
+                        code: None,
+                    },
+                    photo_deletion_entry_id: None,
+                    photo_storage_keys: Vec::new(),
                 },
-                Err(error) => sync_result_from_error(mutation.mutation_id(), error)?,
+                Err(error) => SyncMutationOutcome {
+                    result: sync_result_from_error(mutation.mutation_id(), error)?,
+                    photo_deletion_entry_id: None,
+                    photo_storage_keys: Vec::new(),
+                },
             }
         }
         CollectionSyncMutation::Update {
@@ -251,87 +291,83 @@ async fn apply_sync_mutation(
         } => {
             let mut changes = changes.clone();
             changes.base_revision = Some(*base_revision);
-            match update_entry(
-                State(state.clone()),
-                auth.clone(),
-                Path(*entry_id),
-                Json(changes),
-            )
-            .await
-            {
-                Ok(Json(entry)) => CollectionSyncResult {
-                    mutation_id: mutation_id.clone(),
-                    status: CollectionSyncStatus::Applied,
-                    entry: Some(entry),
-                    error: None,
-                    code: None,
+            match update_entry_in_transaction(transaction, auth, *entry_id, &changes).await {
+                Ok(updated) => SyncMutationOutcome {
+                    result: CollectionSyncResult {
+                        mutation_id: mutation_id.clone(),
+                        status: CollectionSyncStatus::Applied,
+                        entry: Some(updated.entry),
+                        error: None,
+                        code: None,
+                    },
+                    photo_deletion_entry_id: Some(*entry_id),
+                    photo_storage_keys: updated.photo_storage_keys,
                 },
                 Err(AppError::ConflictWithCode { message, code })
                     if code == "collection_revision_conflict" =>
                 {
-                    let current = collection::find_entry_row_by_id_and_user(
-                        &state.inner.pool,
+                    let current = collection::find_entry_row_by_id_and_user_on_connection(
+                        transaction,
                         *entry_id,
                         auth.user_id,
                     )
                     .await?;
-                    CollectionSyncResult {
-                        mutation_id: mutation_id.clone(),
-                        status: CollectionSyncStatus::Conflict,
-                        entry: current.as_ref().map(CollectionEntryResponse::from),
-                        error: Some(message),
-                        code: Some(code),
+                    SyncMutationOutcome {
+                        result: CollectionSyncResult {
+                            mutation_id: mutation_id.clone(),
+                            status: CollectionSyncStatus::Conflict,
+                            entry: current.as_ref().map(CollectionEntryResponse::from),
+                            error: Some(message),
+                            code: Some(code),
+                        },
+                        photo_deletion_entry_id: None,
+                        photo_storage_keys: Vec::new(),
                     }
                 }
-                Err(error) => sync_result_from_error(mutation.mutation_id(), error)?,
+                Err(error) => SyncMutationOutcome {
+                    result: sync_result_from_error(mutation.mutation_id(), error)?,
+                    photo_deletion_entry_id: None,
+                    photo_storage_keys: Vec::new(),
+                },
             }
         }
     };
 
-    Ok(result)
+    Ok(outcome)
 }
 
-async fn persist_sync_result(
-    state: &AppState,
-    auth: &AuthUser,
+struct SyncMutationOutcome {
+    result: CollectionSyncResult,
+    photo_deletion_entry_id: Option<u32>,
+    photo_storage_keys: Vec<String>,
+}
+
+fn stored_sync_result(
+    receipt: collection::CollectionMutationReceipt,
     mutation: &CollectionSyncMutation,
     fingerprint: &str,
-    result: CollectionSyncResult,
-) -> Result<CollectionSyncResult, AppError> {
-    let mut transaction = state.inner.pool.begin().await?;
-    if let Some(receipt) = collection::find_mutation_receipt_on_connection(
-        &mut transaction,
-        auth.user_id,
-        mutation.mutation_id(),
-    )
-    .await?
-    {
-        transaction.commit().await?;
-        if receipt.operation == mutation.operation() && receipt.request_fingerprint == fingerprint {
-            let mut stored = receipt.result_json.0;
-            if stored.status == CollectionSyncStatus::Applied {
-                stored.status = CollectionSyncStatus::AlreadyApplied;
-            }
-            return Ok(stored);
+) -> CollectionSyncResult {
+    if receipt.operation == mutation.operation() && receipt.request_fingerprint == fingerprint {
+        let mut stored = receipt.result_json.0;
+        if stored.status == CollectionSyncStatus::Applied {
+            stored.status = CollectionSyncStatus::AlreadyApplied;
         }
-        return Ok(rejected_sync_result(
+        stored
+    } else {
+        rejected_sync_result(
             mutation.mutation_id(),
             "mutation_id was already used for a different request".to_string(),
             "mutation_id_reused",
-        ));
+        )
     }
-    collection::insert_mutation_receipt_on_connection(
-        &mut transaction,
-        auth.user_id,
-        mutation.mutation_id(),
-        mutation.operation(),
-        fingerprint,
-        &result,
-    )
-    .await?;
-    transaction.commit().await?;
+}
 
-    Ok(result)
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    matches!(
+        error,
+        sqlx::Error::Database(database_error)
+            if database_error.kind() == sqlx::error::ErrorKind::UniqueViolation
+    )
 }
 
 fn mutation_fingerprint(mutation: &CollectionSyncMutation) -> Result<String, AppError> {
@@ -459,6 +495,18 @@ async fn add_to_collection(
     auth: AuthUser,
     Json(body): Json<AddCollectionEntryRequest>,
 ) -> Result<(StatusCode, Json<CollectionEntryResponse>), AppError> {
+    let mut transaction = state.inner.pool.begin().await?;
+    let entry = add_to_collection_in_transaction(&mut transaction, &auth, &body).await?;
+    transaction.commit().await?;
+
+    Ok((StatusCode::CREATED, Json(entry)))
+}
+
+async fn add_to_collection_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    auth: &AuthUser,
+    body: &AddCollectionEntryRequest,
+) -> Result<CollectionEntryResponse, AppError> {
     // Validate fields
     let status = body.status.as_deref().unwrap_or("owned");
     validate_status_condition(status, body.condition_grade.as_deref())
@@ -470,7 +518,7 @@ async fn add_to_collection(
     }
 
     // Ensure the issue exists and belongs to an active series
-    if !collection::is_issue_in_active_series(&state.inner.pool, body.issue_id).await? {
+    if !collection::is_issue_in_active_series_on_connection(transaction, body.issue_id).await? {
         return Err(AppError::NotFound(format!(
             "Issue {} not found",
             body.issue_id
@@ -481,10 +529,9 @@ async fn add_to_collection(
     let edition_label =
         normalize_edition_label(body.edition_label.as_deref()).map_err(AppError::BadRequest)?;
 
-    let mut transaction = state.inner.pool.begin().await?;
     if matches!(status, "duplicate" | "wanted") {
         crate::db::trade_matching::lock_reconciliation_users_for_issues(
-            &mut transaction,
+            transaction,
             auth.user_id,
             &[body.issue_id],
         )
@@ -492,19 +539,17 @@ async fn add_to_collection(
     }
     let copy_number = match body.copy_number {
         Some(copy_number) => copy_number,
-        None => collection::next_copy_number_on_connection(
-            &mut transaction,
-            auth.user_id,
-            body.issue_id,
-        )
-        .await?
-        .ok_or_else(|| AppError::ConflictWithCode {
-            message: "No free copy number is available for this issue".to_string(),
-            code: "collection_capacity_exceeded".to_string(),
-        })?,
+        None => {
+            collection::next_copy_number_on_connection(transaction, auth.user_id, body.issue_id)
+                .await?
+                .ok_or_else(|| AppError::ConflictWithCode {
+                    message: "No free copy number is available for this issue".to_string(),
+                    code: "collection_capacity_exceeded".to_string(),
+                })?
+        }
     };
     let entry_id = collection::add_entry_on_connection(
-        &mut transaction,
+        transaction,
         collection::NewCollectionEntry {
             user_id: auth.user_id,
             issue_id: body.issue_id,
@@ -529,7 +574,7 @@ async fn add_to_collection(
     })?;
 
     let row = collection::find_entry_row_by_id_and_user_on_connection(
-        &mut transaction,
+        transaction,
         entry_id,
         auth.user_id,
     )
@@ -539,14 +584,10 @@ async fn add_to_collection(
     })?;
 
     if matches!(status, "duplicate" | "wanted") {
-        crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
+        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id).await?;
     }
-    transaction.commit().await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(CollectionEntryResponse::from(&row)),
-    ))
+    Ok(CollectionEntryResponse::from(&row))
 }
 
 // ---------------------------------------------------------------------------
@@ -559,6 +600,26 @@ async fn update_entry(
     Path(entry_id): Path<u32>,
     Json(body): Json<UpdateCollectionEntryRequest>,
 ) -> Result<Json<CollectionEntryResponse>, AppError> {
+    let mut transaction = state.inner.pool.begin().await?;
+    let updated = update_entry_in_transaction(&mut transaction, &auth, entry_id, &body).await?;
+    transaction.commit().await?;
+
+    process_collection_photo_deletions(&state, entry_id, updated.photo_storage_keys).await;
+
+    Ok(Json(updated.entry))
+}
+
+struct UpdatedCollectionEntry {
+    entry: CollectionEntryResponse,
+    photo_storage_keys: Vec<String>,
+}
+
+async fn update_entry_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    auth: &AuthUser,
+    entry_id: u32,
+    body: &UpdateCollectionEntryRequest,
+) -> Result<UpdatedCollectionEntry, AppError> {
     // Reject empty updates — at least one field must be provided
     if body.condition_grade.is_none()
         && body.status.is_none()
@@ -585,23 +646,15 @@ async fn update_entry(
         .transpose()
         .map_err(AppError::BadRequest)?;
 
-    let mut transaction = state.inner.pool.begin().await?;
     if body.status.is_some() || body.condition_grade.is_some() || body.edition_label.is_some() {
-        trade_matching::prepare_entry_mutation_in_transaction(
-            &mut transaction,
-            auth.user_id,
-            entry_id,
-        )
-        .await?;
+        trade_matching::prepare_entry_mutation_in_transaction(transaction, auth.user_id, entry_id)
+            .await?;
     }
 
-    let existing = collection::find_entry_by_id_and_user_on_connection(
-        &mut transaction,
-        entry_id,
-        auth.user_id,
-    )
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Collection entry {entry_id} not found")))?;
+    let existing =
+        collection::find_entry_by_id_and_user_on_connection(transaction, entry_id, auth.user_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Collection entry {entry_id} not found")))?;
     if let Some(base_revision) = body.base_revision
         && existing.revision != base_revision
     {
@@ -619,14 +672,13 @@ async fn update_entry(
     validate_status_condition(final_status, final_condition).map_err(AppError::BadRequest)?;
 
     let photo_storage_keys = if final_status == "wanted" && existing.status != "wanted" {
-        crate::db::media::enqueue_entry_photo_deletions(&mut transaction, entry_id, auth.user_id)
-            .await?
+        crate::db::media::enqueue_entry_photo_deletions(transaction, entry_id, auth.user_id).await?
     } else {
         Vec::new()
     };
 
     collection::update_entry_on_connection(
-        &mut transaction,
+        transaction,
         entry_id,
         auth.user_id,
         body.condition_grade.as_deref(),
@@ -639,7 +691,7 @@ async fn update_entry(
     .await?;
 
     let row = collection::find_entry_row_by_id_and_user_on_connection(
-        &mut transaction,
+        transaction,
         entry_id,
         auth.user_id,
     )
@@ -651,10 +703,20 @@ async fn update_entry(
         || (body.condition_grade.is_some()
             && matches!(existing.status.as_str(), "duplicate" | "wanted"))
     {
-        crate::db::trade_matching::reconcile_user_matches(&mut transaction, auth.user_id).await?;
+        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id).await?;
     }
-    transaction.commit().await?;
 
+    Ok(UpdatedCollectionEntry {
+        entry: CollectionEntryResponse::from(&row),
+        photo_storage_keys,
+    })
+}
+
+async fn process_collection_photo_deletions(
+    state: &AppState,
+    entry_id: u32,
+    photo_storage_keys: Vec<String>,
+) {
     for storage_key in photo_storage_keys {
         if let Err(error) = crate::services::media::process_deletion_key(
             &state.inner.pool,
@@ -666,8 +728,6 @@ async fn update_entry(
             tracing::warn!(entry_id, error = %error, "Collection photo deletion queued for retry");
         }
     }
-
-    Ok(Json(CollectionEntryResponse::from(&row)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,6 +1200,61 @@ mod tests {
         .await
         .expect("synced entry count must be readable");
         assert_eq!(sync_copy_count, 1);
+
+        let concurrent_issue_id =
+            insert_issue(&pool, series_id, 4, "Concurrent Offline Sync Target").await;
+        let concurrent_mutation = CollectionSyncMutation::Create {
+            mutation_id: "e785a9bf-41fd-4e14-a1b8-59b144cbe777".to_string(),
+            entry: AddCollectionEntryRequest {
+                issue_id: concurrent_issue_id,
+                condition_grade: Some("Z2".to_string()),
+                status: Some("owned".to_string()),
+                notes: Some("parallel angelegt".to_string()),
+                copy_number: None,
+                edition_label: None,
+            },
+        };
+        let (first_concurrent, second_concurrent) = tokio::join!(
+            process_sync_mutation(&state, &auth, concurrent_mutation.clone()),
+            process_sync_mutation(&state, &auth, concurrent_mutation)
+        );
+        let concurrent_results = [
+            first_concurrent.expect("first concurrent sync must finish"),
+            second_concurrent.expect("second concurrent sync must finish"),
+        ];
+        assert_eq!(
+            concurrent_results
+                .iter()
+                .filter(|result| result.status == CollectionSyncStatus::Applied)
+                .count(),
+            1
+        );
+        assert_eq!(
+            concurrent_results
+                .iter()
+                .filter(|result| result.status == CollectionSyncStatus::AlreadyApplied)
+                .count(),
+            1
+        );
+        let concurrent_copy_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM collection_entries WHERE user_id = ? AND issue_id = ?",
+        )
+        .bind(user_id)
+        .bind(concurrent_issue_id)
+        .fetch_one(&pool)
+        .await
+        .expect("concurrent sync entry count must be readable");
+        assert_eq!(concurrent_copy_count, 1);
+        let concurrent_receipt_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM collection_mutation_receipts
+             WHERE user_id = ? AND mutation_id = ?",
+        )
+        .bind(user_id)
+        .bind("e785a9bf-41fd-4e14-a1b8-59b144cbe777")
+        .fetch_one(&pool)
+        .await
+        .expect("concurrent sync receipt count must be readable");
+        assert_eq!(concurrent_receipt_count, 1);
 
         let Json(reused_id) = sync_collection(
             State(state.clone()),

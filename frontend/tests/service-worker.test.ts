@@ -136,6 +136,15 @@ describe('service worker', () => {
 		expect(appCache.put).toHaveBeenCalledWith(uncachedAsset, expect.any(Response));
 	});
 
+	it('keeps a cached cover when background revalidation fails', async () => {
+		const cover = new Request('https://lilly.test/media/covers/maddrax/2.webp');
+		coverCache.entries.set(cover.url, new Response('cached cover'));
+		fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+
+		expect(await (await dispatchFetch(cover))?.text()).toBe('cached cover');
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(cover));
+	});
+
 	it('does not intercept private, cross-origin, non-GET or unrelated requests', () => {
 		expect(dispatchFetch(new Request('https://lilly.test/api/v1/me'))).toBeUndefined();
 		expect(dispatchFetch(new Request('https://other.test/image.webp'))).toBeUndefined();

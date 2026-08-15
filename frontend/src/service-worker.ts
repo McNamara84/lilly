@@ -34,7 +34,13 @@ async function staleWhileRevalidate(request: Request): Promise<Response> {
 		if (response.ok) await cache.put(request, response.clone());
 		return response;
 	});
-	return cached ?? network;
+	if (!cached) return network;
+
+	// Revalidation runs in the background when a stale response is available.
+	// Handle network failures here because respondWith() only observes the
+	// cached response in that case.
+	void network.catch(() => undefined);
+	return cached;
 }
 
 async function cacheFirstAppAsset(request: Request): Promise<Response> {

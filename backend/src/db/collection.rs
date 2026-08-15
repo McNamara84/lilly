@@ -460,6 +460,25 @@ pub async fn insert_mutation_receipt_on_connection(
     Ok(())
 }
 
+pub async fn update_mutation_receipt_result_on_connection(
+    connection: &mut MySqlConnection,
+    user_id: u32,
+    mutation_id: &str,
+    result: &CollectionSyncResult,
+) -> Result<bool, sqlx::Error> {
+    let update = sqlx::query(
+        "UPDATE collection_mutation_receipts
+         SET result_json = ?
+         WHERE user_id = ? AND mutation_id = ?",
+    )
+    .bind(sqlx::types::Json(result))
+    .bind(user_id)
+    .bind(mutation_id)
+    .execute(connection)
+    .await?;
+    Ok(update.rows_affected() == 1)
+}
+
 pub async fn count_collection_entries(
     pool: &MySqlPool,
     user_id: u32,
@@ -631,8 +650,8 @@ pub async fn get_series_stats(
 // Check if issue belongs to an active series
 // ---------------------------------------------------------------------------
 
-pub async fn is_issue_in_active_series(
-    pool: &MySqlPool,
+pub async fn is_issue_in_active_series_on_connection(
+    connection: &mut MySqlConnection,
     issue_id: u32,
 ) -> Result<bool, sqlx::Error> {
     let count = sqlx::query_scalar::<_, i64>(
@@ -641,7 +660,7 @@ pub async fn is_issue_in_active_series(
          WHERE i.id = ? AND s.active = TRUE",
     )
     .bind(issue_id)
-    .fetch_one(pool)
+    .fetch_one(connection)
     .await?;
 
     Ok(count > 0)
