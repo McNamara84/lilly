@@ -26,6 +26,15 @@ describe('offline connectivity status', () => {
 			formatOfflineStatusLabel({
 				online: false,
 				syncing: false,
+				pendingCount: 0,
+				conflictCount: 0,
+				syncError: null
+			})
+		).toBe('Offline');
+		expect(
+			formatOfflineStatusLabel({
+				online: false,
+				syncing: false,
 				pendingCount: 2,
 				conflictCount: 0,
 				syncError: null

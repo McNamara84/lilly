@@ -75,4 +75,26 @@ describe('offline database', () => {
 			later.mutation_id
 		]);
 	});
+
+	it('ignores malformed snapshot metadata', async () => {
+		await replaceOfflineSnapshot(snapshot(1));
+		const database = await new Promise<IDBDatabase>((resolve, reject) => {
+			const request = indexedDB.open('lilly-offline', 1);
+			request.addEventListener('success', () => resolve(request.result), { once: true });
+			request.addEventListener('error', () => reject(request.error), { once: true });
+		});
+		const transaction = database.transaction('metadata', 'readwrite');
+		transaction.objectStore('metadata').put({
+			key: 'snapshot:1',
+			user_id: 1,
+			value: '{invalid json'
+		});
+		await new Promise<void>((resolve, reject) => {
+			transaction.addEventListener('complete', () => resolve(), { once: true });
+			transaction.addEventListener('error', () => reject(transaction.error), { once: true });
+		});
+		database.close();
+
+		await expect(getSnapshotTimestamp(1)).resolves.toBeNull();
+	});
 });

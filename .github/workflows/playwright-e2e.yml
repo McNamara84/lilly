@@ -70,12 +70,14 @@ jobs:
         run: npx playwright test --project="${{ inputs.browser }}"
 
       - name: Run mobile Lighthouse performance gates
+        id: lighthouse
         if: ${{ inputs.browser == 'chromium' }}
         working-directory: frontend
         run: npm run test:lighthouse
 
       - name: Upload private Lighthouse reports
-        if: ${{ always() && inputs.browser == 'chromium' }}
+        # An earlier E2E failure skips Lighthouse and therefore produces no report.
+        if: ${{ always() && inputs.browser == 'chromium' && steps.lighthouse.outcome != 'skipped' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: lighthouse-mobile

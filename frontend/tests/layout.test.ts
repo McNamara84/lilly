@@ -165,4 +165,30 @@ describe('Layout', () => {
 		const main = screen.getByRole('main');
 		expect(main).toBeInTheDocument();
 	});
+
+	it('prevents navigation to online-only areas while offline', async () => {
+		const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+		const { refreshConnectivity } = await import('$lib/offline/status.svelte');
+		await refreshConnectivity();
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Offline User',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		renderLayout();
+
+		const trades = screen.getByTestId('trades-link');
+		const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+		expect(trades.dispatchEvent(click)).toBe(false);
+		expect(trades).toHaveAttribute('aria-disabled', 'true');
+		expect(trades).toHaveAttribute('title', 'Tauschabgleich benötigt eine Internetverbindung');
+		expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument();
+		online.mockRestore();
+	});
 });

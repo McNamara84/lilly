@@ -60,4 +60,18 @@ describe('offline authentication context', () => {
 		const { getCachedProfile } = await import('$lib/offline/database');
 		expect(await getCachedProfile()).toBeNull();
 	});
+
+	it('refreshes the snapshot even when sending pending changes fails', async () => {
+		const { fetchMe } = await import('$lib/api/auth');
+		const { refreshOfflineSnapshot, syncPendingCollectionChanges } =
+			await import('$lib/api/collection');
+		vi.mocked(fetchMe).mockResolvedValue(profile(7));
+		vi.mocked(syncPendingCollectionChanges).mockRejectedValue(new TypeError('Network unavailable'));
+		vi.mocked(refreshOfflineSnapshot).mockResolvedValue(undefined);
+		const { initAuth } = await import('$lib/stores/auth.svelte');
+
+		await initAuth();
+
+		await vi.waitFor(() => expect(refreshOfflineSnapshot).toHaveBeenCalledOnce());
+	});
 });

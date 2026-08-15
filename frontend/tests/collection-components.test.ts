@@ -257,6 +257,15 @@ describe('CoverCard', () => {
 		expect(screen.getByText('Doppelt')).toBeInTheDocument();
 	});
 
+	it.each([
+		['pending', 'Ausstehend'],
+		['conflict', 'Konflikt']
+	] as const)('shows the %s synchronization state', (sync_state, label) => {
+		render(CoverCard, { props: { entry: makeEntry({ sync_state }) } });
+
+		expect(screen.getByTestId('sync-state')).toHaveTextContent(label);
+	});
+
 	it('renders cover image when cover_url is provided', () => {
 		render(CoverCard, {
 			props: {

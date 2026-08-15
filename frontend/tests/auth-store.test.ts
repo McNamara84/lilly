@@ -19,6 +19,7 @@ describe('Auth Store', () => {
 
 		expect(auth.user).toBeNull();
 		expect(auth.isAuthenticated).toBe(false);
+		expect(auth.isAdmin).toBe(false);
 	});
 
 	it('initAuth fetches user successfully', async () => {
@@ -161,6 +162,14 @@ describe('Auth Store', () => {
 			role: 'user'
 		});
 		expect(getAuthState().isAuthenticated).toBe(true);
+		setUser({
+			id: 6,
+			email: 'admin@test.com',
+			display_name: 'Admin',
+			email_verified: true,
+			role: 'admin'
+		});
+		expect(getAuthState().isAdmin).toBe(true);
 
 		setUser(null);
 		expect(getAuthState().user).toBeNull();
