@@ -27,7 +27,7 @@ import type {
 	UpdateCollectionMutation
 } from './types';
 
-let temporaryId = -1;
+let temporaryId = -Date.now();
 const activeSyncs = new Map<number, Promise<CollectionSyncResponse | null>>();
 
 function notifyOfflineStateChanged(): void {

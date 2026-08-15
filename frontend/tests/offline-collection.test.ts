@@ -148,6 +148,34 @@ describe('offline collection queue', () => {
 		);
 	});
 
+	it('keeps pending creates from separate module instances under distinct temporary IDs', async () => {
+		const first = await queueCollectionCreate(1, {
+			issue_id: issue.id,
+			notes: 'first session'
+		});
+		const laterTimestamp = Math.abs(first.entry.id) + 1_000;
+		const now = vi.spyOn(Date, 'now').mockReturnValue(laterTimestamp);
+		vi.resetModules();
+
+		try {
+			const { queueCollectionCreate: queueAfterReload } = await import('$lib/offline/collection');
+			const second = await queueAfterReload(1, {
+				issue_id: issue.id,
+				notes: 'second session'
+			});
+
+			expect(second.entry.id).not.toBe(first.entry.id);
+			const pendingEntries = (await listStoredCollectionEntries(1)).filter(({ id }) => id < 0);
+			expect(pendingEntries).toHaveLength(2);
+			expect(pendingEntries.map(({ notes }) => notes)).toEqual(
+				expect.arrayContaining(['first session', 'second session'])
+			);
+			expect(await listMutations(1)).toHaveLength(2);
+		} finally {
+			now.mockRestore();
+		}
+	});
+
 	it('falls back to a generated UUID when randomUUID is unavailable', async () => {
 		vi.stubGlobal('crypto', {});
 		vi.spyOn(Math, 'random').mockReturnValue(0.5);
