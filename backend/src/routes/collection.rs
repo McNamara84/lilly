@@ -176,6 +176,8 @@ async fn process_sync_mutation(
     auth: &AuthUser,
     mutation: CollectionSyncMutation,
 ) -> Result<CollectionSyncResult, AppError> {
+    const MAX_TRANSACTION_ATTEMPTS: u8 = 3;
+
     if let Err(message) = validate_mutation_id(mutation.mutation_id()) {
         return Ok(rejected_sync_result(
             mutation.mutation_id(),
@@ -184,7 +186,32 @@ async fn process_sync_mutation(
         ));
     }
 
-    let fingerprint = mutation_fingerprint(&mutation)?;
+    for attempt in 1..=MAX_TRANSACTION_ATTEMPTS {
+        match process_sync_mutation_once(state, auth, &mutation).await {
+            Err(error)
+                if attempt < MAX_TRANSACTION_ATTEMPTS
+                    && is_retryable_sync_transaction_error(&error) =>
+            {
+                tracing::warn!(
+                    mutation_id = mutation.mutation_id(),
+                    attempt,
+                    "Collection sync transaction was rolled back; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(10 * u64::from(attempt))).await;
+            }
+            result => return result,
+        }
+    }
+
+    unreachable!("the bounded transaction retry loop always returns")
+}
+
+async fn process_sync_mutation_once(
+    state: &AppState,
+    auth: &AuthUser,
+    mutation: &CollectionSyncMutation,
+) -> Result<CollectionSyncResult, AppError> {
+    let fingerprint = mutation_fingerprint(mutation)?;
     let mut transaction = state.inner.pool.begin().await?;
     let reservation = rejected_sync_result(
         mutation.mutation_id(),
@@ -215,7 +242,7 @@ async fn process_sync_mutation(
                 ))
             })?;
             transaction.commit().await?;
-            return Ok(stored_sync_result(receipt, &mutation, &fingerprint));
+            return Ok(stored_sync_result(receipt, mutation, &fingerprint));
         }
         Err(error) => return Err(error.into()),
     }
@@ -223,7 +250,7 @@ async fn process_sync_mutation(
     sqlx::query("SAVEPOINT collection_sync_mutation")
         .execute(&mut *transaction)
         .await?;
-    let outcome = apply_sync_mutation(auth, &mutation, &mut transaction).await?;
+    let outcome = apply_sync_mutation(auth, mutation, &mut transaction).await?;
     if outcome.result.status == CollectionSyncStatus::Applied {
         sqlx::query("RELEASE SAVEPOINT collection_sync_mutation")
             .execute(&mut *transaction)
@@ -368,6 +395,19 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
         sqlx::Error::Database(database_error)
             if database_error.kind() == sqlx::error::ErrorKind::UniqueViolation
     )
+}
+
+fn is_retryable_sync_transaction_error(error: &AppError) -> bool {
+    let AppError::InternalError(error) = error else {
+        return false;
+    };
+    let Some(sqlx::Error::Database(database_error)) = error.downcast_ref::<sqlx::Error>() else {
+        return false;
+    };
+
+    database_error
+        .code()
+        .is_some_and(|code| matches!(code.as_ref(), "1205" | "1213" | "40001"))
 }
 
 fn mutation_fingerprint(mutation: &CollectionSyncMutation) -> Result<String, AppError> {
