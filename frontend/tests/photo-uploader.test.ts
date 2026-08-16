@@ -340,4 +340,22 @@ describe('PhotoUploader', () => {
 		);
 		expect(screen.getByTestId('photo-count')).toHaveTextContent('4/4');
 	});
+
+	it('disables photo loading and uploads while offline', async () => {
+		const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+		const { refreshConnectivity } = await import('$lib/offline/status.svelte');
+		await refreshConnectivity();
+
+		render(PhotoUploader, { props: { entryId: 17 } });
+
+		expect(screen.getByTestId('photo-dropzone')).toBeDisabled();
+		expect(screen.getByTestId('photo-dropzone')).toHaveTextContent(
+			'Foto-Upload benötigt eine Internetverbindung'
+		);
+		expect(screen.getByRole('status')).toHaveTextContent(
+			'Eigene Fotos sind offline nicht verfügbar.'
+		);
+		expect(mocks.fetchCollectionPhotos).not.toHaveBeenCalled();
+		online.mockRestore();
+	});
 });

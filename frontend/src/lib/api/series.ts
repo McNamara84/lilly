@@ -1,3 +1,11 @@
+import {
+	getCachedProfile,
+	getStoredIssue,
+	listStoredIssues,
+	listStoredSeries
+} from '$lib/offline/database';
+import { isNetworkFailure } from '$lib/offline/network';
+
 const API_BASE = '/api/v1';
 
 export interface Series {
@@ -57,10 +65,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchSeries(): Promise<Series[]> {
-	const response = await fetch(`${API_BASE}/series`, {
-		credentials: 'same-origin'
-	});
-	return handleResponse<Series[]>(response);
+	try {
+		const response = await fetch(`${API_BASE}/series`, {
+			credentials: 'same-origin'
+		});
+		return handleResponse<Series[]>(response);
+	} catch (error) {
+		if (!isNetworkFailure(error)) throw error;
+		const profile = await getCachedProfile().catch(() => null);
+		if (!profile) throw error;
+		return listStoredSeries(profile.id);
+	}
 }
 
 export async function fetchSeriesIssues(
@@ -80,24 +95,42 @@ export async function fetchSeriesIssues(
 }
 
 export async function fetchAllSeriesIssues(slug: string): Promise<Issue[]> {
-	const allIssues: Issue[] = [];
-	let page = 1;
-	let total = Infinity;
+	try {
+		const allIssues: Issue[] = [];
+		let page = 1;
+		let total = Infinity;
 
-	while (allIssues.length < total) {
-		const result = await fetchSeriesIssues(slug, page, 100);
-		allIssues.push(...result.data);
-		total = result.total;
-		if (result.data.length === 0) break;
-		page++;
+		while (allIssues.length < total) {
+			const result = await fetchSeriesIssues(slug, page, 100);
+			allIssues.push(...result.data);
+			total = result.total;
+			if (result.data.length === 0) break;
+			page++;
+		}
+
+		return allIssues;
+	} catch (error) {
+		if (!isNetworkFailure(error)) throw error;
+		const profile = await getCachedProfile().catch(() => null);
+		if (!profile) throw error;
+		const series = (await listStoredSeries(profile.id)).find((item) => item.slug === slug);
+		if (!series) return [];
+		return listStoredIssues(profile.id, series.id);
 	}
-
-	return allIssues;
 }
 
 export async function fetchIssue(id: number): Promise<Issue> {
-	const response = await fetch(`${API_BASE}/issues/${id}`, {
-		credentials: 'same-origin'
-	});
-	return handleResponse<Issue>(response);
+	try {
+		const response = await fetch(`${API_BASE}/issues/${id}`, {
+			credentials: 'same-origin'
+		});
+		return handleResponse<Issue>(response);
+	} catch (error) {
+		if (!isNetworkFailure(error)) throw error;
+		const profile = await getCachedProfile().catch(() => null);
+		if (!profile) throw error;
+		const issue = await getStoredIssue(profile.id, id);
+		if (!issue) throw error;
+		return issue;
+	}
 }

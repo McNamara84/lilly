@@ -4,11 +4,15 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import NotificationBell from '$lib/components/notifications/NotificationBell.svelte';
+	import OfflineStatus from '$lib/components/offline/OfflineStatus.svelte';
+	import { getOfflineStatus, initializeOfflineStatus } from '$lib/offline/status.svelte';
+	import { initializePwaLifecycle } from '$lib/offline/pwa.svelte';
 
 	let { children } = $props();
 
 	let theme = $state<'dark' | 'light'>('dark');
 	const auth = getAuthState();
+	const offline = getOfflineStatus();
 
 	$effect(() => {
 		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -18,7 +22,13 @@
 
 	$effect(() => {
 		initAuth();
+		initializeOfflineStatus();
+		initializePwaLifecycle();
 	});
+
+	function requireConnection(event: MouseEvent) {
+		if (!offline.online) event.preventDefault();
+	}
 
 	function toggleTheme() {
 		theme = theme === 'dark' ? 'light' : 'dark';
@@ -71,6 +81,9 @@
 					href={resolve('/trades')}
 					class="text-sm px-2 py-1 rounded"
 					style="color: var(--text-secondary);"
+					aria-disabled={!offline.online}
+					title={!offline.online ? 'Tauschabgleich benötigt eine Internetverbindung' : undefined}
+					onclick={requireConnection}
 					data-testid="trades-link"
 				>
 					Tausch
@@ -79,6 +92,9 @@
 					href={resolve('/messages')}
 					class="hidden rounded px-2 py-1 text-sm sm:inline"
 					style="color: var(--text-secondary);"
+					aria-disabled={!offline.online}
+					title={!offline.online ? 'Nachrichten benötigen eine Internetverbindung' : undefined}
+					onclick={requireConnection}
 					data-testid="messages-link"
 				>
 					Nachrichten
@@ -100,7 +116,9 @@
 				>
 					{auth.user.display_name}
 				</span>
-				<NotificationBell />
+				{#if offline.online}
+					<NotificationBell />
+				{/if}
 				<button
 					onclick={handleLogout}
 					class="p-2 rounded-lg transition-colors cursor-pointer"
@@ -170,4 +188,5 @@
 	<main class="pt-14">
 		{@render children()}
 	</main>
+	<OfflineStatus />
 </div>

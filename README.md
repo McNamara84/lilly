@@ -173,7 +173,7 @@ The following scale is the established standard in the German _Heftroman_ collec
 
 The application is designed for **self-hosting** on your own server or VPS. All components run in Docker containers, orchestrated via Docker Compose. Caddy provides automatic HTTPS via Let's Encrypt.
 
-The PWA is **offline-capable**: core collection management features remain available without an internet connection (Service Worker, local cache). The UI follows a **mobile-first** approach and is fully usable on all screen sizes.
+The installable PWA is **offline-capable**: its service worker caches only the app shell and shared reference covers, while user-scoped IndexedDB stores the catalogue, personal collection, durable mutation queue, and explicit conflicts. Offline creates and edits synchronize idempotently after reconnect; logout removes that user's private local data. Photos, messaging, and live trade matching remain online-only. The UI follows a **mobile-first** approach and is fully usable on all screen sizes.
 
 ---
 
@@ -345,6 +345,7 @@ npm run test:e2e         # Chromium only (requires Docker stack running)
 npm run test:e2e:all     # Chromium, Firefox, and WebKit
 npm run test:e2e:mobile  # Mobile Chrome emulation
 npm run test:e2e:ui      # Chromium in interactive UI mode
+npm run test:lighthouse  # Five mobile runs for /privacy and authenticated /collection
 
 # From the repository root after the tests:
 cd ..
@@ -390,7 +391,7 @@ GitHub Actions workflows run automatically:
 - **On Pull Requests** (`.github/workflows/ci.yml`):
   - Frontend: lint, format check, type check, unit tests with coverage, build
   - Backend: rustfmt, clippy, unit tests (with MariaDB service)
-  - E2E: full Docker stack + Chromium Playwright tests
+  - E2E: full Docker stack + Chromium Playwright tests and five-run Lighthouse median gates
 
 - **On Push to Main** (`.github/workflows/main.yml`):
   - All PR checks + parallel Chromium, Firefox, and WebKit E2E jobs

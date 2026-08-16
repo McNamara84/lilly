@@ -1,6 +1,8 @@
 use sqlx::{MySqlConnection, MySqlPool};
 
-use crate::models::collection::{CollectionEntry, CollectionEntryRow, CollectionQueryParams};
+use crate::models::collection::{
+    CollectionEntry, CollectionEntryRow, CollectionQueryParams, CollectionSyncResult,
+};
 
 /// Bind filter parameters to any sqlx query type.
 macro_rules! bind_filters {
@@ -92,6 +94,13 @@ pub struct NewCollectionEntry<'a> {
     pub edition_label: Option<&'a str>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct CollectionMutationReceipt {
+    pub operation: String,
+    pub request_fingerprint: String,
+    pub result_json: sqlx::types::Json<CollectionSyncResult>,
+}
+
 #[allow(dead_code)]
 pub async fn add_entry(
     pool: &MySqlPool,
@@ -158,7 +167,7 @@ pub async fn find_entry_by_id(
 ) -> Result<Option<CollectionEntry>, sqlx::Error> {
     sqlx::query_as::<_, CollectionEntry>(
         "SELECT id, user_id, issue_id, copy_number, edition_label, condition_grade,
-                status, notes, created_at, updated_at
+                status, notes, revision, created_at, updated_at
          FROM collection_entries WHERE id = ?",
     )
     .bind(entry_id)
@@ -173,12 +182,28 @@ pub async fn find_entry_by_id_and_user(
 ) -> Result<Option<CollectionEntry>, sqlx::Error> {
     sqlx::query_as::<_, CollectionEntry>(
         "SELECT id, user_id, issue_id, copy_number, edition_label, condition_grade,
-                status, notes, created_at, updated_at
+                status, notes, revision, created_at, updated_at
          FROM collection_entries WHERE id = ? AND user_id = ?",
     )
     .bind(entry_id)
     .bind(user_id)
     .fetch_optional(pool)
+    .await
+}
+
+pub async fn find_entry_by_id_and_user_on_connection(
+    connection: &mut MySqlConnection,
+    entry_id: u32,
+    user_id: u32,
+) -> Result<Option<CollectionEntry>, sqlx::Error> {
+    sqlx::query_as::<_, CollectionEntry>(
+        "SELECT id, user_id, issue_id, copy_number, edition_label, condition_grade,
+                status, notes, revision, created_at, updated_at
+         FROM collection_entries WHERE id = ? AND user_id = ? FOR UPDATE",
+    )
+    .bind(entry_id)
+    .bind(user_id)
+    .fetch_optional(connection)
     .await
 }
 
@@ -200,7 +225,7 @@ pub async fn find_entry_row_by_id_and_user_on_connection(
     sqlx::query_as::<_, CollectionEntryRow>(
         "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
                 ce.condition_grade,
-                ce.status, ce.notes, ce.created_at, ce.updated_at,
+                ce.status, ce.notes, ce.revision, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug
          FROM collection_entries ce
@@ -222,7 +247,7 @@ pub async fn find_entry_row_by_issue_and_user(
     sqlx::query_as::<_, CollectionEntryRow>(
         "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
                 ce.condition_grade,
-                ce.status, ce.notes, ce.created_at, ce.updated_at,
+                ce.status, ce.notes, ce.revision, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug
          FROM collection_entries ce
@@ -359,7 +384,7 @@ pub async fn find_collection_entries(
     let sql = format!(
         "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
                 ce.condition_grade,
-                ce.status, ce.notes, ce.created_at, ce.updated_at,
+                ce.status, ce.notes, ce.revision, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug
          FROM collection_entries ce
@@ -373,6 +398,85 @@ pub async fn find_collection_entries(
     let query = sqlx::query_as::<_, CollectionEntryRow>(sqlx::AssertSqlSafe(sql)).bind(user_id);
     let query = bind_filters!(query, params);
     query.bind(per_page).bind(offset).fetch_all(pool).await
+}
+
+pub async fn find_all_collection_entries_for_user(
+    pool: &MySqlPool,
+    user_id: u32,
+) -> Result<Vec<CollectionEntryRow>, sqlx::Error> {
+    sqlx::query_as::<_, CollectionEntryRow>(
+        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
+                ce.condition_grade, ce.status, ce.notes, ce.revision,
+                ce.created_at, ce.updated_at,
+                i.issue_number, i.title, i.cover_url, i.cover_local_path,
+                s.id AS series_id, s.name AS series_name, s.slug AS series_slug
+         FROM collection_entries ce
+         JOIN issues i ON ce.issue_id = i.id
+         JOIN series s ON i.series_id = s.id
+         WHERE ce.user_id = ? AND s.active = TRUE
+         ORDER BY s.name, i.issue_number, ce.copy_number",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn find_mutation_receipt_on_connection(
+    connection: &mut MySqlConnection,
+    user_id: u32,
+    mutation_id: &str,
+) -> Result<Option<CollectionMutationReceipt>, sqlx::Error> {
+    sqlx::query_as::<_, CollectionMutationReceipt>(
+        "SELECT operation, request_fingerprint, result_json
+         FROM collection_mutation_receipts
+         WHERE user_id = ? AND mutation_id = ? FOR UPDATE",
+    )
+    .bind(user_id)
+    .bind(mutation_id)
+    .fetch_optional(connection)
+    .await
+}
+
+pub async fn insert_mutation_receipt_on_connection(
+    connection: &mut MySqlConnection,
+    user_id: u32,
+    mutation_id: &str,
+    operation: &str,
+    request_fingerprint: &str,
+    result: &CollectionSyncResult,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO collection_mutation_receipts
+            (user_id, mutation_id, operation, request_fingerprint, result_json)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(mutation_id)
+    .bind(operation)
+    .bind(request_fingerprint)
+    .bind(sqlx::types::Json(result))
+    .execute(connection)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_mutation_receipt_result_on_connection(
+    connection: &mut MySqlConnection,
+    user_id: u32,
+    mutation_id: &str,
+    result: &CollectionSyncResult,
+) -> Result<bool, sqlx::Error> {
+    let update = sqlx::query(
+        "UPDATE collection_mutation_receipts
+         SET result_json = ?
+         WHERE user_id = ? AND mutation_id = ?",
+    )
+    .bind(sqlx::types::Json(result))
+    .bind(user_id)
+    .bind(mutation_id)
+    .execute(connection)
+    .await?;
+    Ok(update.rows_affected() == 1)
 }
 
 pub async fn count_collection_entries(
@@ -546,8 +650,8 @@ pub async fn get_series_stats(
 // Check if issue belongs to an active series
 // ---------------------------------------------------------------------------
 
-pub async fn is_issue_in_active_series(
-    pool: &MySqlPool,
+pub async fn is_issue_in_active_series_on_connection(
+    connection: &mut MySqlConnection,
     issue_id: u32,
 ) -> Result<bool, sqlx::Error> {
     let count = sqlx::query_scalar::<_, i64>(
@@ -556,7 +660,7 @@ pub async fn is_issue_in_active_series(
          WHERE i.id = ? AND s.active = TRUE",
     )
     .bind(issue_id)
-    .fetch_one(pool)
+    .fetch_one(connection)
     .await?;
 
     Ok(count > 0)

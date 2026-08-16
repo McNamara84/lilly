@@ -95,6 +95,16 @@
 		></span>
 	{/if}
 
+	{#if entry.sync_state === 'pending' || entry.sync_state === 'conflict'}
+		<span
+			class="absolute bottom-1 left-1 rounded px-1 py-0.5 text-[8px] font-bold"
+			style="background: var(--surface-raised); color: var(--text-primary);"
+			data-testid="sync-state"
+		>
+			{entry.sync_state === 'pending' ? 'Ausstehend' : 'Konflikt'}
+		</span>
+	{/if}
+
 	<!-- Title below cover -->
 	<p
 		class="mt-1 text-xs truncate text-center"
