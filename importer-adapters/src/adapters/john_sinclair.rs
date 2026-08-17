@@ -144,6 +144,7 @@ impl JohnSinclairAdapter {
             regex::Regex::new(r"\[\[(JS\s+(\d+)\s*[-–—]\s*[^|\]]+)(?:\|([^\]]+))?\]\]")
                 .map_err(|error| AdapterError::Parse(format!("Invalid title regex: {error}")))?;
         let mut summaries = HashMap::new();
+        let mut source_numbers = Vec::new();
 
         for raw_line in wikitext.lines() {
             let line = raw_line.trim();
@@ -178,13 +179,6 @@ impl JohnSinclairAdapter {
                         "Invalid canonical issue number for row {displayed_number}"
                     ))
                 })?;
-            if canonical_number != displayed_number {
-                return Err(AdapterError::Parse(format!(
-                    "Displayed issue number {displayed_number} differs from canonical number \
-                     {canonical_number}"
-                )));
-            }
-
             let fallback_title = page_title
                 .find(['-', '–', '—'])
                 .map_or(page_title.as_str(), |separator| {
@@ -217,12 +211,24 @@ impl JohnSinclairAdapter {
                     "Duplicate canonical issue number {canonical_number}"
                 )));
             }
+            source_numbers.push((displayed_number, canonical_number));
         }
 
         if summaries.is_empty() {
             return Err(AdapterError::Parse(
                 "No John Sinclair issue rows found on overview page".to_string(),
             ));
+        }
+
+        for (index, &(displayed_number, canonical_number)) in source_numbers.iter().enumerate() {
+            if displayed_number != canonical_number
+                && !is_recoverable_display_number_typo(&source_numbers, index)
+            {
+                return Err(AdapterError::Parse(format!(
+                    "Displayed issue number {displayed_number} differs from canonical number \
+                     {canonical_number}"
+                )));
+            }
         }
 
         let mut result: Vec<IssueSummary> = summaries.into_values().collect();
@@ -237,6 +243,28 @@ impl JohnSinclairAdapter {
             .filter(|summary| summary.published_at.is_none_or(|date| date <= today))
             .collect()
     }
+}
+
+// The overview occasionally repeats the next row's number in the display column. Only trust the
+// canonical link when both adjacent rows prove that this is exactly that one-row typo.
+fn is_recoverable_display_number_typo(source_numbers: &[(u32, u32)], index: usize) -> bool {
+    let Some(&(displayed_number, canonical_number)) = source_numbers.get(index) else {
+        return false;
+    };
+    let Some(previous) = index
+        .checked_sub(1)
+        .and_then(|previous_index| source_numbers.get(previous_index))
+    else {
+        return false;
+    };
+    let Some(next) = source_numbers.get(index + 1) else {
+        return false;
+    };
+
+    previous.0 == previous.1
+        && previous.1.checked_add(1) == Some(canonical_number)
+        && canonical_number.checked_add(1) == Some(displayed_number)
+        && *next == (displayed_number, displayed_number)
 }
 
 impl Default for JohnSinclairAdapter {
@@ -256,7 +284,7 @@ impl WikiAdapter for JohnSinclairAdapter {
     }
 
     fn version(&self) -> &'static str {
-        "0.2"
+        "0.3"
     }
 
     fn source_descriptor(&self) -> SourceDescriptor {
@@ -629,6 +657,41 @@ mod tests {
     }
 
     #[test]
+    fn parse_overview_repairs_a_duplicate_display_number_in_a_canonical_sequence() {
+        let fixture = "\
+| 2290 || [[JS 2290 - Die Töchter des Kain|Die Töchter des Kain]] || [[Ian Rolf Hill]] || || || 31.05.2022\n\
+| 2292 || [[JS 2291 - Aibons Monsterwölfe|Aibons Monsterwölfe]] || [[Rafael Marques]] || [[Warm_Tail]] || || 07.06.2022\n\
+| 2292 || [[JS 2292 - Der tanzende Tod|Der tanzende Tod]] || [[Jason Dark]] || || || 14.06.2022";
+
+        let summaries = JohnSinclairAdapter::parse_overview(fixture).unwrap();
+
+        assert_eq!(
+            summaries
+                .iter()
+                .map(|summary| (summary.issue_number, summary.title.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (2290, "Die Töchter des Kain"),
+                (2291, "Aibons Monsterwölfe"),
+                (2292, "Der tanzende Tod")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_overview_rejects_a_display_typo_without_a_matching_canonical_successor() {
+        let invalid = "\
+| 2290 || [[JS 2290 - Die Töchter des Kain|Die Töchter des Kain]] || [[Ian Rolf Hill]] || || || 31.05.2022\n\
+| 2292 || [[JS 2291 - Aibons Monsterwölfe|Aibons Monsterwölfe]] || [[Rafael Marques]] || [[Warm_Tail]] || || 07.06.2022\n\
+| 2293 || [[JS 2292 - Der tanzende Tod|Der tanzende Tod]] || [[Jason Dark]] || || || 14.06.2022";
+
+        assert!(matches!(
+            JohnSinclairAdapter::parse_overview(invalid),
+            Err(AdapterError::Parse(message)) if message.contains("differs from canonical")
+        ));
+    }
+
+    #[test]
     fn parse_overview_rejects_duplicate_canonical_numbers() {
         let duplicated = format!(
             "{OVERVIEW_FIXTURE}\n{}",
@@ -767,7 +830,7 @@ mod tests {
         let adapter = JohnSinclairAdapter::new().unwrap();
         assert_eq!(adapter.name(), "john-sinclair");
         assert_eq!(adapter.display_name(), "Geisterjäger John Sinclair");
-        assert_eq!(adapter.version(), "0.2");
+        assert_eq!(adapter.version(), "0.3");
         assert_eq!(adapter.delay, Duration::from_millis(DEFAULT_DELAY_MS));
         let descriptor = adapter.source_descriptor();
         assert_eq!(descriptor.source_key, "gruselroman-wiki");
