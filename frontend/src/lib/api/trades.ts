@@ -79,7 +79,7 @@ export interface BulkWantedResult {
 }
 
 export interface TradePartner {
-	id: number;
+	id: number | null;
 	display_name: string;
 	avatar_path: string | null;
 	location: string | null;
@@ -136,7 +136,7 @@ export interface TradeItem {
 
 export interface Trade {
 	id: number;
-	match_id: number;
+	match_id: number | null;
 	status: TradeStatus;
 	role: 'initiator' | 'responder';
 	partner: TradePartner;

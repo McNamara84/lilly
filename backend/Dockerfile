@@ -40,10 +40,13 @@ FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --system appuser && useradd --system --gid appuser --no-create-home appuser
+# Keep ownership stable for the persistent media volume and the host-mounted,
+# mode-0600 account-erasure ledger across image upgrades.
+RUN groupadd --system --gid 999 appuser && \
+    useradd --system --uid 999 --gid appuser --no-create-home appuser
 
 # Create media directory writable by appuser (Docker volume mounts over this)
-RUN mkdir -p /media && chown appuser:appuser /media
+RUN mkdir -p /media /erasure-ledger && chown appuser:appuser /media /erasure-ledger
 
 WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/target/release/lilly-backend ./

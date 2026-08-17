@@ -8,6 +8,7 @@ readonly SHARED_DIR="${LILLY_ROOT}/shared"
 readonly APP_ENV_FILE="${SHARED_DIR}/.env.production"
 readonly DEPLOYMENT_ENV_FILE="${SHARED_DIR}/.deployment.env"
 readonly CURRENT_COMPOSE_FILE="${LILLY_ROOT}/current/docker-compose.production.yml"
+readonly ERASURE_LEDGER="${SHARED_DIR}/erasure-ledger/account-erasure.log"
 
 case "${BACKUP_KIND}" in
   manual|daily|pre-deploy) ;;
@@ -24,7 +25,10 @@ for required_command in docker flock gzip sha256sum; do
   }
 done
 
-for required_file in "${APP_ENV_FILE}" "${DEPLOYMENT_ENV_FILE}" "${CURRENT_COMPOSE_FILE}"; do
+for required_file in \
+  "${APP_ENV_FILE}" \
+  "${DEPLOYMENT_ENV_FILE}" \
+  "${CURRENT_COMPOSE_FILE}"; do
   if [[ ! -f "${required_file}" ]]; then
     if [[ "${BACKUP_KIND}" == "pre-deploy" ]]; then
       echo "No active LILLY installation exists; no backup is required."
@@ -34,6 +38,20 @@ for required_file in "${APP_ENV_FILE}" "${DEPLOYMENT_ENV_FILE}" "${CURRENT_COMPO
     exit 1
   fi
 done
+
+ledger_available=1
+if [[ ! -f "${ERASURE_LEDGER}" ]]; then
+  if [[ "${BACKUP_KIND}" == "pre-deploy" ]] \
+    && ! grep -q 'ACCOUNT_ERASURE_LEDGER_PATH' "${CURRENT_COMPOSE_FILE}"; then
+    # A backup of the legacy release is still useful for an immediate rollout
+    # rollback, but intentionally lacks the marker required by the new restore
+    # path and must be retired before accepting deletion requests.
+    ledger_available=0
+  else
+    echo "Required backup file is missing: ${ERASURE_LEDGER}" >&2
+    exit 1
+  fi
+fi
 
 compose() {
   docker compose \
@@ -107,6 +125,15 @@ docker run --rm \
   caddy:2.11.4-alpine \
   tar -C /source -czf - . >"${temporary_dir}/media.tar.gz"
 
+if (( ledger_available == 1 )); then
+  # Retain a protected copy off site. Restore deliberately keeps and replays the
+  # newer live ledger instead of replacing it with this point-in-time copy.
+  docker run --rm \
+    --volume "${SHARED_DIR}/erasure-ledger:/ledger:ro" \
+    caddy:2.11.4-alpine \
+    cat /ledger/account-erasure.log >"${temporary_dir}/account-erasure.log"
+fi
+
 resume_backend
 backend_was_paused=0
 trap - EXIT
@@ -122,7 +149,11 @@ image_tag="$(sed -n 's/^LILLY_IMAGE_TAG=//p' "${DEPLOYMENT_ENV_FILE}" | tail -n 
 
 (
   cd "${temporary_dir}"
-  sha256sum database.sql.gz media.tar.gz metadata.env >SHA256SUMS
+  checksum_files=(database.sql.gz media.tar.gz metadata.env)
+  if (( ledger_available == 1 )); then
+    checksum_files+=(account-erasure.log)
+  fi
+  sha256sum "${checksum_files[@]}" >SHA256SUMS
 )
 touch "${temporary_dir}/COMPLETE"
 chmod -R go-rwx "${temporary_dir}"

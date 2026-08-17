@@ -28,16 +28,16 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 
 ### 1.1 Steckbrief
 
-| Eigenschaft | Wert |
-|---|---|
-| **Projektname** | LILLY – Listing Inventory for Lovely Little Yellowbacks |
-| **Projekttyp** | Open-Source-Webanwendung (PWA) |
-| **Lizenz** | Open Source (GPLv3) |
-| **Zielgruppe** | Sammler/innen deutschsprachiger Heftromane |
-| **Initiale Serien** | Maddrax – Die dunkle Zukunft der Erde; Geisterjäger John Sinclair |
-| **Datenquellen** | Maddraxikon (de.maddraxikon.com); Gruselroman-Wiki (gruselroman-wiki.de) |
-| **Technologie** | Progressive Web App (PWA), self-hosted |
-| **Autor / Initiator** | Holger Ehrmann |
+| Eigenschaft           | Wert                                                                     |
+| --------------------- | ------------------------------------------------------------------------ |
+| **Projektname**       | LILLY – Listing Inventory for Lovely Little Yellowbacks                  |
+| **Projekttyp**        | Open-Source-Webanwendung (PWA)                                           |
+| **Lizenz**            | Open Source (GPLv3)                                                      |
+| **Zielgruppe**        | Sammler/innen deutschsprachiger Heftromane                               |
+| **Initiale Serien**   | Maddrax – Die dunkle Zukunft der Erde; Geisterjäger John Sinclair        |
+| **Datenquellen**      | Maddraxikon (de.maddraxikon.com); Gruselroman-Wiki (gruselroman-wiki.de) |
+| **Technologie**       | Progressive Web App (PWA), self-hosted                                   |
+| **Autor / Initiator** | Holger Ehrmann                                                           |
 
 ---
 
@@ -62,85 +62,85 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 
 ## 3. Funktionale Anforderungen
 
-*Legende Prioritäten: **MUSS** = zwingend für Release 1.0; **SOLL** = geplant für Release 1.0; **KANN** = wünschenswert, ggf. spätere Version.*
+_Legende Prioritäten: **MUSS** = zwingend für Release 1.0; **SOLL** = geplant für Release 1.0; **KANN** = wünschenswert, ggf. spätere Version._
 
-*Legende Kategorien: SV = Sammlungsverwaltung; DI = Datenimport; TA = Tausch; CO = Community; BN = Benutzerverwaltung; FO = Foto/Medien.*
+_Legende Kategorien: SV = Sammlungsverwaltung; DI = Datenimport; TA = Tausch; CO = Community; BN = Benutzerverwaltung; FO = Foto/Medien._
 
 ### 3.1 Sammlungsverwaltung
 
-| ID | Beschreibung | Prio | Kat. |
-|---|---|---|---|
-| SV-001 | Nutzer können aus den verfügbaren Heftroman-Serien einzelne Hefte zu ihrer persönlichen Sammlung hinzufügen. | MUSS | SV |
-| SV-002 | Zu jedem Heft in der Sammlung kann der Zustand gemäß der Heftroman-Zustandsskala Z0 bis Z4 angegeben werden. Die verbindlichen Beschreibungen stehen in Kapitel 5. | MUSS | SV |
-| SV-003 | Nutzer können zu jedem Heft in ihrer Sammlung persönliche Notizen hinterlegen (z. B. Besonderheiten, Auflagenhinweise, Erinnerungen). Notizen sind Teil der Sammlung und werden bei einer öffentlich freigegebenen Sammlung ebenfalls öffentlich angezeigt. | SOLL | SV |
-| SV-004 | Die Sammlung kann nach Serie, Heftnummer, Zustand, Titel und Autor gefiltert und sortiert werden. | MUSS | SV |
-| SV-005 | Nutzer können Hefte als „Vorhanden“, „Doppelt/Tauschbar“ oder „Gesucht“ markieren. | MUSS | SV |
-| SV-006 | Eine Übersichtsansicht zeigt den Sammlungsfortschritt pro Serie als Balken oder Prozentwert an (z. B. „437 von 620 Heften – 70,5 %“). | MUSS | SV |
-| SV-007 | Eine Rasteransicht zeigt alle Hefte einer Serie als Grid mit Kennzeichnung der vier Zustände „Vorhanden“, „Doppelt/Tauschbar“, „Gesucht“ und „Fehlend“. Die Kennzeichnung erfolgt nicht ausschließlich durch Farbe. | SOLL | SV |
-| SV-008 | Import und Export der Sammlungsdaten im CSV- und JSON-Format. | SOLL | SV |
-| SV-009 | Nutzer können mehrere Auflagen desselben Heftes getrennt erfassen. | KANN | SV |
+| ID     | Beschreibung                                                                                                                                                                                                                                                | Prio | Kat. |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
+| SV-001 | Nutzer können aus den verfügbaren Heftroman-Serien einzelne Hefte zu ihrer persönlichen Sammlung hinzufügen.                                                                                                                                                | MUSS | SV   |
+| SV-002 | Zu jedem Heft in der Sammlung kann der Zustand gemäß der Heftroman-Zustandsskala Z0 bis Z4 angegeben werden. Die verbindlichen Beschreibungen stehen in Kapitel 5.                                                                                          | MUSS | SV   |
+| SV-003 | Nutzer können zu jedem Heft in ihrer Sammlung persönliche Notizen hinterlegen (z. B. Besonderheiten, Auflagenhinweise, Erinnerungen). Notizen sind Teil der Sammlung und werden bei einer öffentlich freigegebenen Sammlung ebenfalls öffentlich angezeigt. | SOLL | SV   |
+| SV-004 | Die Sammlung kann nach Serie, Heftnummer, Zustand, Titel und Autor gefiltert und sortiert werden.                                                                                                                                                           | MUSS | SV   |
+| SV-005 | Nutzer können Hefte als „Vorhanden“, „Doppelt/Tauschbar“ oder „Gesucht“ markieren.                                                                                                                                                                          | MUSS | SV   |
+| SV-006 | Eine Übersichtsansicht zeigt den Sammlungsfortschritt pro Serie als Balken oder Prozentwert an (z. B. „437 von 620 Heften – 70,5 %“).                                                                                                                       | MUSS | SV   |
+| SV-007 | Eine Rasteransicht zeigt alle Hefte einer Serie als Grid mit Kennzeichnung der vier Zustände „Vorhanden“, „Doppelt/Tauschbar“, „Gesucht“ und „Fehlend“. Die Kennzeichnung erfolgt nicht ausschließlich durch Farbe.                                         | SOLL | SV   |
+| SV-008 | Import und Export der Sammlungsdaten im CSV- und JSON-Format.                                                                                                                                                                                               | SOLL | SV   |
+| SV-009 | Nutzer können mehrere Auflagen desselben Heftes getrennt erfassen.                                                                                                                                                                                          | KANN | SV   |
 
 ### 3.2 Seriendaten und Datenimport
 
-| ID | Beschreibung | Prio | Kat. |
-|---|---|---|---|
-| DI-001 | Zum Release werden die Stammdaten der Serien „Maddrax – Die dunkle Zukunft der Erde“ und „Geisterjäger John Sinclair“ vollständig importiert (Heftnummer, Titel, Autor, Ersterscheinungsdatum). | MUSS | DI |
-| DI-002 | Datenquelle für Maddrax ist das Maddraxikon (de.maddraxikon.com). Datenquelle für John Sinclair ist das Gruselroman-Wiki (gruselroman-wiki.de). | MUSS | DI |
-| DI-003 | Der Datenimport erfolgt als initialer Vollimport mit anschließendem regelmäßigem Vollvergleich per Cronjob (z. B. wöchentlich), um neue Hefte sowie verbesserte Metadaten laufender Serien automatisch zu übernehmen. | MUSS | DI |
-| DI-004 | Cover-Bilder der Hefte werden aus den Wiki-Quellen als Referenzbilder importiert, sofern lizenzrechtlich zulässig. | SOLL | DI |
-| DI-005 | Das Datenimport-System muss modular aufgebaut sein, sodass weitere Heftroman-Serien und Datenquellen mit vertretbarem Aufwand hinzugefügt werden können (z. B. Perry Rhodan via Perrypedia). | MUSS | DI |
-| DI-006 | Zu jeder Serie werden Metadaten gespeichert: Serienname, Verlag, Genre, Erscheinungsrhythmus, Gesamtzahl der Hefte (soweit bekannt), Status (laufend/abgeschlossen). | SOLL | DI |
-| DI-007 | Der Datenimport kann ausschließlich von Admins über die WebUI gestartet und verwaltet werden. Normale Nutzer haben keinen Zugriff auf Import-Funktionen. | MUSS | DI |
-| DI-008 | Imports laufen asynchron im Hintergrund. Der Admin kann den Fortschritt anhand getrennter Ergebniszähler verfolgen. Fortschritt, Fehler und Abbruchwunsch werden in der Datenbank persistiert; nach einem Serverneustart ist ein unterbrochener Lauf als solcher sichtbar und kann als verknüpfter Vollscan wiederholt werden. | MUSS | DI |
-| DI-009 | Importierte Seriendaten sind für normale Nutzer zunächst nicht sichtbar. Admins müssen eine importierte Serie nach Prüfung der Daten explizit aktivieren, bevor sie für alle Nutzer zugänglich wird. | MUSS | DI |
-| DI-010 | Admins können nach einem Import die importierten Daten in einer Prüfansicht stichprobenartig kontrollieren, inklusive Cover-Vorschau, Metadaten und Link zum Wiki-Quelleneintrag. | MUSS | DI |
-| DI-011 | Die Modularität des Importers wird durch ein Trait-basiertes Adapter-System (`WikiAdapter`-Trait) in einer Shared Rust Library (`importer-core`) realisiert. Neue Adapter können durch Implementierung des Traits hinzugefügt werden, ohne Kern- oder Backend-Code zu ändern. | MUSS | DI |
+| ID     | Beschreibung                                                                                                                                                                                                                                                                                                                   | Prio | Kat. |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ---- |
+| DI-001 | Zum Release werden die Stammdaten der Serien „Maddrax – Die dunkle Zukunft der Erde“ und „Geisterjäger John Sinclair“ vollständig importiert (Heftnummer, Titel, Autor, Ersterscheinungsdatum).                                                                                                                                | MUSS | DI   |
+| DI-002 | Datenquelle für Maddrax ist das Maddraxikon (de.maddraxikon.com). Datenquelle für John Sinclair ist das Gruselroman-Wiki (gruselroman-wiki.de).                                                                                                                                                                                | MUSS | DI   |
+| DI-003 | Der Datenimport erfolgt als initialer Vollimport mit anschließendem regelmäßigem Vollvergleich per Cronjob (z. B. wöchentlich), um neue Hefte sowie verbesserte Metadaten laufender Serien automatisch zu übernehmen.                                                                                                          | MUSS | DI   |
+| DI-004 | Cover-Bilder der Hefte werden aus den Wiki-Quellen als Referenzbilder importiert, sofern lizenzrechtlich zulässig.                                                                                                                                                                                                             | SOLL | DI   |
+| DI-005 | Das Datenimport-System muss modular aufgebaut sein, sodass weitere Heftroman-Serien und Datenquellen mit vertretbarem Aufwand hinzugefügt werden können (z. B. Perry Rhodan via Perrypedia).                                                                                                                                   | MUSS | DI   |
+| DI-006 | Zu jeder Serie werden Metadaten gespeichert: Serienname, Verlag, Genre, Erscheinungsrhythmus, Gesamtzahl der Hefte (soweit bekannt), Status (laufend/abgeschlossen).                                                                                                                                                           | SOLL | DI   |
+| DI-007 | Der Datenimport kann ausschließlich von Admins über die WebUI gestartet und verwaltet werden. Normale Nutzer haben keinen Zugriff auf Import-Funktionen.                                                                                                                                                                       | MUSS | DI   |
+| DI-008 | Imports laufen asynchron im Hintergrund. Der Admin kann den Fortschritt anhand getrennter Ergebniszähler verfolgen. Fortschritt, Fehler und Abbruchwunsch werden in der Datenbank persistiert; nach einem Serverneustart ist ein unterbrochener Lauf als solcher sichtbar und kann als verknüpfter Vollscan wiederholt werden. | MUSS | DI   |
+| DI-009 | Importierte Seriendaten sind für normale Nutzer zunächst nicht sichtbar. Admins müssen eine importierte Serie nach Prüfung der Daten explizit aktivieren, bevor sie für alle Nutzer zugänglich wird.                                                                                                                           | MUSS | DI   |
+| DI-010 | Admins können nach einem Import die importierten Daten in einer Prüfansicht stichprobenartig kontrollieren, inklusive Cover-Vorschau, Metadaten und Link zum Wiki-Quelleneintrag.                                                                                                                                              | MUSS | DI   |
+| DI-011 | Die Modularität des Importers wird durch ein Trait-basiertes Adapter-System (`WikiAdapter`-Trait) in einer Shared Rust Library (`importer-core`) realisiert. Neue Adapter können durch Implementierung des Traits hinzugefügt werden, ohne Kern- oder Backend-Code zu ändern.                                                  | MUSS | DI   |
 
 ### 3.3 Tausch-System
 
-| ID | Beschreibung | Prio | Kat. |
-|---|---|---|---|
-| TA-001 | Nutzer können Hefte, die sie als „Doppelt/Tauschbar“ markiert haben, für den Tausch anbieten. | MUSS | TA |
-| TA-002 | Nutzer können eine „Suche“-Liste führen mit Heften, die sie suchen (automatisch ableitbar aus der Fehl-Liste). | MUSS | TA |
-| TA-003 | Das System bietet semi-automatisches Matching: Wenn Nutzer A ein Heft anbietet, das Nutzer B sucht (und umgekehrt), werden beide über einen potenziellen Tausch benachrichtigt. | MUSS | TA |
-| TA-004 | Tauschpartner können sich über ein internes Nachrichtensystem kontaktieren, um Details (Versand, Zustand etc.) zu klären. | MUSS | TA |
-| TA-005 | Ein Tausch kann von beiden Seiten als „Abgeschlossen“ markiert werden. Abgeschlossene Tausche aktualisieren automatisch die jeweiligen Sammlungen. | SOLL | TA |
-| TA-006 | LILLY ist ausdrücklich eine Tausch-Plattform. Es gibt keine Kauf-/Verkaufsfunktion, keine Preisangaben und kein Zahlungssystem. Der finanzielle Aspekt wird bewusst ausgeklammert. | MUSS | TA |
-| TA-007 | Nutzer können ein optionales Bewertungssystem für Tauschpartner nutzen (z. B. Zuverlässigkeit, Zustandsangaben korrekt). | KANN | TA |
+| ID     | Beschreibung                                                                                                                                                                       | Prio | Kat. |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
+| TA-001 | Nutzer können Hefte, die sie als „Doppelt/Tauschbar“ markiert haben, für den Tausch anbieten.                                                                                      | MUSS | TA   |
+| TA-002 | Nutzer können eine „Suche“-Liste führen mit Heften, die sie suchen (automatisch ableitbar aus der Fehl-Liste).                                                                     | MUSS | TA   |
+| TA-003 | Das System bietet semi-automatisches Matching: Wenn Nutzer A ein Heft anbietet, das Nutzer B sucht (und umgekehrt), werden beide über einen potenziellen Tausch benachrichtigt.    | MUSS | TA   |
+| TA-004 | Tauschpartner können sich über ein internes Nachrichtensystem kontaktieren, um Details (Versand, Zustand etc.) zu klären.                                                          | MUSS | TA   |
+| TA-005 | Ein Tausch kann von beiden Seiten als „Abgeschlossen“ markiert werden. Abgeschlossene Tausche aktualisieren automatisch die jeweiligen Sammlungen.                                 | SOLL | TA   |
+| TA-006 | LILLY ist ausdrücklich eine Tausch-Plattform. Es gibt keine Kauf-/Verkaufsfunktion, keine Preisangaben und kein Zahlungssystem. Der finanzielle Aspekt wird bewusst ausgeklammert. | MUSS | TA   |
+| TA-007 | Nutzer können ein optionales Bewertungssystem für Tauschpartner nutzen (z. B. Zuverlässigkeit, Zustandsangaben korrekt).                                                           | KANN | TA   |
 
 ### 3.4 Benutzerverwaltung und Authentifizierung
 
-| ID | Beschreibung | Prio | Kat. |
-|---|---|---|---|
-| BN-001 | Registrierung ist möglich über klassische E-Mail/Passwort-Kombination. | MUSS | BN |
-| BN-002 | Registrierung ist alternativ möglich über OAuth-Anbieter (mindestens Google und GitHub). | MUSS | BN |
-| BN-003 | Nutzer können ein Profil mit Anzeigename, Avatar und optionaler Standortangabe (für Tausch-Nähe) anlegen. | MUSS | BN |
-| BN-004 | Nutzer können unabhängig wählen, ob ihr Profil und ihre Sammlung öffentlich oder privat sind. Bei einer öffentlichen Sammlung werden die zugehörigen persönlichen Heftnotizen öffentlich angezeigt; die Oberfläche weist vor der Freigabe darauf hin. Beide Einstellungen sind standardmäßig privat. | MUSS | BN |
-| BN-005 | Passwort-Reset per E-Mail muss implementiert sein. | MUSS | BN |
-| BN-006 | Zwei-Faktor-Authentifizierung (2FA) als optionale Sicherheitserweiterung. | KANN | BN |
-| BN-008 | Es existiert ein Rollensystem mit den Rollen „User" (Standard) und „Admin". Admins haben erweiterte Rechte für Datenimport und Serienverwaltung. | MUSS | BN |
-| BN-009 | Der erste Admin wird über eine Environment-Variable (`ADMIN_EMAIL`) beim Serverstart befördert. Weitere Admins können per CLI-Befehl befördert werden. | MUSS | BN |
-| BN-007 | Nutzer können ihren Account und alle zugeordneten Daten vollständig löschen (Recht auf Löschung gemäß DSGVO). | MUSS | BN |
+| ID     | Beschreibung                                                                                                                                                                                                                                                                                         | Prio | Kat. |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
+| BN-001 | Registrierung ist möglich über klassische E-Mail/Passwort-Kombination.                                                                                                                                                                                                                               | MUSS | BN   |
+| BN-002 | Registrierung ist alternativ möglich über OAuth-Anbieter (mindestens Google und GitHub).                                                                                                                                                                                                             | MUSS | BN   |
+| BN-003 | Nutzer können ein Profil mit Anzeigename, Avatar und optionaler Standortangabe (für Tausch-Nähe) anlegen.                                                                                                                                                                                            | MUSS | BN   |
+| BN-004 | Nutzer können unabhängig wählen, ob ihr Profil und ihre Sammlung öffentlich oder privat sind. Bei einer öffentlichen Sammlung werden die zugehörigen persönlichen Heftnotizen öffentlich angezeigt; die Oberfläche weist vor der Freigabe darauf hin. Beide Einstellungen sind standardmäßig privat. | MUSS | BN   |
+| BN-005 | Passwort-Reset per E-Mail muss implementiert sein.                                                                                                                                                                                                                                                   | MUSS | BN   |
+| BN-006 | Zwei-Faktor-Authentifizierung (2FA) als optionale Sicherheitserweiterung.                                                                                                                                                                                                                            | KANN | BN   |
+| BN-008 | Es existiert ein Rollensystem mit den Rollen „User" (Standard) und „Admin". Admins haben erweiterte Rechte für Datenimport und Serienverwaltung.                                                                                                                                                     | MUSS | BN   |
+| BN-009 | Der erste Admin wird über eine Environment-Variable (`ADMIN_EMAIL`) beim Serverstart befördert. Weitere Admins können per CLI-Befehl befördert werden.                                                                                                                                               | MUSS | BN   |
+| BN-007 | Nutzer können ihren Account und alle zugeordneten Daten vollständig löschen (Recht auf Löschung gemäß DSGVO).                                                                                                                                                                                        | MUSS | BN   |
 
 ### 3.5 Foto- und Medienverwaltung
 
-| ID | Beschreibung | Prio | Kat. |
-|---|---|---|---|
-| FO-001 | Zu jedem Heft in der Sammlung kann das Referenz-Cover aus der Wiki-Datenquelle angezeigt werden. | MUSS | FO |
-| FO-002 | Nutzer können eigene Fotos zu ihren Heften hochladen (z. B. Zustandsdokumentation, Rückseite, Besonderheiten). Upload per Kamera (mobil) oder Dateiauswahl (Desktop). | MUSS | FO |
-| FO-003 | Hochgeladene Fotos werden serverseitig gespeichert und sind an das jeweilige Heft in der Nutzer-Sammlung gebunden. | MUSS | FO |
-| FO-004 | Fotos werden automatisch komprimiert und in einheitlicher Größe gespeichert, um Speicherplatz zu sparen. | SOLL | FO |
-| FO-005 | Pro Heft können mindestens 4 eigene Fotos hochgeladen werden. | SOLL | FO |
+| ID     | Beschreibung                                                                                                                                                          | Prio | Kat. |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
+| FO-001 | Zu jedem Heft in der Sammlung kann das Referenz-Cover aus der Wiki-Datenquelle angezeigt werden.                                                                      | MUSS | FO   |
+| FO-002 | Nutzer können eigene Fotos zu ihren Heften hochladen (z. B. Zustandsdokumentation, Rückseite, Besonderheiten). Upload per Kamera (mobil) oder Dateiauswahl (Desktop). | MUSS | FO   |
+| FO-003 | Hochgeladene Fotos werden serverseitig gespeichert und sind an das jeweilige Heft in der Nutzer-Sammlung gebunden.                                                    | MUSS | FO   |
+| FO-004 | Fotos werden automatisch komprimiert und in einheitlicher Größe gespeichert, um Speicherplatz zu sparen.                                                              | SOLL | FO   |
+| FO-005 | Pro Heft können mindestens 4 eigene Fotos hochgeladen werden.                                                                                                         | SOLL | FO   |
 
 ### 3.6 Community-Features
 
-| ID | Beschreibung | Prio | Kat. |
-|---|---|---|---|
-| CO-001 | Öffentliche Sammler-Profile zeigen Statistiken an: Sammlungsfortschritt pro Serie (absolut und prozentual), Gesamtzahl der Hefte, Mitglied seit. | MUSS | CO |
-| CO-002 | Nutzer können Kommentare und Bewertungen (z. B. 1–5 Sterne) zu einzelnen Heften abgeben. | SOLL | CO |
-| CO-003 | Wunschlisten (gesuchte Hefte) und Tausch-Listen (doppelte Hefte) können öffentlich geteilt werden, optional als direkter Link. | MUSS | CO |
-| CO-004 | Nutzer können die öffentlichen Sammlungen anderer Nutzer durchsuchen und einsehen. | SOLL | CO |
-| CO-005 | Eine übergreifende Statistik-Seite zeigt aggregierte Daten: beliebteste Serien, aktivste Tauscher, am häufigsten gesuchte Hefte. | KANN | CO |
+| ID     | Beschreibung                                                                                                                                     | Prio | Kat. |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ---- |
+| CO-001 | Öffentliche Sammler-Profile zeigen Statistiken an: Sammlungsfortschritt pro Serie (absolut und prozentual), Gesamtzahl der Hefte, Mitglied seit. | MUSS | CO   |
+| CO-002 | Nutzer können Kommentare und Bewertungen (z. B. 1–5 Sterne) zu einzelnen Heften abgeben.                                                         | SOLL | CO   |
+| CO-003 | Wunschlisten (gesuchte Hefte) und Tausch-Listen (doppelte Hefte) können öffentlich geteilt werden, optional als direkter Link.                   | MUSS | CO   |
+| CO-004 | Nutzer können die öffentlichen Sammlungen anderer Nutzer durchsuchen und einsehen.                                                               | SOLL | CO   |
+| CO-005 | Eine übergreifende Statistik-Seite zeigt aggregierte Daten: beliebteste Serien, aktivste Tauscher, am häufigsten gesuchte Hefte.                 | KANN | CO   |
 
 ---
 
@@ -173,6 +173,8 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 - Nutzer müssen der Datenverarbeitung bei Registrierung zustimmen.
 - Recht auf Auskunft: Nutzer können einen Export aller über sie gespeicherten Daten anfordern.
 - Recht auf Löschung: Vollständige Accountlöschung inkl. aller zugeordneten Daten.
+- Gemeinsame abgeschlossene oder abgebrochene Tauschhistorie darf für den anderen Teilnehmer nur irreversibel anonymisiert erhalten bleiben; eigene Nachrichtentexte des gelöschten Kontos werden entfernt.
+- Ein älterer Backup-Stand darf ein bereits endgültig gelöschtes Konto nicht wieder öffentlich oder authentifizierbar machen.
 - Keine Weitergabe personenbezogener Daten an Dritte.
 
 ### 4.5 Wartbarkeit und Erweiterbarkeit
@@ -189,13 +191,13 @@ Das Projekt adressiert eine bestehende Lücke im Markt: Während es generische B
 
 Die folgende Skala ist der etablierte Standard in der Heftroman-Sammlerszene und wird in LILLY als Pflichtfeld bei der Erfassung verwendet:
 
-| Stufe | Bezeichnung | Beschreibung |
-|---|---|---|
-| **Z0** | Druckfrisch | Druckfrisches neues Heft ohne jegliche Mängel. Innenseiten noch weiß. |
-| **Z1** | Sehr gut erhalten | Sehr gut erhaltenes Heft mit minimalen Gebrauchsspuren und ohne Risse. Keine Beschriftung oder Aufkleber auf der Titelseite. Heftklammern dürfen leicht angerostet sein, aber ohne Rostflecken auf dem Papier. Kein oder nur minimaler Lesewulst. Innenseiten leicht bräunlich. |
-| **Z2** | Gut erhalten | Gut erhaltenes Heft mit Gebrauchsspuren, beispielsweise kleinen Rissen am Rand und leichtem Lesewulst. Klammern angerostet. Keine Beschriftungen oder Aufkleber auf der Titelseite. Innenseiten bräunlich, aber nicht fleckig. |
+| Stufe  | Bezeichnung        | Beschreibung                                                                                                                                                                                                                                                                                      |
+| ------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Z0** | Druckfrisch        | Druckfrisches neues Heft ohne jegliche Mängel. Innenseiten noch weiß.                                                                                                                                                                                                                             |
+| **Z1** | Sehr gut erhalten  | Sehr gut erhaltenes Heft mit minimalen Gebrauchsspuren und ohne Risse. Keine Beschriftung oder Aufkleber auf der Titelseite. Heftklammern dürfen leicht angerostet sein, aber ohne Rostflecken auf dem Papier. Kein oder nur minimaler Lesewulst. Innenseiten leicht bräunlich.                   |
+| **Z2** | Gut erhalten       | Gut erhaltenes Heft mit Gebrauchsspuren, beispielsweise kleinen Rissen am Rand und leichtem Lesewulst. Klammern angerostet. Keine Beschriftungen oder Aufkleber auf der Titelseite. Innenseiten bräunlich, aber nicht fleckig.                                                                    |
 | **Z3** | Stärker beschädigt | Heft mit stärkeren Beschädigungen, größeren Einrissen und starkem Lesewulst. Klammern angerostet bis verrostet. Geringe Beschriftungen oder Aufkleber auf der Titelseite. Innenseiten stark gedunkelt und fleckig. Das Heft ist noch nicht zerfleddert und hat keine losen oder fehlenden Seiten. |
-| **Z4** | Stark beschädigt | Stark beschädigtes Heft. Titelbild eingerissen und/oder deutlich störende Beschriftungen beziehungsweise Aufkleber auf der Titelseite. Innenseiten deutlich braun. Das Heft wirkt zerfleddert und kann lose oder fehlende Seiten haben. |
+| **Z4** | Stark beschädigt   | Stark beschädigtes Heft. Titelbild eingerissen und/oder deutlich störende Beschriftungen beziehungsweise Aufkleber auf der Titelseite. Innenseiten deutlich braun. Das Heft wirkt zerfleddert und kann lose oder fehlende Seiten haben.                                                           |
 
 ---
 
@@ -259,17 +261,17 @@ Folgende Funktionen sind bewusst nicht Teil von LILLY:
 
 ## 9. Glossar
 
-| Begriff | Erläuterung |
-|---|---|
-| **Heftroman** | Gehefteter Roman im Format DIN C5 bis A5, erscheint periodisch im Zeitschriftenhandel. Auch: Groschenroman, Groschenheft. |
-| **Yellowback** | Historischer englischer Begriff für billige, in gelbe Umschläge gebundene Trivialromane des 19. Jahrhunderts. Namensgebend für LILLY. |
-| **Zustandsskala (Z0–Z4)** | Standardisierte Bewertungsskala für den physischen Zustand von Romanheften in der deutschen Sammlerszene. |
-| **PWA** | Progressive Web App. Webanwendung, die wie eine native App installiert und teilweise offline genutzt werden kann. |
-| **Fan-Wiki** | Von Fans betriebene, auf MediaWiki basierende Wissensdatenbank zu einer Heftroman-Serie (z. B. Maddraxikon, Perrypedia). |
-| **Matching** | Automatischer Abgleich von Angebots- und Suchlisten verschiedener Nutzer zur Identifikation potenzieller Tauschpartner. |
-| **i18n** | Internationalisierung (Internationalization). Architektonische Vorbereitung einer Anwendung für mehrere Sprachen. |
-| **Self-Hosting** | Betrieb der Anwendung auf eigener Infrastruktur (eigener Server / VPS) statt bei einem Cloud-Anbieter. |
+| Begriff                   | Erläuterung                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Heftroman**             | Gehefteter Roman im Format DIN C5 bis A5, erscheint periodisch im Zeitschriftenhandel. Auch: Groschenroman, Groschenheft.             |
+| **Yellowback**            | Historischer englischer Begriff für billige, in gelbe Umschläge gebundene Trivialromane des 19. Jahrhunderts. Namensgebend für LILLY. |
+| **Zustandsskala (Z0–Z4)** | Standardisierte Bewertungsskala für den physischen Zustand von Romanheften in der deutschen Sammlerszene.                             |
+| **PWA**                   | Progressive Web App. Webanwendung, die wie eine native App installiert und teilweise offline genutzt werden kann.                     |
+| **Fan-Wiki**              | Von Fans betriebene, auf MediaWiki basierende Wissensdatenbank zu einer Heftroman-Serie (z. B. Maddraxikon, Perrypedia).              |
+| **Matching**              | Automatischer Abgleich von Angebots- und Suchlisten verschiedener Nutzer zur Identifikation potenzieller Tauschpartner.               |
+| **i18n**                  | Internationalisierung (Internationalization). Architektonische Vorbereitung einer Anwendung für mehrere Sprachen.                     |
+| **Self-Hosting**          | Betrieb der Anwendung auf eigener Infrastruktur (eigener Server / VPS) statt bei einem Cloud-Anbieter.                                |
 
 ---
 
-*Ende des Anforderungskatalogs*
+_Ende des Anforderungskatalogs_

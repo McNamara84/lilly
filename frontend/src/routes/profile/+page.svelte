@@ -9,9 +9,21 @@
 		uploadAvatar,
 		type OwnProfile
 	} from '$lib/api/profile';
-	import { fetchPrivacyConsents, type PrivacyConsent } from '$lib/api/auth';
+	import {
+		fetchPrivacyConsents,
+		startOAuth,
+		type OAuthProvider,
+		type PrivacyConsent
+	} from '$lib/api/auth';
+	import {
+		availableOAuthMethods,
+		fetchAccountDeletionOptions,
+		requestAccountDeletion,
+		reauthenticateWithPassword,
+		type AccountDeletionOptions
+	} from '$lib/api/account-erasure';
 	import { DEFAULT_PHOTO_POLICY, fetchPhotoPolicy, type PhotoPolicy } from '$lib/api/media';
-	import { getAuthState, setUser } from '$lib/stores/auth.svelte';
+	import { deactivateAccountLocally, getAuthState, setUser } from '$lib/stores/auth.svelte';
 
 	const auth = getAuthState();
 
@@ -31,6 +43,16 @@
 	let privacyConsents = $state<PrivacyConsent[]>([]);
 	let privacyConsentsError = $state<string | null>(null);
 	let photoPolicy = $state<PhotoPolicy>(DEFAULT_PHOTO_POLICY);
+	let deletionOptions = $state<AccountDeletionOptions | null>(null);
+	let deletionDialog = $state<HTMLDialogElement>();
+	let deletionConfirmation = $state('');
+	let deletionPassword = $state('');
+	let deleting = $state(false);
+	let deletionError = $state<string | null>(null);
+	let oauthReauthLoading = $state<OAuthProvider | null>(null);
+	let deletionOffline = $derived(
+		auth.isOfflineSession || (typeof navigator !== 'undefined' && !navigator.onLine)
+	);
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -44,10 +66,11 @@
 		loading = true;
 		error = null;
 		privacyConsentsError = null;
-		const [profileResult, consentsResult, policyResult] = await Promise.allSettled([
+		const [profileResult, consentsResult, policyResult, deletionResult] = await Promise.allSettled([
 			fetchOwnProfile(),
 			fetchPrivacyConsents(),
-			fetchPhotoPolicy()
+			fetchPhotoPolicy(),
+			fetchAccountDeletionOptions()
 		]);
 		if (profileResult.status === 'fulfilled') {
 			profile = profileResult.value;
@@ -69,6 +92,7 @@
 					: 'Datenschutz-Einwilligungen konnten nicht geladen werden.';
 		}
 		if (policyResult.status === 'fulfilled') photoPolicy = policyResult.value;
+		if (deletionResult.status === 'fulfilled') deletionOptions = deletionResult.value;
 		loading = false;
 	}
 
@@ -202,6 +226,55 @@
 				cause instanceof Error ? cause.message : 'Sichtbarkeit konnte nicht gespeichert werden.';
 		} finally {
 			saving = false;
+		}
+	}
+
+	function openDeletionDialog() {
+		deletionConfirmation = '';
+		deletionPassword = '';
+		deletionError = null;
+		deletionDialog?.showModal();
+	}
+
+	async function reauthenticateOAuth(provider: OAuthProvider) {
+		oauthReauthLoading = provider;
+		deletionError = null;
+		try {
+			window.location.assign(await startOAuth(provider, 'reauth'));
+		} catch (cause) {
+			deletionError =
+				cause instanceof Error ? cause.message : 'Anmeldung konnte nicht gestartet werden.';
+			oauthReauthLoading = null;
+		}
+	}
+
+	async function deleteAccount(event: SubmitEvent) {
+		event.preventDefault();
+		if (!deletionOptions || deletionOffline) return;
+		deleting = true;
+		deletionError = null;
+		try {
+			if (!deletionOptions.recent_authentication) {
+				if (!deletionOptions.password) {
+					throw new Error('Bitte bestätige deine Anmeldung zuerst mit einem verknüpften Anbieter.');
+				}
+				await reauthenticateWithPassword(deletionPassword);
+			}
+			await requestAccountDeletion(deletionConfirmation);
+			await deactivateAccountLocally();
+			deletionDialog?.close();
+			await goto(resolve('/account/deletion'));
+		} catch (cause) {
+			const apiError = cause as (Error & { code?: string }) | null;
+			if (apiError?.code === 'RECENT_AUTH_REQUIRED') {
+				deletionOptions = await fetchAccountDeletionOptions().catch(() => deletionOptions);
+				deletionError =
+					'Bitte bestätige deine Anmeldung erneut und versuche es danach noch einmal.';
+			} else {
+				deletionError =
+					cause instanceof Error ? cause.message : 'Das Konto konnte nicht deaktiviert werden.';
+			}
+			deleting = false;
 		}
 	}
 </script>
@@ -454,6 +527,33 @@
 					{/if}
 				</div>
 			</section>
+
+			<section
+				class="glass-elevated mt-6 rounded-lg border p-6"
+				style="border-color: var(--color-error);"
+				aria-labelledby="delete-account-heading"
+			>
+				<h2 id="delete-account-heading" class="text-lg font-semibold">Konto löschen</h2>
+				<p class="mt-2 text-sm" style="color: var(--text-secondary);">
+					Das Konto wird sofort deaktiviert und nach sieben Tagen endgültig gelöscht. Profil,
+					Sammlung, Fotos und Zugangsdaten werden entfernt; gemeinsame abgeschlossene
+					Tauschhistorien bleiben anonymisiert erhalten. Laufende Tausche werden sofort abgebrochen
+					und bei einem Widerruf nicht wieder geöffnet.
+				</p>
+				<button
+					type="button"
+					class="mt-5 rounded-lg border px-4 py-2 font-semibold disabled:opacity-50"
+					style="border-color: var(--color-error); color: var(--color-error);"
+					disabled={!deletionOptions || deletionOffline}
+					onclick={openDeletionDialog}
+					data-testid="open-account-deletion"
+				>
+					Konto löschen …
+				</button>
+				{#if deletionOffline}
+					<p class="mt-2 text-sm">Diese Aktion ist offline nicht verfügbar.</p>
+				{/if}
+			</section>
 		{/if}
 
 		<div class="mt-4 min-h-6" aria-live="polite">
@@ -465,3 +565,81 @@
 		</div>
 	</div>
 </div>
+
+<dialog
+	bind:this={deletionDialog}
+	class="glass-elevated m-auto w-[min(92vw,36rem)] rounded-xl p-6 backdrop:bg-black/60"
+	onclose={() => (deletionError = null)}
+>
+	<h2 class="text-xl font-bold">Kontolöschung bestätigen</h2>
+	{#if deletionOptions}
+		<p class="mt-3 text-sm" style="color: var(--text-secondary);">
+			Du kannst die Löschung innerhalb von {deletionOptions.grace_days} Tagen widerrufen.
+		</p>
+
+		{#if !deletionOptions.recent_authentication}
+			<div class="mt-5">
+				<p class="mb-2 font-medium">Anmeldung erneut bestätigen</p>
+				{#if deletionOptions.password}
+					<label for="deletion-password" class="mb-1 block text-sm">Passwort</label>
+					<input
+						id="deletion-password"
+						type="password"
+						autocomplete="current-password"
+						bind:value={deletionPassword}
+						class="w-full rounded-lg border px-3 py-2"
+					/>
+				{/if}
+				{#if availableOAuthMethods(deletionOptions).length > 0}
+					<div class="mt-3 flex flex-wrap gap-2">
+						{#each availableOAuthMethods(deletionOptions) as provider (provider)}
+							<button
+								type="button"
+								class="rounded-lg border px-3 py-2 text-sm"
+								disabled={oauthReauthLoading !== null}
+								onclick={() => reauthenticateOAuth(provider)}
+							>
+								{oauthReauthLoading === provider
+									? 'Weiterleitung …'
+									: `Mit ${provider === 'google' ? 'Google' : 'GitHub'} bestätigen`}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{/if}
+
+		<form class="mt-5" onsubmit={deleteAccount}>
+			<label for="deletion-confirmation" class="mb-1 block text-sm font-medium">
+				Gib exakt <strong>{deletionOptions.confirmation_phrase}</strong> ein:
+			</label>
+			<input
+				id="deletion-confirmation"
+				type="text"
+				bind:value={deletionConfirmation}
+				autocomplete="off"
+				class="w-full rounded-lg border px-3 py-2"
+				data-testid="account-deletion-confirmation"
+			/>
+			<div class="mt-5 flex flex-wrap justify-end gap-3">
+				<button type="button" class="rounded-lg px-4 py-2" onclick={() => deletionDialog?.close()}>
+					Abbrechen
+				</button>
+				<button
+					type="submit"
+					class="rounded-lg px-4 py-2 font-semibold disabled:opacity-50"
+					style="background: var(--color-error); color: white;"
+					disabled={deleting ||
+						deletionConfirmation !== deletionOptions.confirmation_phrase ||
+						deletionOffline}
+					data-testid="confirm-account-deletion"
+				>
+					{deleting ? 'Konto wird deaktiviert …' : 'Konto endgültig vormerken'}
+				</button>
+			</div>
+		</form>
+		<div class="mt-3 min-h-6" aria-live="assertive">
+			{#if deletionError}<p role="alert" style="color: var(--color-error);">{deletionError}</p>{/if}
+		</div>
+	{/if}
+</dialog>

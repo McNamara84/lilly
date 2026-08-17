@@ -16,9 +16,30 @@ vi.mock('$lib/api/collection', () => ({
 describe('offline authentication context', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
+		vi.unstubAllGlobals();
 		vi.resetModules();
 		const { resetOfflineDatabaseForTests } = await import('$lib/offline/database');
 		await resetOfflineDatabaseForTests();
+	});
+
+	it('purges the matching account in other tabs after an account-deletion broadcast', async () => {
+		let messageHandler: ((event: MessageEvent) => void) | undefined;
+		class BroadcastChannelMock {
+			addEventListener(_type: string, handler: (event: MessageEvent) => void) {
+				messageHandler = handler;
+			}
+		}
+		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
+		const { fetchMe } = await import('$lib/api/auth');
+		vi.mocked(fetchMe).mockResolvedValue(profile(7));
+		const { getAuthState, initAuth } = await import('$lib/stores/auth.svelte');
+		await initAuth();
+
+		messageHandler?.({ data: { type: 'account-deletion', user_id: 7 } } as MessageEvent);
+
+		await vi.waitFor(() => expect(getAuthState().user).toBeNull());
+		const { getCachedProfile } = await import('$lib/offline/database');
+		await vi.waitFor(async () => expect(await getCachedProfile()).toBeNull());
 	});
 
 	it('restores only a confirmed cached user after a network failure', async () => {

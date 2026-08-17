@@ -69,6 +69,7 @@ services:
       ENABLE_E2E_FIXTURE_ADAPTER: "false"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       MEDIA_PATH: /media
+      ACCOUNT_ERASURE_LEDGER_PATH: /erasure-ledger/account-erasure.log
       MEDIA_URL_PREFIX: /media
       PHOTO_MAX_UPLOAD_BYTES: ${PHOTO_MAX_UPLOAD_BYTES:-5242880}
       PHOTO_MAX_COUNT: "4"
@@ -82,6 +83,7 @@ services:
       IMPORT_SCHEDULED_ADAPTERS: ${IMPORT_SCHEDULED_ADAPTERS:-maddrax,john-sinclair}
     volumes:
       - media_data:/media
+      - ${LILLY_ROOT:-/opt/lilly}/shared/erasure-ledger:/erasure-ledger
     networks:
       - app
       - data

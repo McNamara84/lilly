@@ -12,10 +12,16 @@ const mockDeleteAvatar = vi.fn();
 const mockFetchPrivacyConsents = vi.fn();
 const mockFetchPhotoPolicy = vi.fn();
 const mockSetUser = vi.fn();
+const mockDeactivateAccountLocally = vi.fn();
+const mockFetchDeletionOptions = vi.fn();
+const mockRequestAccountDeletion = vi.fn();
+const mockReauthenticateWithPassword = vi.fn();
+const mockGoto = vi.fn();
 
 vi.mock('$lib/stores/auth.svelte', () => ({
 	getAuthState: () => mockGetAuthState(),
-	setUser: (...args: unknown[]) => mockSetUser(...args)
+	setUser: (...args: unknown[]) => mockSetUser(...args),
+	deactivateAccountLocally: (...args: unknown[]) => mockDeactivateAccountLocally(...args)
 }));
 
 vi.mock('$lib/api/profile', () => ({
@@ -37,10 +43,18 @@ vi.mock('$lib/api/media', () => ({
 }));
 
 vi.mock('$lib/api/auth', () => ({
-	fetchPrivacyConsents: (...args: unknown[]) => mockFetchPrivacyConsents(...args)
+	fetchPrivacyConsents: (...args: unknown[]) => mockFetchPrivacyConsents(...args),
+	startOAuth: vi.fn()
 }));
 
-vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+vi.mock('$lib/api/account-erasure', () => ({
+	fetchAccountDeletionOptions: (...args: unknown[]) => mockFetchDeletionOptions(...args),
+	requestAccountDeletion: (...args: unknown[]) => mockRequestAccountDeletion(...args),
+	reauthenticateWithPassword: (...args: unknown[]) => mockReauthenticateWithPassword(...args),
+	availableOAuthMethods: () => []
+}));
+
+vi.mock('$app/navigation', () => ({ goto: vi.fn((...args: unknown[]) => mockGoto(...args)) }));
 vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
 
 const profile = {
@@ -92,6 +106,74 @@ describe('Profile Page', () => {
 				registration_method: 'password'
 			}
 		]);
+		mockFetchDeletionOptions.mockResolvedValue({
+			recent_authentication: true,
+			password: true,
+			google: false,
+			github: false,
+			confirmation_phrase: 'KONTO LÖSCHEN',
+			grace_days: 7
+		});
+		mockRequestAccountDeletion.mockResolvedValue({ status: 'scheduled' });
+		mockDeactivateAccountLocally.mockResolvedValue(undefined);
+		HTMLDialogElement.prototype.showModal = function () {
+			this.setAttribute('open', '');
+		};
+		HTMLDialogElement.prototype.close = function () {
+			this.removeAttribute('open');
+		};
+	});
+
+	it('requires the exact phrase and purges local data after scheduling deletion', async () => {
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId('open-account-deletion'));
+		const confirmation = screen.getByTestId('account-deletion-confirmation');
+		const submit = screen.getByTestId('confirm-account-deletion');
+		expect(submit).toBeDisabled();
+		await user.type(confirmation, 'KONTO LÖSCHEN');
+		expect(submit).toBeEnabled();
+		await user.click(submit);
+
+		await waitFor(() => expect(mockRequestAccountDeletion).toHaveBeenCalledWith('KONTO LÖSCHEN'));
+		expect(mockReauthenticateWithPassword).not.toHaveBeenCalled();
+		expect(mockDeactivateAccountLocally).toHaveBeenCalledOnce();
+		expect(mockGoto).toHaveBeenCalledWith('/account/deletion');
+	});
+
+	it('refreshes reauthentication choices when recent authentication expires in the dialog', async () => {
+		const recentAuthError = Object.assign(new Error('Recent authentication required'), {
+			code: 'RECENT_AUTH_REQUIRED'
+		});
+		mockRequestAccountDeletion.mockRejectedValueOnce(recentAuthError);
+		mockFetchDeletionOptions
+			.mockResolvedValueOnce({
+				recent_authentication: true,
+				password: true,
+				google: false,
+				github: false,
+				confirmation_phrase: 'KONTO LÖSCHEN',
+				grace_days: 7
+			})
+			.mockResolvedValueOnce({
+				recent_authentication: false,
+				password: true,
+				google: false,
+				github: false,
+				confirmation_phrase: 'KONTO LÖSCHEN',
+				grace_days: 7
+			});
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId('open-account-deletion'));
+		await user.type(screen.getByTestId('account-deletion-confirmation'), 'KONTO LÖSCHEN');
+		await user.click(screen.getByTestId('confirm-account-deletion'));
+
+		expect(await screen.findByText('Anmeldung erneut bestätigen')).toBeInTheDocument();
+		expect(screen.getByLabelText('Passwort')).toBeInTheDocument();
+		expect(screen.getByRole('alert')).toHaveTextContent(/Bitte bestätige deine Anmeldung erneut/);
 	});
 
 	it('edits and normalizes display name and optional location', async () => {

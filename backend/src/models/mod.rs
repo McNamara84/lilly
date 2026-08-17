@@ -1,3 +1,4 @@
+pub mod account_erasure;
 pub mod collection;
 pub mod import_review;
 pub mod media;

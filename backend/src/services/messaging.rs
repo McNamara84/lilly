@@ -61,6 +61,15 @@ pub async fn send_message(
     let access = messaging::lock_thread_access(&mut transaction, thread_id, user_id)
         .await?
         .ok_or_else(resource_not_found)?;
+    if !matches!(access.trade_status.as_str(), "proposed" | "accepted") {
+        return Err(AppError::ConflictWithCode {
+            message: "Messages can only be sent while a trade is open".to_string(),
+            code: "trade_closed".to_string(),
+        });
+    }
+    let recipient_id = access
+        .recipient_id(user_id)
+        .ok_or_else(resource_not_found)?;
     let (message, created) = match messaging::insert_message(
         &mut transaction,
         thread_id,
@@ -94,7 +103,6 @@ pub async fn send_message(
         Err(error) => return Err(error.into()),
     };
     if created {
-        let recipient_id = access.recipient_id(user_id);
         notifications::insert_notification(
             &mut transaction,
             recipient_id,

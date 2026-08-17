@@ -5,6 +5,8 @@ export interface LoginRequest {
 
 export interface LoginResponse {
 	message: string;
+	account_state?: 'pending_deletion';
+	scheduled_for?: string;
 }
 
 export interface RegisterRequest {
@@ -42,7 +44,7 @@ export interface PasswordResetConfirmRequest {
 }
 
 export type OAuthProvider = 'google' | 'github';
-export type OAuthIntent = 'login' | 'register';
+export type OAuthIntent = 'login' | 'register' | 'reauth';
 
 export interface AuthOptionsResponse {
 	privacy_policy: {

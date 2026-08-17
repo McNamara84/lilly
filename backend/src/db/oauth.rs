@@ -10,6 +10,7 @@ pub struct NewOAuthFlow<'a> {
     pub browser_binding_hash: &'a str,
     pub provider: &'a str,
     pub intent: &'a str,
+    pub reauth_user_id: Option<u32>,
     pub pkce_verifier: &'a str,
     pub privacy_policy_version: Option<&'a str>,
     pub consented_at: Option<NaiveDateTime>,
@@ -20,14 +21,15 @@ pub struct NewOAuthFlow<'a> {
 pub async fn insert_flow(pool: &MySqlPool, flow: &NewOAuthFlow<'_>) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO oauth_authorization_flows \
-         (state_hash, browser_binding_hash, provider, intent, pkce_verifier, \
+         (state_hash, browser_binding_hash, provider, intent, reauth_user_id, pkce_verifier, \
           privacy_policy_version, consented_at, created_at, expires_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(flow.state_hash)
     .bind(flow.browser_binding_hash)
     .bind(flow.provider)
     .bind(flow.intent)
+    .bind(flow.reauth_user_id)
     .bind(flow.pkce_verifier)
     .bind(flow.privacy_policy_version)
     .bind(flow.consented_at)
@@ -47,7 +49,7 @@ pub async fn consume_flow(
 ) -> Result<Option<OAuthFlowRow>, sqlx::Error> {
     let mut transaction = pool.begin().await?;
     let flow = sqlx::query_as::<_, OAuthFlowRow>(
-        "SELECT browser_binding_hash, provider, intent, pkce_verifier, \
+        "SELECT browser_binding_hash, provider, intent, reauth_user_id, pkce_verifier, \
                 privacy_policy_version, consented_at, expires_at, consumed_at \
          FROM oauth_authorization_flows WHERE state_hash = ? FOR UPDATE",
     )
@@ -101,7 +103,8 @@ pub async fn find_user_by_identity(
 ) -> Result<Option<User>, sqlx::Error> {
     sqlx::query_as::<_, User>(
         "SELECT users.id, users.email, users.password_hash, users.display_name, users.role, \
-                users.email_verified \
+                users.email_verified, users.account_state, users.session_version, \
+                users.erasure_subject \
          FROM oauth_identities \
          JOIN users ON users.id = oauth_identities.user_id \
          WHERE oauth_identities.provider = ? AND oauth_identities.provider_subject = ?",
@@ -177,6 +180,12 @@ pub async fn create_oauth_user(
         display_name: profile.display_name.clone(),
         role: "user".to_string(),
         email_verified: true,
+        account_state: "active".to_string(),
+        session_version: 0,
+        erasure_subject: sqlx::query_scalar("SELECT erasure_subject FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?,
     })
 }
 
@@ -361,6 +370,7 @@ mod tests {
                 browser_binding_hash: &browser_hash,
                 provider: "google",
                 intent: "login",
+                reauth_user_id: None,
                 pkce_verifier: "test-pkce-verifier",
                 privacy_policy_version: None,
                 consented_at: None,
@@ -419,6 +429,7 @@ mod tests {
                 browser_binding_hash: &browser_hash,
                 provider: "github",
                 intent: "login",
+                reauth_user_id: None,
                 pkce_verifier: "test-pkce-verifier",
                 privacy_policy_version: None,
                 consented_at: None,

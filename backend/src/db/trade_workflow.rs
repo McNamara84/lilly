@@ -40,8 +40,8 @@ pub struct CompletionItemRow {
     pub offer_entry_id: Option<u32>,
     pub wanted_entry_id: Option<u32>,
     pub issue_id: u32,
-    pub offered_by_user_id: u32,
-    pub receiving_user_id: u32,
+    pub offered_by_user_id: Option<u32>,
+    pub receiving_user_id: Option<u32>,
     pub condition_grade_snapshot: String,
     pub edition_label_snapshot: Option<String>,
     pub wanted_edition_label_snapshot: Option<String>,
@@ -418,12 +418,17 @@ pub async fn find_trades(
                  WHERE c.trade_id = t.id AND c.user_id <> ?
                  ORDER BY c.user_id LIMIT 1) AS partner_completion_confirmed_at,
                 t.created_at, t.updated_at,
-                partner.id AS partner_id, partner.display_name AS partner_display_name,
-                partner.profile_public AS partner_profile_public,
-                partner.avatar_path AS partner_avatar_path,
-                partner.location AS partner_location, mt.id AS thread_id
+                CASE WHEN partner.account_state = 'active' THEN partner.id END AS partner_id,
+                CASE WHEN partner.account_state = 'active' THEN partner.display_name
+                     ELSE 'Gelöschtes Konto' END AS partner_display_name,
+                COALESCE(partner.account_state = 'active' AND partner.profile_public, FALSE)
+                    AS partner_profile_public,
+                CASE WHEN partner.account_state = 'active' THEN partner.avatar_path END
+                    AS partner_avatar_path,
+                CASE WHEN partner.account_state = 'active' THEN partner.location END
+                    AS partner_location, mt.id AS thread_id
          FROM trades t
-         JOIN users partner ON partner.id = CASE
+         LEFT JOIN users partner ON partner.id = CASE
              WHEN t.initiator_id = ? THEN t.responder_id ELSE t.initiator_id END
          JOIN message_threads mt ON mt.trade_id = t.id
          WHERE ((? = 'open' AND t.status IN ('proposed', 'accepted'))
@@ -460,12 +465,17 @@ pub async fn find_trade_for_participant(
                  WHERE c.trade_id = t.id AND c.user_id <> ?
                  ORDER BY c.user_id LIMIT 1) AS partner_completion_confirmed_at,
                 t.created_at, t.updated_at,
-                partner.id AS partner_id, partner.display_name AS partner_display_name,
-                partner.profile_public AS partner_profile_public,
-                partner.avatar_path AS partner_avatar_path,
-                partner.location AS partner_location, mt.id AS thread_id
+                CASE WHEN partner.account_state = 'active' THEN partner.id END AS partner_id,
+                CASE WHEN partner.account_state = 'active' THEN partner.display_name
+                     ELSE 'Gelöschtes Konto' END AS partner_display_name,
+                COALESCE(partner.account_state = 'active' AND partner.profile_public, FALSE)
+                    AS partner_profile_public,
+                CASE WHEN partner.account_state = 'active' THEN partner.avatar_path END
+                    AS partner_avatar_path,
+                CASE WHEN partner.account_state = 'active' THEN partner.location END
+                    AS partner_location, mt.id AS thread_id
          FROM trades t
-         JOIN users partner ON partner.id = CASE
+         LEFT JOIN users partner ON partner.id = CASE
              WHEN t.initiator_id = ? THEN t.responder_id ELSE t.initiator_id END
          JOIN message_threads mt ON mt.trade_id = t.id
          WHERE t.id = ? AND (t.initiator_id = ? OR t.responder_id = ?)",

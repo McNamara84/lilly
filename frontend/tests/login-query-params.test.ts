@@ -16,7 +16,8 @@ vi.mock('$app/paths', () => ({
 }));
 
 vi.mock('$lib/stores/auth.svelte', () => ({
-	initAuth: vi.fn().mockResolvedValue(undefined)
+	initAuth: vi.fn().mockResolvedValue(undefined),
+	deactivateAccountLocally: vi.fn().mockResolvedValue(undefined)
 }));
 
 // Use vi.hoisted so the variable exists before vi.mock is hoisted

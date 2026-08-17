@@ -56,7 +56,7 @@ Jeder Tausch erzeugt genau einen Thread. Nachrichten sind unveränderlicher Klar
 
 Die Inbox und Threads verwenden serverseitige Paginierung. Die Oberfläche aktualisiert Threads alle zehn Sekunden und den Benachrichtigungszähler alle 30 Sekunden sowie beim Fensterfokus. Der Read-Endpunkt markiert nur empfangene Nachrichten bis zur angegebenen Nachrichten-ID und synchronisiert die zugehörigen Benachrichtigungen.
 
-Threads und Nachrichten bleiben nach Annahme, Abschluss oder Abbruch erhalten. Wird eines der beiden Konten gelöscht, entfernen MariaDB-Kaskaden den gemeinsamen Match-, Tausch-, Thread-, Nachrichten- und Benachrichtigungskontext vollständig.
+Threads und Nachrichten bleiben nach Annahme, Abschluss oder Abbruch erhalten. Fordert ein Teilnehmer die Kontolöschung an, werden offene Tausche sofort mit dem neutralen Grund `account_deletion` abgebrochen. Terminale Tausche bleiben für den anderen Teilnehmer erhalten und zeigen bereits während der Karenzzeit „Gelöschtes Konto“. Bei der endgültigen Löschung werden sämtliche Teilnehmerreferenzen entfernt und alle vom gelöschten Konto gesendeten Texte durch `[Nachricht vom gelöschten Konto entfernt]` ersetzt; Nachrichten des verbleibenden Teilnehmers bleiben unverändert. Gibt es danach keinen Teilnehmer mehr, wird die verwaiste Historie vollständig gelöscht. In geschlossenen Threads können keine neuen Nachrichten gesendet werden.
 
 ## Oberflächen
 

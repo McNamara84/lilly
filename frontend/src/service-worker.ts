@@ -103,4 +103,15 @@ worker.addEventListener('fetch', (event) => {
 
 worker.addEventListener('message', (event) => {
 	if (event.data === 'SKIP_WAITING') void worker.skipWaiting();
+	if (event.data?.type === 'PURGE_PRIVATE_DATA') {
+		event.waitUntil(
+			caches
+				.keys()
+				.then((keys) =>
+					Promise.all(
+						keys.filter((key) => key.startsWith('lilly-')).map((key) => caches.delete(key))
+					)
+				)
+		);
+	}
 });

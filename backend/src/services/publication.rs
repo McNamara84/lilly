@@ -587,6 +587,9 @@ mod tests {
             media_storage: crate::services::media::MediaStorage::new(std::path::Path::new(
                 "/tmp/lilly-review-test",
             )),
+            erasure_ledger: crate::services::account_erasure::ErasureLedger::new(
+                "/tmp/lilly-review-test-erasure-ledger",
+            ),
             import_scheduler_config: ImportSchedulerConfig {
                 enabled: false,
                 schedule: "0 10 6 * * Sat *".to_string(),

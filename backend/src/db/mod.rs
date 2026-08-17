@@ -32,3 +32,4 @@ pub async fn migrate_test_database(
     let _guard = TEST_MIGRATION_LOCK.lock().await;
     sqlx::migrate!("./migrations").run(pool).await
 }
+pub mod account_erasure;

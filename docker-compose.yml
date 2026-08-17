@@ -57,6 +57,7 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       MEDIA_PATH: /media
+      ACCOUNT_ERASURE_LEDGER_PATH: /erasure-ledger/account-erasure.log
       MEDIA_URL_PREFIX: ${MEDIA_URL_PREFIX:-/media}
       PHOTO_MAX_UPLOAD_BYTES: ${PHOTO_MAX_UPLOAD_BYTES:-5242880}
       PHOTO_MAX_COUNT: ${PHOTO_MAX_COUNT:-4}
@@ -70,6 +71,7 @@ services:
       IMPORT_SCHEDULED_ADAPTERS: ${IMPORT_SCHEDULED_ADAPTERS:-maddrax,john-sinclair}
     volumes:
       - media_data:/media
+      - erasure_ledger:/erasure-ledger
     depends_on:
       db:
         condition: service_healthy
@@ -118,3 +120,4 @@ volumes:
   db_data:
   caddy_data:
   media_data:
+  erasure_ledger:

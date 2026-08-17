@@ -165,6 +165,10 @@ mod tests {
         user_id
     }
 
+    fn unique_token_hash(label: &str, suffix: &str) -> String {
+        crate::auth::oauth::hash_secret(&format!("{label}-{suffix}"))
+    }
+
     #[tokio::test]
     async fn replacing_a_token_invalidates_the_previous_token() {
         let Some(pool) = test_pool().await else {
@@ -174,11 +178,13 @@ mod tests {
         let suffix = crate::auth::oauth::random_urlsafe_token();
         let user_id = create_user(&pool, &suffix).await;
         let now = chrono::Utc::now().naive_utc();
+        let first_hash = unique_token_hash("first", &suffix);
+        let second_hash = unique_token_hash("second", &suffix);
 
         replace_active_token(
             &pool,
             user_id,
-            &format!("{:0<64}", "first"),
+            &first_hash,
             now,
             now + chrono::Duration::hours(1),
         )
@@ -187,7 +193,7 @@ mod tests {
         replace_active_token(
             &pool,
             user_id,
-            &format!("{:0<64}", "second"),
+            &second_hash,
             now + chrono::Duration::seconds(1),
             now + chrono::Duration::hours(1),
         )
@@ -195,13 +201,13 @@ mod tests {
         .unwrap();
 
         assert!(
-            find_valid_target(&pool, &format!("{:0<64}", "first"), now)
+            find_valid_target(&pool, &first_hash, now)
                 .await
                 .unwrap()
                 .is_none()
         );
         assert_eq!(
-            find_valid_target(&pool, &format!("{:0<64}", "second"), now)
+            find_valid_target(&pool, &second_hash, now)
                 .await
                 .unwrap()
                 .unwrap()
@@ -209,8 +215,8 @@ mod tests {
             user_id
         );
 
-        let third_hash = format!("{:0<64}", "third");
-        let fourth_hash = format!("{:0<64}", "fourth");
+        let third_hash = unique_token_hash("third", &suffix);
+        let fourth_hash = unique_token_hash("fourth", &suffix);
         let (third, fourth) = tokio::join!(
             replace_active_token(
                 &pool,
@@ -255,7 +261,7 @@ mod tests {
         let suffix = crate::auth::oauth::random_urlsafe_token();
         let user_id = create_user(&pool, &suffix).await;
         let now = chrono::Utc::now().naive_utc();
-        let token_hash = format!("{:0<64}", "consume");
+        let token_hash = unique_token_hash("consume", &suffix);
         replace_active_token(
             &pool,
             user_id,
@@ -266,11 +272,13 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+            "INSERT INTO refresh_tokens (user_id, token_hash, expires_at, authenticated_at) \
+             VALUES (?, ?, ?, ?)",
         )
         .bind(user_id)
         .bind(format!("refresh-{suffix}"))
         .bind(now + chrono::Duration::hours(1))
+        .bind(now)
         .execute(&pool)
         .await
         .unwrap();
@@ -320,7 +328,7 @@ mod tests {
         let suffix = crate::auth::oauth::random_urlsafe_token();
         let user_id = create_user(&pool, &suffix).await;
         let now = chrono::Utc::now().naive_utc();
-        let token_hash = format!("{:0<64}", "rollback");
+        let token_hash = unique_token_hash("rollback", &suffix);
         replace_active_token(
             &pool,
             user_id,
@@ -331,11 +339,13 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+            "INSERT INTO refresh_tokens (user_id, token_hash, expires_at, authenticated_at) \
+             VALUES (?, ?, ?, ?)",
         )
         .bind(user_id)
         .bind(format!("rollback-refresh-{suffix}"))
         .bind(now + chrono::Duration::hours(1))
+        .bind(now)
         .execute(&pool)
         .await
         .unwrap();
@@ -376,7 +386,7 @@ mod tests {
         let suffix = crate::auth::oauth::random_urlsafe_token();
         let user_id = create_user(&pool, &suffix).await;
         let now = chrono::Utc::now().naive_utc();
-        let token_hash = format!("{:0<64}", "expired");
+        let token_hash = unique_token_hash("expired", &suffix);
         replace_active_token(
             &pool,
             user_id,

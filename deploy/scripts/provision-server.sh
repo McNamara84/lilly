@@ -31,6 +31,8 @@ install -d -m 0750 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
   "${LILLY_ROOT}/releases" \
   "${LILLY_ROOT}/shared" \
   "${LILLY_ROOT}/backups"
+install -d -m 0733 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
+  "${LILLY_ROOT}/shared/erasure-ledger"
 install -d -m 0700 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
   "/home/${DEPLOY_USER}/.ssh"
 

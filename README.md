@@ -15,7 +15,7 @@
 
 LILLY is an open-source web application (PWA) for managing and trading paperback novel collections in German-speaking countries. It is built for collectors of German _Heftromane_ (also known as _Groschenromane_ or _Groschenhefte_ – serialized pulp fiction novellas) and provides a central platform for cataloging, showcasing, and trading issues.
 
-> **Status:** Under active development – Login, collection management with multiple editions, reciprocal trade matching, proposals, notifications, trade-scoped messaging, and two-party trade completion are functional.
+> **Status:** Under active development – Login, collection management with multiple editions, reciprocal trade matching, proposals, notifications, trade-scoped messaging, two-party trade completion, and revocable GDPR account erasure are functional.
 
 ---
 
@@ -433,15 +433,16 @@ GitHub Actions workflows run automatically:
 
 Detailed planning documents are located in the [`docs/`](docs/) folder:
 
-| Document                                      | Contents                                                                               |
-| --------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [requirements.md](docs/requirements.md)       | Requirements catalog with all functional and non-functional requirements               |
-| [architecture.md](docs/architecture.md)       | Architecture and design document (tech stack, database schema, API design, deployment) |
-| [uxdesign.md](docs/uxdesign.md)               | UI/UX concept (design philosophy, components, screens, responsive strategy)            |
-| [design-tokens.json](docs/design-tokens.json) | Machine-readable design tokens (colors, typography, spacing, animations)               |
-| [components.json](docs/components.json)       | Machine-readable component specifications                                              |
-| [screens.json](docs/screens.json)             | Machine-readable page structure and routing                                            |
-| [trading.md](docs/trading.md)                 | Reciprocal matching, trade workflow, privacy, notifications, and message retention     |
+| Document                                                    | Contents                                                                               |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [requirements.md](docs/requirements.md)                     | Requirements catalog with all functional and non-functional requirements               |
+| [architecture.md](docs/architecture.md)                     | Architecture and design document (tech stack, database schema, API design, deployment) |
+| [uxdesign.md](docs/uxdesign.md)                             | UI/UX concept (design philosophy, components, screens, responsive strategy)            |
+| [design-tokens.json](docs/design-tokens.json)               | Machine-readable design tokens (colors, typography, spacing, animations)               |
+| [components.json](docs/components.json)                     | Machine-readable component specifications                                              |
+| [screens.json](docs/screens.json)                           | Machine-readable page structure and routing                                            |
+| [trading.md](docs/trading.md)                               | Reciprocal matching, trade workflow, privacy, notifications, and message retention     |
+| [privacy-data-inventory.md](docs/privacy-data-inventory.md) | Personal-data inventory, erasure/anonymisation rules, backups, and verification        |
 
 ---
 

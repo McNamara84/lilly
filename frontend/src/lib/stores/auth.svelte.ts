@@ -11,6 +11,24 @@ import { isNetworkFailure } from '$lib/offline/network';
 let user = $state<MeResponse | null>(null);
 let isLoading = $state(true);
 let isOfflineSession = $state(false);
+let authBroadcastInitialized = false;
+
+function initializeAuthBroadcast(): void {
+	if (authBroadcastInitialized || typeof BroadcastChannel === 'undefined') return;
+	authBroadcastInitialized = true;
+	const channel = new BroadcastChannel('lilly-offline');
+	channel.addEventListener('message', (event) => {
+		if (event.data?.type !== 'account-deletion') return;
+		const deletedUserId = event.data.user_id as number | undefined;
+		if (deletedUserId !== undefined) {
+			void clearOfflineUserData(deletedUserId).catch(() => undefined);
+		}
+		if (deletedUserId === undefined || user?.id === deletedUserId) {
+			user = null;
+			isOfflineSession = false;
+		}
+	});
+}
 
 function warmOfflineData(): void {
 	void syncPendingCollectionChanges()
@@ -54,10 +72,12 @@ export function getAuthState() {
 }
 
 export async function initAuth(): Promise<void> {
+	initializeAuthBroadcast();
 	isLoading = true;
 	try {
 		await confirmOnlineUser(await fetchMe());
 	} catch (initialError) {
+		if (hasAccountDeletionCode(initialError)) await clearCurrentOfflineData();
 		if (isNetworkFailure(initialError) && (await restoreOfflineUser())) {
 			isLoading = false;
 			return;
@@ -67,6 +87,7 @@ export async function initAuth(): Promise<void> {
 			await refreshToken();
 			await confirmOnlineUser(await fetchMe());
 		} catch (refreshError) {
+			if (hasAccountDeletionCode(refreshError)) await clearCurrentOfflineData();
 			if (!isNetworkFailure(refreshError) || !(await restoreOfflineUser())) {
 				user = null;
 				isOfflineSession = false;
@@ -74,6 +95,32 @@ export async function initAuth(): Promise<void> {
 		}
 	} finally {
 		isLoading = false;
+	}
+}
+
+function hasAccountDeletionCode(cause: unknown): boolean {
+	const code = (cause as { code?: string } | null)?.code;
+	return code === 'ACCOUNT_DELETION_PENDING' || code === 'ACCOUNT_DELETION_WINDOW_EXPIRED';
+}
+
+async function clearCurrentOfflineData(): Promise<void> {
+	const userId = user?.id ?? (await getCachedProfile().catch(() => null))?.id;
+	if (userId !== undefined) await clearOfflineUserData(userId).catch(() => undefined);
+}
+
+export async function deactivateAccountLocally(): Promise<void> {
+	const userId = user?.id ?? (await getCachedProfile().catch(() => null))?.id;
+	user = null;
+	isOfflineSession = false;
+	if (userId !== undefined) await clearOfflineUserData(userId).catch(() => undefined);
+	if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+		const registration = await navigator.serviceWorker.ready.catch(() => null);
+		registration?.active?.postMessage({ type: 'PURGE_PRIVATE_DATA' });
+	}
+	if (typeof BroadcastChannel !== 'undefined') {
+		const channel = new BroadcastChannel('lilly-offline');
+		channel.postMessage({ type: 'account-deletion', user_id: userId });
+		channel.close();
 	}
 }
 

@@ -43,6 +43,7 @@ impl FromStr for OAuthProvider {
 pub enum OAuthIntent {
     Login,
     Register,
+    Reauth,
 }
 
 impl OAuthIntent {
@@ -51,6 +52,7 @@ impl OAuthIntent {
         match self {
             Self::Login => "login",
             Self::Register => "register",
+            Self::Reauth => "reauth",
         }
     }
 }
@@ -62,6 +64,7 @@ impl FromStr for OAuthIntent {
         match value {
             "login" => Ok(Self::Login),
             "register" => Ok(Self::Register),
+            "reauth" => Ok(Self::Reauth),
             _ => Err(()),
         }
     }
@@ -118,6 +121,7 @@ pub struct OAuthFlowRow {
     pub browser_binding_hash: String,
     pub provider: String,
     pub intent: String,
+    pub reauth_user_id: Option<u32>,
     pub pkce_verifier: String,
     pub privacy_policy_version: Option<String>,
     pub consented_at: Option<NaiveDateTime>,
@@ -169,6 +173,7 @@ mod tests {
     fn intent_allowlist_is_exact() {
         assert_eq!(OAuthIntent::from_str("login"), Ok(OAuthIntent::Login));
         assert_eq!(OAuthIntent::from_str("register"), Ok(OAuthIntent::Register));
+        assert_eq!(OAuthIntent::from_str("reauth"), Ok(OAuthIntent::Reauth));
         assert!(OAuthIntent::from_str("link").is_err());
     }
 }

@@ -110,6 +110,10 @@ journalctl -u lilly-backup.service
 find /opt/lilly/backups -maxdepth 2 -type f -name COMPLETE -print
 ```
 
+Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log`; it must be included in offsite copies and must never be replaced by an older backup copy. Its file mode is `0600`, while the containing directory is writable by the unprivileged backend container.
+
+Backups created before account-erasure support do not contain this marker and are intentionally rejected by `restore.sh`. After rolling out this version, create and verify a fresh backup before accepting deletion requests; retire all older restore sets according to the applicable retention policy.
+
 A restore is intentionally manual and destructive:
 
 ```bash
@@ -117,6 +121,8 @@ A restore is intentionally manual and destructive:
   --backup /opt/lilly/backups/<BACKUP_DIRECTORY> \
   --confirm RESTORE_LILLY
 ```
+
+The restore script refuses to proceed without the live erasure ledger. After restoring database and media, it runs `lilly-backend privacy replay-erasure-ledger` before starting any public service. The replay permanently removes every account recorded after the restored snapshot. A replay failure keeps the stack offline; investigate the ledger and database instead of bypassing this guard.
 
 Verify a backup in a disposable environment before relying on it for production recovery.
 

@@ -16,7 +16,7 @@ export interface MessageThreadSummary {
 export interface TradeMessage {
 	id: number;
 	thread_id: number;
-	sender_id: number;
+	sender_id: number | null;
 	content: string;
 	created_at: string;
 	read_at: string | null;

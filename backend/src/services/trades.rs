@@ -118,7 +118,7 @@ pub async fn accept_trade(
     let trade = trade_workflow::lock_trade_for_participant(&mut transaction, trade_id, user_id)
         .await?
         .ok_or_else(resource_not_found)?;
-    if trade.responder_id != user_id {
+    if trade.responder_id != Some(user_id) {
         return Err(AppError::Forbidden {
             message: "Only the recipient can accept this trade".to_string(),
             code: Some("trade_accept_forbidden".to_string()),
@@ -137,6 +137,8 @@ pub async fn accept_trade(
             ));
         }
     }
+    let initiator_id = trade.initiator_id.ok_or_else(resource_not_found)?;
+    let match_id = trade.match_id.ok_or_else(resource_not_found)?;
     trade_workflow::lock_trade_entry_references(&mut transaction, trade_id).await?;
     if trade_workflow::trade_has_reservation_conflict(&mut transaction, trade_id).await? {
         return Err(conflict(
@@ -147,10 +149,10 @@ pub async fn accept_trade(
     trade_workflow::accept_trade(&mut transaction, trade_id).await?;
     notifications::insert_notification(
         &mut transaction,
-        trade.initiator_id,
+        initiator_id,
         Some(user_id),
         "trade_accepted",
-        Some(trade.match_id),
+        Some(match_id),
         Some(trade_id),
         None,
         &format!("trade:{trade_id}:accepted"),
@@ -177,17 +179,18 @@ pub async fn cancel_trade(pool: &MySqlPool, user_id: u32, trade_id: u32) -> Resu
         ));
     }
     trade_workflow::cancel_trade(&mut transaction, trade_id, "cancelled_by_participant").await?;
-    let recipient_id = if trade.initiator_id == user_id {
+    let recipient_id = if trade.initiator_id == Some(user_id) {
         trade.responder_id
     } else {
         trade.initiator_id
-    };
+    }
+    .ok_or_else(resource_not_found)?;
     notifications::insert_notification(
         &mut transaction,
         recipient_id,
         Some(user_id),
         "trade_cancelled",
-        Some(trade.match_id),
+        trade.match_id,
         Some(trade_id),
         None,
         &format!("trade:{trade_id}:cancelled"),
@@ -231,11 +234,15 @@ pub async fn complete_trade(
     trade_workflow::insert_completion_confirmation(&mut transaction, trade_id, user_id).await?;
     let confirmation_count =
         trade_workflow::count_completion_confirmations(&mut transaction, trade_id).await?;
-    let partner_id = if trade.initiator_id == user_id {
+    let partner_id = if trade.initiator_id == Some(user_id) {
         trade.responder_id
     } else {
         trade.initiator_id
-    };
+    }
+    .ok_or_else(resource_not_found)?;
+    let initiator_id = trade.initiator_id.ok_or_else(resource_not_found)?;
+    let responder_id = trade.responder_id.ok_or_else(resource_not_found)?;
+    let match_id = trade.match_id.ok_or_else(resource_not_found)?;
 
     if confirmation_count < 2 {
         notifications::insert_notification(
@@ -243,7 +250,7 @@ pub async fn complete_trade(
             partner_id,
             Some(user_id),
             "trade_completion_confirmed",
-            Some(trade.match_id),
+            Some(match_id),
             Some(trade_id),
             None,
             &format!("trade:{trade_id}:completion-confirmed:{user_id}"),
@@ -264,7 +271,7 @@ pub async fn complete_trade(
             "trade_items_changed",
         ));
     }
-    let first_user_id = trade.initiator_id.min(trade.responder_id);
+    let first_user_id = initiator_id.min(responder_id);
     trade_matching::lock_reconciliation_users_for_issues(
         &mut transaction,
         first_user_id,
@@ -292,14 +299,14 @@ pub async fn complete_trade(
                 media::enqueue_entry_photo_deletions(
                     &mut transaction,
                     offer_entry_id,
-                    item.offered_by_user_id,
+                    item.offered_by_user_id.ok_or_else(trade_items_changed)?,
                 )
                 .await?,
             );
             if !collection::delete_entry_on_connection(
                 &mut transaction,
                 offer_entry_id,
-                item.offered_by_user_id,
+                item.offered_by_user_id.ok_or_else(trade_items_changed)?,
             )
             .await?
             {
@@ -315,7 +322,7 @@ pub async fn complete_trade(
             if !trade_workflow::update_wanted_entry_to_owned(
                 &mut transaction,
                 wanted_entry_id,
-                item.receiving_user_id,
+                item.receiving_user_id.ok_or_else(trade_items_changed)?,
                 &item.condition_grade_snapshot,
                 item.edition_label_snapshot.as_deref(),
             )
@@ -326,7 +333,7 @@ pub async fn complete_trade(
         } else {
             let copy_number = collection::next_copy_number_on_connection(
                 &mut transaction,
-                item.receiving_user_id,
+                item.receiving_user_id.ok_or_else(trade_items_changed)?,
                 item.issue_id,
             )
             .await?
@@ -339,7 +346,7 @@ pub async fn complete_trade(
             collection::add_entry_on_connection(
                 &mut transaction,
                 collection::NewCollectionEntry {
-                    user_id: item.receiving_user_id,
+                    user_id: item.receiving_user_id.ok_or_else(trade_items_changed)?,
                     issue_id: item.issue_id,
                     copy_number,
                     condition_grade: Some(&item.condition_grade_snapshot),
@@ -359,7 +366,7 @@ pub async fn complete_trade(
         ));
     }
 
-    for participant_id in [trade.initiator_id, trade.responder_id]
+    for participant_id in [initiator_id, responder_id]
         .into_iter()
         .collect::<BTreeSet<_>>()
     {
@@ -371,7 +378,7 @@ pub async fn complete_trade(
         partner_id,
         Some(user_id),
         "trade_completed",
-        Some(trade.match_id),
+        Some(match_id),
         Some(trade_id),
         None,
         &format!("trade:{trade_id}:completed"),
@@ -388,13 +395,15 @@ pub async fn complete_trade(
 
 fn validate_completion_item(item: &trade_workflow::CompletionItemRow) -> Result<(), AppError> {
     let offer_valid = item.offer_entry_id.is_some()
-        && item.offer_user_id == Some(item.offered_by_user_id)
+        && item.offered_by_user_id.is_some()
+        && item.offer_user_id == item.offered_by_user_id
         && item.offer_issue_id == Some(item.issue_id)
         && item.offer_status.as_deref() == Some("duplicate")
         && item.offer_condition_grade.as_deref() == Some(item.condition_grade_snapshot.as_str())
         && item.offer_edition_label == item.edition_label_snapshot;
     let wanted_valid = item.wanted_entry_id.is_some()
-        && item.wanted_user_id == Some(item.receiving_user_id)
+        && item.receiving_user_id.is_some()
+        && item.wanted_user_id == item.receiving_user_id
         && item.wanted_issue_id == Some(item.issue_id)
         && item.wanted_status.as_deref() == Some("wanted")
         && item.wanted_edition_label == item.wanted_edition_label_snapshot;
@@ -462,19 +471,19 @@ fn build_trade(
 ) -> TradeResponse {
     let my_offers = items
         .iter()
-        .filter(|item| item.offered_by_user_id == user_id)
+        .filter(|item| item.offered_by_user_id == Some(user_id))
         .map(TradeItemResponse::from)
         .collect();
     let partner_offers = items
         .iter()
-        .filter(|item| item.offered_by_user_id != user_id)
+        .filter(|item| item.offered_by_user_id != Some(user_id))
         .map(TradeItemResponse::from)
         .collect();
     TradeResponse {
         id: row.id,
         match_id: row.match_id,
         status: row.status,
-        role: if row.initiator_id == user_id {
+        role: if row.initiator_id == Some(user_id) {
             "initiator".to_string()
         } else {
             "responder".to_string()
@@ -485,10 +494,12 @@ fn build_trade(
             avatar_path: row
                 .partner_profile_public
                 .then(|| {
-                    crate::models::profile::avatar_content_url(
-                        row.partner_id,
-                        row.partner_avatar_path.is_some(),
-                    )
+                    row.partner_id.and_then(|partner_id| {
+                        crate::models::profile::avatar_content_url(
+                            partner_id,
+                            row.partner_avatar_path.is_some(),
+                        )
+                    })
                 })
                 .flatten(),
             location: row
