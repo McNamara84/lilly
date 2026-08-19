@@ -220,12 +220,17 @@ pub async fn cancel(
         message: "Account deletion recovery is missing or expired".to_string(),
         code: Some("ACCOUNT_DELETION_RECOVERY_REQUIRED".to_string()),
     })?;
-    account_erasure::restore_account(&mut transaction, target.user_id).await?;
+    let user = account_erasure::restore_account(&mut transaction, target.user_id).await?;
     transaction.commit().await?;
-    crate::services::trade_matching::reconcile_user(pool, target.user_id).await?;
-    crate::db::users::find_user_by_id(pool, target.user_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Account not found".to_string()))
+    if let Err(error) = crate::services::trade_matching::reconcile_user(pool, target.user_id).await
+    {
+        tracing::warn!(
+            user_id = target.user_id,
+            error = %error,
+            "Failed to reconcile trade matches after restoring an account"
+        );
+    }
+    Ok(user)
 }
 
 #[must_use]
@@ -740,6 +745,11 @@ mod tests {
         let suffix = unique_suffix();
         let erased_user_id = insert_user(&pool, suffix, "erase").await;
         let remaining_user_id = insert_user(&pool, suffix, "remain").await;
+        let erased_email = sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = ?")
+            .bind(erased_user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         let avatar_storage_key = format!("erasure-avatar-{suffix}.jpg");
         sqlx::query("UPDATE users SET avatar_path = ? WHERE id = ?")
             .bind(&avatar_storage_key)
@@ -892,6 +902,20 @@ mod tests {
 
         let now = Utc::now().naive_utc();
         schedule(&pool, erased_user_id, now).await.unwrap();
+        let late_pending_link_hash = hash_secret(&format!("late-erasure-link-{suffix}"));
+        sqlx::query(
+            "INSERT INTO pending_oauth_links \
+             (token_hash, provider, provider_subject, verified_email, display_name, created_at, expires_at) \
+             VALUES (?, 'google', ?, ?, 'Late OAuth callback', ?, ?)",
+        )
+        .bind(&late_pending_link_hash)
+        .bind(format!("late-erasure-subject-{suffix}"))
+        .bind(&erased_email)
+        .bind(now)
+        .bind(now + Duration::minutes(10))
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query("UPDATE account_erasure_jobs SET scheduled_for = ? WHERE user_id = ?")
             .bind(now - Duration::seconds(1))
             .bind(erased_user_id)
@@ -964,6 +988,16 @@ mod tests {
                 "SELECT COUNT(*) FROM oauth_identities WHERE user_id = ?",
             )
             .bind(erased_user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM pending_oauth_links WHERE token_hash = ?",
+            )
+            .bind(&late_pending_link_hash)
             .fetch_one(&pool)
             .await
             .unwrap(),

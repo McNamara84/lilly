@@ -28,7 +28,9 @@ pub struct PasswordReauthenticationRequest {
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct AccountDeletionStatusResponse {
     pub status: String,
+    #[serde(serialize_with = "super::serde_datetime::serialize_utc_naive")]
     pub requested_at: NaiveDateTime,
+    #[serde(serialize_with = "super::serde_datetime::serialize_utc_naive")]
     pub scheduled_for: NaiveDateTime,
     pub can_cancel: bool,
 }
@@ -66,11 +68,16 @@ pub struct AccountErasureJobRow {
 pub struct AdminAccountErasureJobResponse {
     pub id: u64,
     pub status: String,
+    #[serde(serialize_with = "super::serde_datetime::serialize_utc_naive")]
     pub requested_at: NaiveDateTime,
+    #[serde(serialize_with = "super::serde_datetime::serialize_utc_naive")]
     pub scheduled_for: NaiveDateTime,
+    #[serde(serialize_with = "super::serde_datetime::serialize_optional_utc_naive")]
     pub started_at: Option<NaiveDateTime>,
+    #[serde(serialize_with = "super::serde_datetime::serialize_optional_utc_naive")]
     pub completed_at: Option<NaiveDateTime>,
     pub attempts: u32,
+    #[serde(serialize_with = "super::serde_datetime::serialize_optional_utc_naive")]
     pub next_retry_at: Option<NaiveDateTime>,
     pub last_error_category: Option<String>,
 }

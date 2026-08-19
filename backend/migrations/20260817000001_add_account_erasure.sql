@@ -101,6 +101,47 @@ ALTER TABLE trade_items
     ADD CONSTRAINT fk_trade_item_receiver FOREIGN KEY (receiving_user_id)
         REFERENCES users(id) ON DELETE SET NULL;
 
+-- MariaDB rejects CHECK constraints that reference ON DELETE SET NULL
+-- foreign-key columns (error 1901). Triggers preserve the distinct-user
+-- invariant for application writes; FK cascade actions do not invoke triggers.
+CREATE TRIGGER trg_trades_distinct_users_insert
+BEFORE INSERT ON trades
+FOR EACH ROW
+BEGIN
+    IF NEW.initiator_id IS NOT NULL AND NEW.initiator_id = NEW.responder_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Trade participants must be distinct';
+    END IF;
+END;
+
+CREATE TRIGGER trg_trades_distinct_users_update
+BEFORE UPDATE ON trades
+FOR EACH ROW
+BEGIN
+    IF NEW.initiator_id IS NOT NULL AND NEW.initiator_id = NEW.responder_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Trade participants must be distinct';
+    END IF;
+END;
+
+CREATE TRIGGER trg_trade_items_distinct_users_insert
+BEFORE INSERT ON trade_items
+FOR EACH ROW
+BEGIN
+    IF NEW.offered_by_user_id IS NOT NULL
+        AND NEW.offered_by_user_id = NEW.receiving_user_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Trade item participants must be distinct';
+    END IF;
+END;
+
+CREATE TRIGGER trg_trade_items_distinct_users_update
+BEFORE UPDATE ON trade_items
+FOR EACH ROW
+BEGIN
+    IF NEW.offered_by_user_id IS NOT NULL
+        AND NEW.offered_by_user_id = NEW.receiving_user_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Trade item participants must be distinct';
+    END IF;
+END;
+
 ALTER TABLE messages
     DROP FOREIGN KEY fk_message_sender,
     MODIFY COLUMN sender_id INT UNSIGNED NULL,

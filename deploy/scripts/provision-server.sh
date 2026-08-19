@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 readonly DEPLOY_USER="lilly-deploy"
+readonly BACKEND_CONTAINER_GID="999"
 readonly LILLY_ROOT="/opt/lilly"
 readonly PUBLIC_KEY_FILE="${1:-}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +32,7 @@ install -d -m 0750 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
   "${LILLY_ROOT}/releases" \
   "${LILLY_ROOT}/shared" \
   "${LILLY_ROOT}/backups"
-install -d -m 0733 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
+install -d -m 0770 -o "${DEPLOY_USER}" -g "${BACKEND_CONTAINER_GID}" \
   "${LILLY_ROOT}/shared/erasure-ledger"
 install -d -m 0700 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
   "/home/${DEPLOY_USER}/.ssh"

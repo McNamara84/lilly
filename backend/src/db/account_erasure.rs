@@ -5,6 +5,7 @@ use sqlx::{MySql, MySqlPool, Transaction};
 use crate::models::account_erasure::{
     AccountDeletionStatusResponse, AccountErasureJobRow, AdminAccountErasureJobResponse,
 };
+use crate::models::user::User;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct ErasureAccountRow {
@@ -313,8 +314,8 @@ pub async fn find_recovery_target(
 pub async fn restore_account(
     transaction: &mut Transaction<'_, MySql>,
     user_id: u32,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<User, sqlx::Error> {
+    let restored = sqlx::query(
         "UPDATE users u JOIN account_erasure_jobs j ON j.user_id = u.id \
          SET u.account_state = 'active', u.session_version = u.session_version + 1, \
              u.profile_public = j.previous_profile_public, \
@@ -324,6 +325,17 @@ pub async fn restore_account(
     .bind(user_id)
     .execute(&mut **transaction)
     .await?;
+    if restored.rows_affected() != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    let user = sqlx::query_as::<_, User>(
+        "SELECT id, email, password_hash, display_name, role, email_verified, \
+                account_state, session_version, erasure_subject \
+         FROM users WHERE id = ?",
+    )
+    .bind(user_id)
+    .fetch_one(&mut **transaction)
+    .await?;
     sqlx::query("DELETE FROM account_erasure_recovery_tokens WHERE user_id = ?")
         .bind(user_id)
         .execute(&mut **transaction)
@@ -332,7 +344,7 @@ pub async fn restore_account(
         .bind(user_id)
         .execute(&mut **transaction)
         .await?;
-    Ok(())
+    Ok(user)
 }
 
 pub async fn claim_due_job(
@@ -441,12 +453,17 @@ pub async fn erase_primary_data(
     user_id: u32,
 ) -> Result<(), sqlx::Error> {
     let mut transaction = pool.begin().await?;
-    let state =
-        sqlx::query_scalar::<_, String>("SELECT account_state FROM users WHERE id = ? FOR UPDATE")
-            .bind(user_id)
-            .fetch_optional(&mut *transaction)
-            .await?;
-    if state.as_deref() != Some("pending_deletion") {
+    let account = sqlx::query_as::<_, (String, String)>(
+        "SELECT account_state, email FROM users WHERE id = ? FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some((state, email)) = account else {
+        transaction.rollback().await?;
+        return Err(sqlx::Error::RowNotFound);
+    };
+    if state != "pending_deletion" {
         transaction.rollback().await?;
         return Err(sqlx::Error::RowNotFound);
     }
@@ -489,7 +506,9 @@ pub async fn erase_primary_data(
         .await?;
 
     // These should already be gone since scheduling. Repeating the cleanup
-    // keeps restore replay and crash recovery idempotent.
+    // closes over credentials and OAuth callbacks created during the grace
+    // period and keeps restore replay and crash recovery idempotent.
+    revoke_credentials(&mut transaction, user_id, &email).await?;
     cancel_open_trades(&mut transaction, user_id).await?;
 
     let deleted =
@@ -616,6 +635,8 @@ pub async fn list_admin_jobs(
 
 #[cfg(test)]
 mod tests {
+    use sqlx::mysql::MySqlPoolOptions;
+
     #[test]
     fn job_column_projection_contains_no_identity_fields() {
         let projection =
@@ -623,5 +644,182 @@ mod tests {
         assert!(!projection.contains("email"));
         assert!(!projection.contains("display_name"));
         assert!(!projection.contains("erasure_subject"));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn nullable_trade_participants_still_reject_self_trades() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("test database must be reachable");
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        crate::db::migrate_test_database(&pool)
+            .await
+            .expect("test migrations must succeed");
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let first_user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role, email_verified) \
+             VALUES (?, 'First trigger user', 'user', TRUE)",
+        )
+        .bind(format!("trade-trigger-first-{suffix}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let second_user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, role, email_verified) \
+             VALUES (?, 'Second trigger user', 'user', TRUE)",
+        )
+        .bind(format!("trade-trigger-second-{suffix}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let match_id: u32 = sqlx::query(
+            "INSERT INTO trade_matches (user_low_id, user_high_id, status, fingerprint) \
+             VALUES (?, ?, 'stale', ?)",
+        )
+        .bind(first_user_id.min(second_user_id))
+        .bind(first_user_id.max(second_user_id))
+        .bind(format!("{suffix:064x}"))
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+
+        let self_trade = sqlx::query(
+            "INSERT INTO trades (match_id, initiator_id, responder_id, status) \
+             VALUES (?, ?, ?, 'proposed')",
+        )
+        .bind(match_id)
+        .bind(first_user_id)
+        .bind(first_user_id)
+        .execute(&pool)
+        .await;
+        assert!(
+            self_trade.is_err(),
+            "the trade trigger must reject self-trades"
+        );
+
+        let trade_id: u32 = sqlx::query(
+            "INSERT INTO trades \
+             (match_id, initiator_id, responder_id, status, completed_at) \
+             VALUES (?, ?, ?, 'completed', CURRENT_TIMESTAMP)",
+        )
+        .bind(match_id)
+        .bind(first_user_id)
+        .bind(second_user_id)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let series_id: u32 = sqlx::query("INSERT INTO series (name, slug) VALUES (?, ?)")
+            .bind(format!("Trade trigger series {suffix}"))
+            .bind(format!("trade-trigger-series-{suffix}"))
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_id()
+            .try_into()
+            .unwrap();
+        let issue_id: u32 =
+            sqlx::query("INSERT INTO issues (series_id, issue_number, title) VALUES (?, 1, ?)")
+                .bind(series_id)
+                .bind(format!("Trade trigger issue {suffix}"))
+                .execute(&pool)
+                .await
+                .unwrap()
+                .last_insert_id()
+                .try_into()
+                .unwrap();
+        let self_trade_item = sqlx::query(
+            "INSERT INTO trade_items \
+             (trade_id, issue_id, offered_by_user_id, receiving_user_id, \
+              copy_number_snapshot, condition_grade_snapshot) \
+             VALUES (?, ?, ?, ?, 1, 'Z1')",
+        )
+        .bind(trade_id)
+        .bind(issue_id)
+        .bind(first_user_id)
+        .bind(first_user_id)
+        .execute(&pool)
+        .await;
+        assert!(
+            self_trade_item.is_err(),
+            "the trade-item trigger must reject identical participants"
+        );
+        let self_trade_update = sqlx::query("UPDATE trades SET responder_id = ? WHERE id = ?")
+            .bind(first_user_id)
+            .bind(trade_id)
+            .execute(&pool)
+            .await;
+        assert!(
+            self_trade_update.is_err(),
+            "the trade update trigger must reject self-trades"
+        );
+        let trade_item_id: u32 = sqlx::query(
+            "INSERT INTO trade_items \
+             (trade_id, issue_id, offered_by_user_id, receiving_user_id, \
+              copy_number_snapshot, condition_grade_snapshot) \
+             VALUES (?, ?, ?, ?, 1, 'Z1')",
+        )
+        .bind(trade_id)
+        .bind(issue_id)
+        .bind(first_user_id)
+        .bind(second_user_id)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let self_trade_item_update =
+            sqlx::query("UPDATE trade_items SET receiving_user_id = ? WHERE id = ?")
+                .bind(first_user_id)
+                .bind(trade_item_id)
+                .execute(&pool)
+                .await;
+        assert!(
+            self_trade_item_update.is_err(),
+            "the trade-item update trigger must reject identical participants"
+        );
+
+        sqlx::query("DELETE FROM trades WHERE id = ?")
+            .bind(trade_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM trade_matches WHERE id = ?")
+            .bind(match_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM users WHERE id IN (?, ?)")
+            .bind(first_user_id)
+            .bind(second_user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }

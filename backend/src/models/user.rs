@@ -52,7 +52,10 @@ pub struct LoginResponse {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_state: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "super::serde_datetime::serialize_optional_utc_naive"
+    )]
     pub scheduled_for: Option<chrono::NaiveDateTime>,
 }
 

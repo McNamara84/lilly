@@ -23,9 +23,11 @@
 		type AccountDeletionOptions
 	} from '$lib/api/account-erasure';
 	import { DEFAULT_PHOTO_POLICY, fetchPhotoPolicy, type PhotoPolicy } from '$lib/api/media';
+	import { getOfflineStatus } from '$lib/offline/status.svelte';
 	import { deactivateAccountLocally, getAuthState, setUser } from '$lib/stores/auth.svelte';
 
 	const auth = getAuthState();
+	const offlineStatus = getOfflineStatus();
 
 	let profile = $state<OwnProfile | null>(null);
 	let profilePublic = $state(false);
@@ -44,15 +46,16 @@
 	let privacyConsentsError = $state<string | null>(null);
 	let photoPolicy = $state<PhotoPolicy>(DEFAULT_PHOTO_POLICY);
 	let deletionOptions = $state<AccountDeletionOptions | null>(null);
+	let deletionOptionsError = $state<string | null>(null);
+	let deletionOptionsLoading = $state(false);
 	let deletionDialog = $state<HTMLDialogElement>();
 	let deletionConfirmation = $state('');
 	let deletionPassword = $state('');
 	let deleting = $state(false);
 	let deletionError = $state<string | null>(null);
+	let deletionScheduled = $state(false);
 	let oauthReauthLoading = $state<OAuthProvider | null>(null);
-	let deletionOffline = $derived(
-		auth.isOfflineSession || (typeof navigator !== 'undefined' && !navigator.onLine)
-	);
+	let deletionOffline = $derived(auth.isOfflineSession || !offlineStatus.online);
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
@@ -66,6 +69,7 @@
 		loading = true;
 		error = null;
 		privacyConsentsError = null;
+		deletionOptionsError = null;
 		const [profileResult, consentsResult, policyResult, deletionResult] = await Promise.allSettled([
 			fetchOwnProfile(),
 			fetchPrivacyConsents(),
@@ -92,8 +96,27 @@
 					: 'Datenschutz-Einwilligungen konnten nicht geladen werden.';
 		}
 		if (policyResult.status === 'fulfilled') photoPolicy = policyResult.value;
-		if (deletionResult.status === 'fulfilled') deletionOptions = deletionResult.value;
+		if (deletionResult.status === 'fulfilled') {
+			deletionOptions = deletionResult.value;
+		} else {
+			const cause = deletionResult.reason;
+			deletionOptionsError =
+				cause instanceof Error ? cause.message : 'Löschoptionen konnten nicht geladen werden.';
+		}
 		loading = false;
+	}
+
+	async function reloadDeletionOptions() {
+		deletionOptionsLoading = true;
+		deletionOptionsError = null;
+		try {
+			deletionOptions = await fetchAccountDeletionOptions();
+		} catch (cause) {
+			deletionOptionsError =
+				cause instanceof Error ? cause.message : 'Löschoptionen konnten nicht geladen werden.';
+		} finally {
+			deletionOptionsLoading = false;
+		}
 	}
 
 	function validateProfileFields(): boolean {
@@ -254,20 +277,25 @@
 		deleting = true;
 		deletionError = null;
 		try {
-			if (!deletionOptions.recent_authentication) {
-				if (!deletionOptions.password) {
-					throw new Error('Bitte bestätige deine Anmeldung zuerst mit einem verknüpften Anbieter.');
+			if (!deletionScheduled) {
+				if (!deletionOptions.recent_authentication) {
+					if (!deletionOptions.password) {
+						throw new Error(
+							'Bitte bestätige deine Anmeldung zuerst mit einem verknüpften Anbieter.'
+						);
+					}
+					await reauthenticateWithPassword(deletionPassword);
 				}
-				await reauthenticateWithPassword(deletionPassword);
+				await requestAccountDeletion(deletionConfirmation);
+				deletionScheduled = true;
 			}
-			await requestAccountDeletion(deletionConfirmation);
 			await deactivateAccountLocally();
 			deletionDialog?.close();
 			await goto(resolve('/account/deletion'));
 		} catch (cause) {
 			const apiError = cause as (Error & { code?: string }) | null;
 			if (apiError?.code === 'RECENT_AUTH_REQUIRED') {
-				deletionOptions = await fetchAccountDeletionOptions().catch(() => deletionOptions);
+				await reloadDeletionOptions();
 				deletionError =
 					'Bitte bestätige deine Anmeldung erneut und versuche es danach noch einmal.';
 			} else {
@@ -540,6 +568,26 @@
 					Tauschhistorien bleiben anonymisiert erhalten. Laufende Tausche werden sofort abgebrochen
 					und bei einem Widerruf nicht wieder geöffnet.
 				</p>
+				{#if deletionOptionsError}
+					<div class="mt-4" aria-live="polite">
+						<p
+							role="alert"
+							style="color: var(--color-error);"
+							data-testid="account-deletion-options-error"
+						>
+							{deletionOptionsError}
+						</p>
+						<button
+							type="button"
+							class="mt-2 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+							disabled={deletionOptionsLoading}
+							onclick={reloadDeletionOptions}
+							data-testid="retry-account-deletion-options"
+						>
+							{deletionOptionsLoading ? 'Wird geladen …' : 'Erneut versuchen'}
+						</button>
+					</div>
+				{/if}
 				<button
 					type="button"
 					class="mt-5 rounded-lg border px-4 py-2 font-semibold disabled:opacity-50"
@@ -634,7 +682,13 @@
 						deletionOffline}
 					data-testid="confirm-account-deletion"
 				>
-					{deleting ? 'Konto wird deaktiviert …' : 'Konto endgültig vormerken'}
+					{deleting
+						? deletionScheduled
+							? 'Lokale Daten werden gelöscht …'
+							: 'Konto wird deaktiviert …'
+						: deletionScheduled
+							? 'Lokale Daten erneut löschen'
+							: 'Konto endgültig vormerken'}
 				</button>
 			</div>
 		</form>

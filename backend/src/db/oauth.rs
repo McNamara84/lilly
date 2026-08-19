@@ -189,6 +189,7 @@ pub async fn create_oauth_user(
     })
 }
 
+#[cfg(test)]
 pub async fn insert_pending_link(
     pool: &MySqlPool,
     token_hash: &str,
@@ -211,6 +212,48 @@ pub async fn insert_pending_link(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Stores a pending link only while an account with the verified email is active.
+///
+/// Locking the matching user serializes this callback with account-deletion
+/// scheduling: either the callback commits first and scheduling removes the
+/// pending link, or scheduling commits first and this insert is rejected.
+pub async fn insert_pending_link_if_account_active(
+    pool: &MySqlPool,
+    token_hash: &str,
+    profile: &OAuthIdentityProfile,
+    now: NaiveDateTime,
+    expires_at: NaiveDateTime,
+) -> Result<bool, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    let account_state = sqlx::query_scalar::<_, String>(
+        "SELECT account_state FROM users WHERE email = ? FOR UPDATE",
+    )
+    .bind(&profile.email)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if account_state.as_deref() != Some("active") {
+        transaction.commit().await?;
+        return Ok(false);
+    }
+
+    sqlx::query(
+        "INSERT INTO pending_oauth_links \
+         (token_hash, provider, provider_subject, verified_email, display_name, created_at, expires_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(token_hash)
+    .bind(profile.provider.as_str())
+    .bind(&profile.subject)
+    .bind(&profile.email)
+    .bind(&profile.display_name)
+    .bind(now)
+    .bind(expires_at)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(true)
 }
 
 pub async fn find_pending_link(
@@ -351,6 +394,89 @@ mod tests {
             email: format!("oauth-{suffix}@example.test"),
             display_name: "OAuth Collector".to_string(),
         }
+    }
+
+    #[tokio::test]
+    async fn pending_link_is_rejected_for_an_inactive_matching_account() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let suffix = unique_suffix();
+        let profile = profile(suffix);
+        let user_id = insert_user(&pool, &profile.email).await;
+        sqlx::query("UPDATE users SET account_state = 'pending_deletion' WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let now = chrono::Utc::now().naive_utc();
+        let rejected_hash = crate::auth::oauth::hash_secret(&format!("rejected-link-{suffix}"));
+
+        assert!(
+            !insert_pending_link_if_account_active(
+                &pool,
+                &rejected_hash,
+                &profile,
+                now,
+                now + chrono::Duration::minutes(10),
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM pending_oauth_links WHERE token_hash = ?",
+            )
+            .bind(&rejected_hash)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+
+        sqlx::query("UPDATE users SET account_state = 'active' WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let accepted_hash = crate::auth::oauth::hash_secret(&format!("accepted-link-{suffix}"));
+        assert!(
+            insert_pending_link_if_account_active(
+                &pool,
+                &accepted_hash,
+                &profile,
+                now,
+                now + chrono::Duration::minutes(10),
+            )
+            .await
+            .unwrap()
+        );
+
+        sqlx::query("DELETE FROM pending_oauth_links WHERE token_hash = ?")
+            .bind(&accepted_hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let deleted_account_hash =
+            crate::auth::oauth::hash_secret(&format!("deleted-account-link-{suffix}"));
+        assert!(
+            !insert_pending_link_if_account_active(
+                &pool,
+                &deleted_account_hash,
+                &profile,
+                now,
+                now + chrono::Duration::minutes(10),
+            )
+            .await
+            .unwrap(),
+            "a callback waiting on final erasure must not recreate an orphaned link"
+        );
     }
 
     #[tokio::test]

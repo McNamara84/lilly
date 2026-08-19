@@ -110,18 +110,33 @@ async function clearCurrentOfflineData(): Promise<void> {
 
 export async function deactivateAccountLocally(): Promise<void> {
 	const userId = user?.id ?? (await getCachedProfile().catch(() => null))?.id;
-	user = null;
-	isOfflineSession = false;
-	if (userId !== undefined) await clearOfflineUserData(userId).catch(() => undefined);
+	let offlineCleanupFailed = false;
+	if (userId !== undefined) {
+		try {
+			await clearOfflineUserData(userId);
+		} catch {
+			offlineCleanupFailed = true;
+		}
+	}
 	if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-		const registration = await navigator.serviceWorker.ready.catch(() => null);
-		registration?.active?.postMessage({ type: 'PURGE_PRIVATE_DATA' });
+		void navigator.serviceWorker.ready
+			.then((registration) => {
+				registration.active?.postMessage({ type: 'PURGE_PRIVATE_DATA' });
+			})
+			.catch(() => undefined);
 	}
 	if (typeof BroadcastChannel !== 'undefined') {
 		const channel = new BroadcastChannel('lilly-offline');
 		channel.postMessage({ type: 'account-deletion', user_id: userId });
 		channel.close();
 	}
+	if (offlineCleanupFailed) {
+		throw new Error(
+			'Lokale Kontodaten konnten nicht vollständig gelöscht werden. Bitte versuche es erneut.'
+		);
+	}
+	user = null;
+	isOfflineSession = false;
 }
 
 export async function performLogout(): Promise<void> {

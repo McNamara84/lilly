@@ -76,6 +76,101 @@ describe('offline authentication context', () => {
 		expect(broadcastClose).toHaveBeenCalledOnce();
 	});
 
+	it('reports IndexedDB cleanup failures after still notifying caches and other tabs', async () => {
+		const database = await import('$lib/offline/database');
+		await database.saveConfirmedProfile(profile(7));
+		vi.spyOn(database, 'clearOfflineUserData').mockRejectedValueOnce(
+			new Error('IndexedDB transaction failed')
+		);
+		const serviceWorkerPost = vi.fn();
+		const broadcastPost = vi.fn();
+		class BroadcastChannelMock {
+			addEventListener() {}
+			postMessage = broadcastPost;
+			close() {}
+		}
+		vi.stubGlobal('navigator', {
+			serviceWorker: {
+				ready: Promise.resolve({ active: { postMessage: serviceWorkerPost } })
+			}
+		});
+		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
+		const { deactivateAccountLocally, getAuthState, setUser } =
+			await import('$lib/stores/auth.svelte');
+		setUser(profile(7));
+
+		await expect(deactivateAccountLocally()).rejects.toThrow(/Lokale Kontodaten/);
+
+		await vi.waitFor(() =>
+			expect(serviceWorkerPost).toHaveBeenCalledWith({ type: 'PURGE_PRIVATE_DATA' })
+		);
+		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(getAuthState().isAuthenticated).toBe(true);
+		expect(await database.getCachedProfile()).toEqual(profile(7));
+
+		await deactivateAccountLocally();
+		expect(getAuthState().isAuthenticated).toBe(false);
+		expect(await database.getCachedProfile()).toBeNull();
+	});
+
+	it('does not wait for a service worker registration before completing local deactivation', async () => {
+		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		await saveConfirmedProfile(profile(7));
+		const broadcastPost = vi.fn();
+		class BroadcastChannelMock {
+			addEventListener() {}
+			postMessage = broadcastPost;
+			close() {}
+		}
+		vi.stubGlobal('navigator', {
+			serviceWorker: {
+				ready: new Promise(() => undefined)
+			}
+		});
+		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
+		const { deactivateAccountLocally, getAuthState, setUser } =
+			await import('$lib/stores/auth.svelte');
+		setUser(profile(7));
+
+		await deactivateAccountLocally();
+
+		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(getAuthState().isAuthenticated).toBe(false);
+	});
+
+	it('still broadcasts deactivation when service-worker registration fails', async () => {
+		const database = await import('$lib/offline/database');
+		vi.spyOn(database, 'clearOfflineUserData').mockResolvedValueOnce(undefined);
+		const broadcastPost = vi.fn();
+		let rejectRegistration: ((reason: Error) => void) | undefined;
+		const registration = new Promise<ServiceWorkerRegistration>((_resolve, reject) => {
+			rejectRegistration = reject;
+		});
+		class BroadcastChannelMock {
+			addEventListener() {}
+			postMessage = broadcastPost;
+			close() {}
+		}
+		vi.stubGlobal('navigator', {
+			serviceWorker: {
+				ready: registration
+			}
+		});
+		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
+		const { deactivateAccountLocally, getAuthState, setUser } =
+			await import('$lib/stores/auth.svelte');
+		setUser(profile(7));
+
+		const deactivation = deactivateAccountLocally();
+		await Promise.resolve();
+		rejectRegistration?.(new Error('registration failed'));
+		await deactivation;
+		await Promise.resolve();
+
+		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(getAuthState().isAuthenticated).toBe(false);
+	});
+
 	it('removes a cached identity when the backend reports pending account deletion', async () => {
 		const { saveConfirmedProfile } = await import('$lib/offline/database');
 		await saveConfirmedProfile(profile(7));

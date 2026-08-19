@@ -555,7 +555,7 @@ async fn pending_link_redirect(
 ) -> Response {
     let raw_link_token = random_urlsafe_token();
     let expires_at = now + chrono::Duration::seconds(OAUTH_TTL_SECONDS);
-    if let Err(error) = oauth::insert_pending_link(
+    let pending_link_created = match oauth::insert_pending_link_if_account_active(
         &state.inner.pool,
         &hash_secret(&raw_link_token),
         profile,
@@ -564,7 +564,11 @@ async fn pending_link_redirect(
     )
     .await
     {
-        return AppError::from(error).into_response();
+        Ok(created) => created,
+        Err(error) => return AppError::from(error).into_response(),
+    };
+    if !pending_link_created {
+        return oauth_redirect(state, "/login", "ACCOUNT_DELETION_PENDING", jar).into_response();
     }
     let jar = jar.add(short_lived_cookie(
         OAUTH_LINK_COOKIE,

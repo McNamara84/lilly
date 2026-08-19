@@ -17,11 +17,16 @@ const mockFetchDeletionOptions = vi.fn();
 const mockRequestAccountDeletion = vi.fn();
 const mockReauthenticateWithPassword = vi.fn();
 const mockGoto = vi.fn();
+const mockOfflineStatus = { online: true };
 
 vi.mock('$lib/stores/auth.svelte', () => ({
 	getAuthState: () => mockGetAuthState(),
 	setUser: (...args: unknown[]) => mockSetUser(...args),
 	deactivateAccountLocally: (...args: unknown[]) => mockDeactivateAccountLocally(...args)
+}));
+
+vi.mock('$lib/offline/status.svelte', () => ({
+	getOfflineStatus: () => mockOfflineStatus
 }));
 
 vi.mock('$lib/api/profile', () => ({
@@ -86,6 +91,7 @@ function authedState() {
 describe('Profile Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockOfflineStatus.online = true;
 		window.history.replaceState(null, '', '/');
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchOwnProfile.mockResolvedValue({ ...profile });
@@ -275,6 +281,65 @@ describe('Profile Page', () => {
 
 		expect(await screen.findByTestId('open-account-deletion')).toBeDisabled();
 		expect(screen.getByText('Diese Aktion ist offline nicht verfügbar.')).toBeInTheDocument();
+	});
+
+	it('uses the shared connectivity state to disable account deletion', async () => {
+		mockOfflineStatus.online = false;
+		render(ProfilePage);
+
+		expect(await screen.findByTestId('open-account-deletion')).toBeDisabled();
+		expect(screen.getByText('Diese Aktion ist offline nicht verfügbar.')).toBeInTheDocument();
+	});
+
+	it('shows deletion-option failures and retries loading them', async () => {
+		mockFetchDeletionOptions
+			.mockRejectedValueOnce(new Error('Löschoptionen sind vorübergehend nicht verfügbar.'))
+			.mockResolvedValueOnce({
+				recent_authentication: true,
+				password: true,
+				google: false,
+				github: false,
+				confirmation_phrase: 'KONTO LÖSCHEN',
+				grace_days: 7
+			});
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		expect(await screen.findByTestId('account-deletion-options-error')).toHaveTextContent(
+			'Löschoptionen sind vorübergehend nicht verfügbar.'
+		);
+		expect(screen.getByTestId('open-account-deletion')).toBeDisabled();
+		await user.click(screen.getByTestId('retry-account-deletion-options'));
+
+		await waitFor(() => expect(screen.getByTestId('open-account-deletion')).toBeEnabled());
+		expect(screen.queryByTestId('account-deletion-options-error')).not.toBeInTheDocument();
+		expect(mockFetchDeletionOptions).toHaveBeenCalledTimes(2);
+	});
+
+	it('retries local cleanup without scheduling deletion a second time', async () => {
+		mockDeactivateAccountLocally
+			.mockRejectedValueOnce(
+				new Error(
+					'Lokale Kontodaten konnten nicht vollständig gelöscht werden. Bitte versuche es erneut.'
+				)
+			)
+			.mockResolvedValueOnce(undefined);
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId('open-account-deletion'));
+		await user.type(screen.getByTestId('account-deletion-confirmation'), 'KONTO LÖSCHEN');
+		await user.click(screen.getByTestId('confirm-account-deletion'));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(/Lokale Kontodaten/);
+		expect(screen.getByTestId('confirm-account-deletion')).toHaveTextContent(
+			'Lokale Daten erneut löschen'
+		);
+		await user.click(screen.getByTestId('confirm-account-deletion'));
+
+		await waitFor(() => expect(mockGoto).toHaveBeenCalledWith('/account/deletion'));
+		expect(mockRequestAccountDeletion).toHaveBeenCalledOnce();
+		expect(mockDeactivateAccountLocally).toHaveBeenCalledTimes(2);
 	});
 
 	it('edits and normalizes display name and optional location', async () => {

@@ -110,7 +110,7 @@ journalctl -u lilly-backup.service
 find /opt/lilly/backups -maxdepth 2 -type f -name COMPLETE -print
 ```
 
-Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log`; it must be included in offsite copies and must never be replaced by an older backup copy. Its file mode is `0600`, while the containing directory is writable by the unprivileged backend container.
+Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log`; it must be included in offsite copies and must never be replaced by an older backup copy. Its file mode is `0600`; the containing directory is owned by the deployment user and the backend container group (GID 999) with mode `0770`.
 
 Backups created before account-erasure support do not contain this marker and are intentionally rejected by `restore.sh`. After rolling out this version, create and verify a fresh backup before accepting deletion requests; retire all older restore sets according to the applicable retention policy.
 
