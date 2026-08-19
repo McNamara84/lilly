@@ -5,7 +5,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
-use chrono::Utc;
+use chrono::{NaiveDateTime, Utc};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use validator::Validate;
@@ -76,7 +76,7 @@ fn build_cookie(
     cookie
 }
 
-fn clear_cookie(name: &str, path: &str) -> Cookie<'static> {
+pub(super) fn clear_cookie(name: &str, path: &str) -> Cookie<'static> {
     Cookie::build((name.to_string(), String::new()))
         .path(path.to_string())
         .http_only(true)
@@ -370,12 +370,43 @@ async fn login(
         });
     }
 
+    if !user.is_active() {
+        let (recovery_token, scheduled_for) =
+            crate::services::account_erasure::issue_recovery_token(
+                &state.inner.pool,
+                user.id,
+                Utc::now().naive_utc(),
+            )
+            .await?
+            .ok_or_else(|| AppError::ConflictWithCode {
+                message: "The account deletion can no longer be cancelled".to_string(),
+                code: "ACCOUNT_DELETION_WINDOW_EXPIRED".to_string(),
+            })?;
+        let jar = crate::services::account_erasure::recovery_jar(
+            jar.add(clear_cookie("access_token", "/api"))
+                .add(clear_cookie("refresh_token", "/api/v1/auth")),
+            recovery_token,
+            scheduled_for,
+            state.inner.cookie_secure,
+        );
+        return Ok((
+            jar,
+            Json(LoginResponse {
+                message: "Account deletion is pending".to_string(),
+                account_state: Some("pending_deletion".to_string()),
+                scheduled_for: Some(scheduled_for),
+            }),
+        ));
+    }
+
     let jar = authenticated_jar(&state, jar, &user).await?;
 
     Ok((
         jar,
         Json(LoginResponse {
             message: "Login successful".to_string(),
+            account_state: None,
+            scheduled_for: None,
         }),
     ))
 }
@@ -385,12 +416,32 @@ pub(super) async fn authenticated_jar(
     jar: CookieJar,
     user: &crate::models::user::User,
 ) -> Result<CookieJar, AppError> {
-    let access_token = jwt::create_token(
+    authenticated_jar_at(state, jar, user, Utc::now().naive_utc()).await
+}
+
+pub(super) async fn authenticated_jar_at(
+    state: &AppState,
+    jar: CookieJar,
+    user: &crate::models::user::User,
+    authenticated_at: NaiveDateTime,
+) -> Result<CookieJar, AppError> {
+    if !user.is_active() {
+        return Err(AppError::Forbidden {
+            message: "Account deletion is pending".to_string(),
+            code: Some("ACCOUNT_DELETION_PENDING".to_string()),
+        });
+    }
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let auth_time = authenticated_at.and_utc().timestamp() as usize;
+    let access_token = jwt::create_token_with_auth(
         user.id,
         &user.display_name,
         &user.role,
         &state.inner.jwt_secret,
         state.inner.jwt_access_expiry,
+        auth_time,
+        user.session_version,
+        false,
     )?;
     let raw_refresh_token = generate_random_token();
     let refresh_token_hash = hash_token(&raw_refresh_token);
@@ -402,6 +453,7 @@ pub(super) async fn authenticated_jar(
         user.id,
         &refresh_token_hash,
         refresh_expires_at,
+        authenticated_at,
     )
     .await?;
     Ok(jar
@@ -454,14 +506,25 @@ async fn refresh(
     let user = users::find_user_by_id(&state.inner.pool, token_row.user_id)
         .await?
         .ok_or_else(|| AppError::Unauthorized("User not found".to_string()))?;
+    if !user.is_active() {
+        return Err(AppError::Forbidden {
+            message: "Account deletion is pending".to_string(),
+            code: Some("ACCOUNT_DELETION_PENDING".to_string()),
+        });
+    }
 
     // Issue new access token
-    let new_access_token = jwt::create_token(
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let auth_time = token_row.authenticated_at.and_utc().timestamp() as usize;
+    let new_access_token = jwt::create_token_with_auth(
         user.id,
         &user.display_name,
         &user.role,
         &state.inner.jwt_secret,
         state.inner.jwt_access_expiry,
+        auth_time,
+        user.session_version,
+        false,
     )?;
 
     // Issue new refresh token
@@ -479,6 +542,7 @@ async fn refresh(
         user.id,
         &new_refresh_hash,
         refresh_expires_at,
+        token_row.authenticated_at,
     )
     .await
     .map_err(|e| match e {
@@ -549,7 +613,11 @@ async fn request_password_reset(
         tracing::warn!(error = %error, "Failed to clean expired password reset tokens");
     }
     let user = match users::find_user_by_email(&state.inner.pool, &payload.email).await {
-        Ok(Some(user)) if user.email_verified && user.password_hash.is_some() => Some(user),
+        Ok(Some(user))
+            if user.is_active() && user.email_verified && user.password_hash.is_some() =>
+        {
+            Some(user)
+        }
         Ok(_) => None,
         Err(error) => {
             tracing::error!(error = %error, "Password reset account lookup failed");
@@ -749,6 +817,9 @@ mod tests {
                 media_url_prefix: "/media".to_string(),
                 photo_upload_config: crate::config::PhotoUploadConfig::default(),
                 media_storage: crate::services::media::MediaStorage::new(&media_path),
+                erasure_ledger: crate::services::account_erasure::ErasureLedger::new(
+                    media_path.join("erasure-ledger"),
+                ),
                 import_scheduler_config: ImportSchedulerConfig {
                     enabled: false,
                     schedule: "0 10 6 * * Sat *".to_string(),
@@ -1145,6 +1216,7 @@ mod tests {
             user_id,
             &hash_token(&format!("refresh-{suffix}")),
             now + chrono::Duration::hours(1),
+            now,
         )
         .await
         .unwrap();
@@ -1296,11 +1368,18 @@ mod tests {
         )
         .unwrap();
         let raw_refresh = format!("refresh-token-{suffix}");
+        let original_authenticated_at = chrono::DateTime::from_timestamp(
+            Utc::now().timestamp() - chrono::Duration::minutes(20).num_seconds(),
+            0,
+        )
+        .unwrap()
+        .naive_utc();
         refresh_tokens::store_refresh_token(
             &pool,
             user_id,
             &hash_token(&raw_refresh),
             Utc::now().naive_utc() + chrono::Duration::hours(1),
+            original_authenticated_at,
         )
         .await
         .unwrap();
@@ -1342,6 +1421,9 @@ mod tests {
                 media_storage: crate::services::media::MediaStorage::new(std::path::Path::new(
                     "/tmp/lilly-refresh-role-test",
                 )),
+                erasure_ledger: crate::services::account_erasure::ErasureLedger::new(
+                    "/tmp/lilly-refresh-role-test-erasure-ledger",
+                ),
                 import_scheduler_config: ImportSchedulerConfig {
                     enabled: false,
                     schedule: "0 10 6 * * Sat *".to_string(),
@@ -1384,12 +1466,27 @@ mod tests {
             "user",
             "an already-issued access token keeps its role until expiry"
         );
+        let refreshed_claims = jwt::validate_token(access_token, "refresh-role-secret").unwrap();
         assert_eq!(
-            jwt::validate_token(access_token, "refresh-role-secret")
-                .unwrap()
-                .role,
-            "admin",
+            refreshed_claims.role, "admin",
             "refresh must load the current role from the database"
+        );
+        assert_eq!(
+            refreshed_claims.auth_time,
+            usize::try_from(original_authenticated_at.and_utc().timestamp()).unwrap(),
+            "refresh must not make authentication recent again"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, chrono::NaiveDateTime>(
+                "SELECT authenticated_at FROM refresh_tokens \
+                 WHERE user_id = ? AND revoked = FALSE",
+            )
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            original_authenticated_at,
+            "rotated refresh token must retain the credential-check time"
         );
 
         sqlx::query("DELETE FROM users WHERE id = ?")

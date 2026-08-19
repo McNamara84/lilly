@@ -1,3 +1,4 @@
+pub mod account_erasure;
 pub mod admin_roles;
 pub mod e2e_import;
 pub mod email;

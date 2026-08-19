@@ -108,9 +108,11 @@ pub fn normalize_user_pair(first: u32, second: u32) -> Option<(u32, u32)> {
 }
 
 pub async fn reconcile_all_matches(pool: &MySqlPool) -> Result<ReconciliationStats, sqlx::Error> {
-    let user_ids = sqlx::query_scalar::<_, u32>("SELECT id FROM users ORDER BY id")
-        .fetch_all(pool)
-        .await?;
+    let user_ids = sqlx::query_scalar::<_, u32>(
+        "SELECT id FROM users WHERE account_state = 'active' ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
     let mut total = ReconciliationStats::default();
     for user_id in user_ids {
         let mut transaction = pool.begin().await?;
@@ -249,6 +251,10 @@ async fn find_candidate_items(
                OR wanted.edition_label = offer.edition_label)
          JOIN issues i ON i.id = offer.issue_id
          JOIN series s ON s.id = i.series_id AND s.active = TRUE
+         JOIN users offer_user ON offer_user.id = offer.user_id
+            AND offer_user.account_state = 'active'
+         JOIN users wanted_user ON wanted_user.id = wanted.user_id
+            AND wanted_user.account_state = 'active'
          WHERE offer.status = 'duplicate'
            AND (offer.user_id = ? OR wanted.user_id = ?)
          ORDER BY LEAST(offer.user_id, wanted.user_id),
@@ -589,7 +595,8 @@ pub async fn find_matches(
          JOIN users partner ON partner.id = CASE
              WHEN m.user_low_id = ? THEN m.user_high_id ELSE m.user_low_id END
          LEFT JOIN trades ot ON ot.open_match_id = m.id
-         WHERE m.status = 'active' AND (m.user_low_id = ? OR m.user_high_id = ?)
+         WHERE m.status = 'active' AND partner.account_state = 'active'
+           AND (m.user_low_id = ? OR m.user_high_id = ?)
          ORDER BY m.changed_at DESC, m.id ASC
          LIMIT ? OFFSET ?",
     )
@@ -618,7 +625,8 @@ pub async fn find_match_for_participant(
          JOIN users partner ON partner.id = CASE
              WHEN m.user_low_id = ? THEN m.user_high_id ELSE m.user_low_id END
          LEFT JOIN trades ot ON ot.open_match_id = m.id
-         WHERE m.id = ? AND (m.user_low_id = ? OR m.user_high_id = ?)",
+         WHERE m.id = ? AND partner.account_state = 'active'
+           AND (m.user_low_id = ? OR m.user_high_id = ?)",
     )
     .bind(user_id)
     .bind(match_id)
@@ -1339,21 +1347,42 @@ mod tests {
             .bind(first_user_id)
             .execute(&pool)
             .await
-            .expect("account deletion must cascade");
+            .expect("user fixture must be deleted");
         assert_eq!(row_count(&pool, "trade_matches", match_id).await, 0);
-        assert_eq!(row_count(&pool, "trades", proposal.id).await, 0);
-        assert_eq!(row_count(&pool, "trades", completion_proposal.id).await, 0);
+        assert_eq!(row_count(&pool, "trades", proposal.id).await, 1);
+        assert_eq!(row_count(&pool, "trades", completion_proposal.id).await, 1);
         assert_eq!(
             row_count(&pool, "message_threads", proposal.thread_id).await,
-            0
+            1
         );
-        assert_eq!(row_count(&pool, "messages", sent.id).await, 0);
+        assert_eq!(row_count(&pool, "messages", sent.id).await, 1);
+
+        let preserved_trade: (Option<u32>, Option<u32>, Option<u32>) =
+            sqlx::query_as("SELECT initiator_id, responder_id, match_id FROM trades WHERE id = ?")
+                .bind(proposal.id)
+                .fetch_one(&pool)
+                .await
+                .expect("terminal shared trade must remain with nullable references");
+        assert_eq!(preserved_trade.2, None);
+        assert!(
+            preserved_trade.0 == Some(second_user_id) || preserved_trade.1 == Some(second_user_id)
+        );
 
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(second_user_id)
             .execute(&pool)
             .await
             .expect("second user fixture must be deleted");
+        sqlx::query(
+            "DELETE t FROM trades t \
+             JOIN trade_items ti ON ti.trade_id = t.id \
+             JOIN issues i ON i.id = ti.issue_id \
+             WHERE i.series_id = ?",
+        )
+        .bind(series_id)
+        .execute(&pool)
+        .await
+        .expect("preserved trade fixtures must be deleted explicitly");
         sqlx::query("DELETE FROM series WHERE id = ?")
             .bind(series_id)
             .execute(&pool)

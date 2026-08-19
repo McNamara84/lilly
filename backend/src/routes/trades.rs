@@ -637,6 +637,8 @@ mod tests {
 
     fn test_router(pool: MySqlPool, media_root: PathBuf) -> Router {
         let media_storage = crate::services::media::MediaStorage::new(&media_root);
+        let erasure_ledger =
+            crate::services::account_erasure::ErasureLedger::new(media_root.join("erasure-ledger"));
         router().with_state(AppState {
             inner: Arc::new(AppStateInner {
                 pool,
@@ -656,6 +658,7 @@ mod tests {
                 media_url_prefix: "/media".to_string(),
                 photo_upload_config: crate::config::PhotoUploadConfig::default(),
                 media_storage,
+                erasure_ledger,
                 import_scheduler_config: ImportSchedulerConfig {
                     enabled: false,
                     schedule: "0 10 6 * * Sat *".to_string(),

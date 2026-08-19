@@ -2,12 +2,30 @@ use sqlx::MySqlPool;
 
 use crate::models::user::User;
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct AuthStateRow {
+    pub account_state: String,
+    pub session_version: u32,
+}
+
+pub async fn find_auth_state(
+    pool: &MySqlPool,
+    user_id: u32,
+) -> Result<Option<AuthStateRow>, sqlx::Error> {
+    sqlx::query_as("SELECT account_state, session_version FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+}
+
 pub async fn find_user_by_email(
     pool: &MySqlPool,
     email: &str,
 ) -> Result<Option<User>, sqlx::Error> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, email, password_hash, display_name, role, email_verified FROM users WHERE email = ?",
+        "SELECT id, email, password_hash, display_name, role, email_verified, \
+                account_state, session_version, erasure_subject \
+         FROM users WHERE email = ?",
     )
     .bind(email)
     .fetch_optional(pool)
@@ -61,7 +79,8 @@ pub async fn find_user_by_verification_token(
     token: &str,
 ) -> Result<Option<User>, sqlx::Error> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, email, password_hash, display_name, role, email_verified \
+        "SELECT id, email, password_hash, display_name, role, email_verified, \
+                account_state, session_version, erasure_subject \
          FROM users WHERE verification_token = ?",
     )
     .bind(token)
@@ -116,7 +135,9 @@ pub async fn update_verification_token(
 
 pub async fn find_user_by_id(pool: &MySqlPool, user_id: u32) -> Result<Option<User>, sqlx::Error> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, email, password_hash, display_name, role, email_verified FROM users WHERE id = ?",
+        "SELECT id, email, password_hash, display_name, role, email_verified, \
+                account_state, session_version, erasure_subject \
+         FROM users WHERE id = ?",
     )
     .bind(user_id)
     .fetch_optional(pool)

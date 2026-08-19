@@ -607,6 +607,9 @@ mod tests {
                 media_storage: crate::services::media::MediaStorage::new(std::path::Path::new(
                     "/tmp/lilly-admin-route-test",
                 )),
+                erasure_ledger: crate::services::account_erasure::ErasureLedger::new(
+                    "/tmp/lilly-admin-route-test-erasure-ledger",
+                ),
                 import_scheduler_config: crate::services::import_scheduler::ImportSchedulerConfig {
                     enabled: false,
                     schedule: "0 10 6 * * Sat *".to_string(),

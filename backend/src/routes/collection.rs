@@ -1061,6 +1061,8 @@ mod tests {
             user_id,
             display_name: "Edition Tester".to_string(),
             role: "user".to_string(),
+            auth_time: 0,
+            session_version: 0,
         };
 
         let (_, Json(first)) = add_to_collection(
@@ -1405,6 +1407,8 @@ mod tests {
 
     fn test_state(pool: sqlx::MySqlPool, media_root: PathBuf) -> AppState {
         let media_storage = crate::services::media::MediaStorage::new(&media_root);
+        let erasure_ledger =
+            crate::services::account_erasure::ErasureLedger::new(media_root.join("erasure-ledger"));
         AppState {
             inner: Arc::new(AppStateInner {
                 pool,
@@ -1424,6 +1428,7 @@ mod tests {
                 media_url_prefix: "/media".to_string(),
                 photo_upload_config: crate::config::PhotoUploadConfig::default(),
                 media_storage,
+                erasure_ledger,
                 import_scheduler_config: ImportSchedulerConfig {
                     enabled: false,
                     schedule: "0 10 6 * * Sat *".to_string(),

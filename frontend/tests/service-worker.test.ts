@@ -79,6 +79,15 @@ describe('service worker', () => {
 		return response;
 	}
 
+	function dispatchMessage(data: unknown) {
+		let completion: Promise<unknown> | undefined;
+		handlers.get('message')?.({
+			data,
+			waitUntil: (promise: Promise<unknown>) => (completion = promise)
+		});
+		return completion;
+	}
+
 	it('precaches public assets and tolerates an unavailable app shell', async () => {
 		fetchMock.mockResolvedValueOnce(new Response('shell'));
 		await dispatchExtendable('install');
@@ -158,5 +167,13 @@ describe('service worker', () => {
 		handlers.get('message')?.({ data: 'IGNORE' });
 		handlers.get('message')?.({ data: 'SKIP_WAITING' });
 		expect(worker.skipWaiting).toHaveBeenCalledOnce();
+	});
+
+	it('purges all Lilly caches after account deactivation', async () => {
+		await dispatchMessage({ type: 'PURGE_PRIVATE_DATA' });
+
+		expect(cacheStorage.delete).toHaveBeenCalledWith('lilly-app-old');
+		expect(cacheStorage.delete).toHaveBeenCalledWith('lilly-covers-test');
+		expect(cacheStorage.delete).not.toHaveBeenCalledWith('third-party');
 	});
 });

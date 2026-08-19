@@ -1,3 +1,4 @@
+pub mod account_erasure;
 pub mod collection;
 pub mod import_review;
 pub mod media;
@@ -5,6 +6,7 @@ pub mod messaging;
 pub mod notifications;
 pub mod oauth;
 pub mod profile;
+pub mod serde_datetime;
 pub mod series;
 pub mod trade_matching;
 pub mod trades;

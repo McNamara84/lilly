@@ -58,6 +58,7 @@
 	--text-primary: #0f172a;
 	--text-secondary: #475569;
 	--text-tertiary: #5f6f82;
+	--color-error-foreground: #b91c1c;
 	/* Keep dynamically referenced collection colors in the generated CSS. */
 	--color-condition-z0: #10b981;
 	--color-condition-z1: #34d399;
@@ -80,6 +81,7 @@
 	--text-primary: #f1f5f9;
 	--text-secondary: #94a3b8;
 	--text-tertiary: #94a3b8;
+	--color-error-foreground: #f87171;
 	--color-warning: #fbbf24;
 	color-scheme: dark;
 }

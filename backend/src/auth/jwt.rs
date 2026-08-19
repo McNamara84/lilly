@@ -9,8 +9,16 @@ pub struct Claims {
     pub role: String,
     pub exp: usize,
     pub iat: usize,
+    #[serde(default)]
+    pub auth_time: usize,
+    #[serde(default)]
+    pub session_version: u32,
+    #[cfg(test)]
+    #[serde(default)]
+    pub test_bypass_account_state: bool,
 }
 
+#[allow(dead_code)]
 pub fn create_token(
     user_id: u32,
     display_name: &str,
@@ -20,6 +28,33 @@ pub fn create_token(
 ) -> Result<String, jsonwebtoken::errors::Error> {
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let now = Utc::now().timestamp() as usize;
+    create_token_with_auth(
+        user_id,
+        display_name,
+        role,
+        secret,
+        expiry_seconds,
+        now,
+        0,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_token_with_auth(
+    user_id: u32,
+    display_name: &str,
+    role: &str,
+    secret: &str,
+    expiry_seconds: u64,
+    auth_time: usize,
+    session_version: u32,
+    test_bypass_account_state: bool,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    #[cfg(not(test))]
+    let _ = test_bypass_account_state;
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let now = Utc::now().timestamp() as usize;
     let claims = Claims {
         sub: user_id,
         name: display_name.to_string(),
@@ -27,6 +62,10 @@ pub fn create_token(
         #[allow(clippy::cast_possible_truncation)]
         exp: now + expiry_seconds as usize,
         iat: now,
+        auth_time,
+        session_version,
+        #[cfg(test)]
+        test_bypass_account_state,
     };
 
     encode(
@@ -83,6 +122,9 @@ mod tests {
             role: "user".to_string(),
             exp: now - 120,
             iat: now - 300,
+            auth_time: now - 300,
+            session_version: 0,
+            test_bypass_account_state: true,
         };
         let token = jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),

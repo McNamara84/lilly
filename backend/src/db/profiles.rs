@@ -55,7 +55,7 @@ pub async fn find_public_profile(
 ) -> Result<Option<PublicProfileRow>, sqlx::Error> {
     sqlx::query_as::<_, PublicProfileRow>(
         "SELECT id, display_name, avatar_path, location, created_at \
-         FROM users WHERE id = ? AND profile_public = TRUE",
+         FROM users WHERE id = ? AND account_state = 'active' AND profile_public = TRUE",
     )
     .bind(user_id)
     .fetch_optional(pool)
@@ -64,7 +64,8 @@ pub async fn find_public_profile(
 
 pub async fn is_collection_public(pool: &MySqlPool, user_id: u32) -> Result<bool, sqlx::Error> {
     let visible = sqlx::query_scalar::<_, bool>(
-        "SELECT collection_public FROM users WHERE id = ? AND collection_public = TRUE",
+        "SELECT collection_public FROM users \
+         WHERE id = ? AND account_state = 'active' AND collection_public = TRUE",
     )
     .bind(user_id)
     .fetch_optional(pool)
@@ -79,7 +80,8 @@ pub async fn is_profile_and_collection_public(
 ) -> Result<bool, sqlx::Error> {
     let visible = sqlx::query_scalar::<_, bool>(
         "SELECT TRUE FROM users \
-         WHERE id = ? AND profile_public = TRUE AND collection_public = TRUE",
+         WHERE id = ? AND account_state = 'active' \
+           AND profile_public = TRUE AND collection_public = TRUE",
     )
     .bind(user_id)
     .fetch_optional(pool)
@@ -120,7 +122,7 @@ pub async fn replace_avatar(
 pub async fn find_avatar(pool: &MySqlPool, user_id: u32) -> Result<Option<AvatarRow>, sqlx::Error> {
     sqlx::query_as::<_, AvatarRow>(
         "SELECT id AS user_id, avatar_path AS storage_key, profile_public \
-         FROM users WHERE id = ? AND avatar_path IS NOT NULL",
+         FROM users WHERE id = ? AND account_state = 'active' AND avatar_path IS NOT NULL",
     )
     .bind(user_id)
     .fetch_optional(pool)

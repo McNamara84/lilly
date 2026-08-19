@@ -7,6 +7,7 @@ pub struct RefreshTokenRow {
     pub user_id: u32,
     pub token_hash: String,
     pub expires_at: chrono::NaiveDateTime,
+    pub authenticated_at: chrono::NaiveDateTime,
     pub revoked: bool,
 }
 
@@ -15,13 +16,18 @@ pub async fn store_refresh_token(
     user_id: u32,
     token_hash: &str,
     expires_at: chrono::NaiveDateTime,
+    authenticated_at: chrono::NaiveDateTime,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-        .bind(user_id)
-        .bind(token_hash)
-        .bind(expires_at)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO refresh_tokens (user_id, token_hash, expires_at, authenticated_at) \
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(token_hash)
+    .bind(expires_at)
+    .bind(authenticated_at)
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -31,7 +37,7 @@ pub async fn find_valid_refresh_token(
     token_hash: &str,
 ) -> Result<Option<RefreshTokenRow>, sqlx::Error> {
     let row = sqlx::query_as::<_, RefreshTokenRow>(
-        "SELECT id, user_id, token_hash, expires_at, revoked \
+        "SELECT id, user_id, token_hash, expires_at, authenticated_at, revoked \
          FROM refresh_tokens \
          WHERE token_hash = ? AND revoked = FALSE AND expires_at > NOW()",
     )
@@ -72,6 +78,7 @@ pub async fn rotate_refresh_token(
     new_user_id: u32,
     new_token_hash: &str,
     new_expires_at: chrono::NaiveDateTime,
+    authenticated_at: chrono::NaiveDateTime,
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
@@ -87,12 +94,16 @@ pub async fn rotate_refresh_token(
         return Err(sqlx::Error::RowNotFound);
     }
 
-    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-        .bind(new_user_id)
-        .bind(new_token_hash)
-        .bind(new_expires_at)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "INSERT INTO refresh_tokens (user_id, token_hash, expires_at, authenticated_at) \
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(new_user_id)
+    .bind(new_token_hash)
+    .bind(new_expires_at)
+    .bind(authenticated_at)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
     Ok(())

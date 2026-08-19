@@ -26,6 +26,7 @@ mod services;
 enum StartupCommand {
     Serve,
     PromoteAdmin { email: String },
+    ReplayErasureLedger,
 }
 
 const EXIT_SUCCESS: i32 = 0;
@@ -45,7 +46,13 @@ fn parse_startup_command(args: impl IntoIterator<Item = String>) -> Result<Start
                 email: email.clone(),
             })
         }
-        _ => Err("Usage: lilly-backend [admin promote --email user@example.org]".to_string()),
+        [privacy, replay] if privacy == "privacy" && replay == "replay-erasure-ledger" => {
+            Ok(StartupCommand::ReplayErasureLedger)
+        }
+        _ => Err(
+            "Usage: lilly-backend [admin promote --email user@example.org | privacy replay-erasure-ledger]"
+                .to_string(),
+        ),
     }
 }
 
@@ -62,12 +69,18 @@ async fn main() {
         eprintln!("{message}");
         std::process::exit(EXIT_INVALID_INPUT);
     });
-    if let StartupCommand::PromoteAdmin { email } = command {
-        let exit_code = run_admin_promotion(&email).await;
+    if let StartupCommand::PromoteAdmin { email } = &command {
+        let exit_code = run_admin_promotion(email).await;
         std::process::exit(exit_code);
     }
 
     let config = config::AppConfig::from_env();
+    let erasure_ledger =
+        services::account_erasure::ErasureLedger::new(&config.account_erasure_ledger_path);
+    if let Err(error) = erasure_ledger.require_existing().await {
+        eprintln!("Account erasure ledger is unavailable; refusing to start: {error}");
+        std::process::exit(EXIT_DATABASE_ERROR);
+    }
 
     let pool = MySqlPoolOptions::new()
         .max_connections(10)
@@ -154,19 +167,37 @@ async fn main() {
             media_url_prefix: config.media_url_prefix,
             photo_upload_config: config.photo_upload,
             media_storage,
+            erasure_ledger,
             import_scheduler_config: import_scheduler_config.clone(),
             request_security,
         }),
     };
+
+    if command == StartupCommand::ReplayErasureLedger {
+        match services::account_erasure::replay_ledger(&app_state.inner).await {
+            Ok(restored) => {
+                println!(
+                    "Account erasure ledger replay completed ({restored} restored accounts erased)"
+                );
+                std::process::exit(EXIT_SUCCESS);
+            }
+            Err(error) => {
+                eprintln!("Account erasure ledger replay failed: {error}");
+                std::process::exit(EXIT_DATABASE_ERROR);
+            }
+        }
+    }
 
     services::import_scheduler::spawn_import_scheduler(
         app_state.inner.clone(),
         import_scheduler_config,
     )
     .expect("Invalid import scheduler configuration");
+    services::account_erasure::spawn_worker(app_state.inner.clone());
 
     let rate_limited_api = Router::new()
         .merge(routes::auth::router())
+        .merge(routes::account_erasure::router())
         .merge(routes::oauth::router())
         .merge(routes::series::router())
         .merge(routes::collection::router())
@@ -390,6 +421,15 @@ mod tests {
         ] {
             assert!(parse_startup_command(arguments).is_err());
         }
+    }
+
+    #[test]
+    fn startup_command_parses_privacy_ledger_replay() {
+        assert_eq!(
+            parse_startup_command(["privacy".to_string(), "replay-erasure-ledger".to_string(),])
+                .unwrap(),
+            StartupCommand::ReplayErasureLedger
+        );
     }
 
     #[test]

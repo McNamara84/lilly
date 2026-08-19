@@ -27,7 +27,8 @@ vi.mock('$app/state', () => ({
 
 // Mock auth store
 vi.mock('$lib/stores/auth.svelte', () => ({
-	initAuth: vi.fn().mockResolvedValue(undefined)
+	initAuth: vi.fn().mockResolvedValue(undefined),
+	deactivateAccountLocally: vi.fn().mockResolvedValue(undefined)
 }));
 
 describe('Login Page', () => {
@@ -264,6 +265,26 @@ describe('Login Page', () => {
 		await user.click(screen.getByRole('button', { name: /anmelden/i }));
 
 		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/oauth/link'));
+	});
+
+	it('purges local account data and opens recovery for a pending deletion', async () => {
+		const { login } = await import('$lib/api/auth');
+		const { goto } = await import('$app/navigation');
+		const { deactivateAccountLocally } = await import('$lib/stores/auth.svelte');
+		vi.mocked(login).mockResolvedValue({
+			message: 'Account deletion is pending',
+			account_state: 'pending_deletion',
+			scheduled_for: '2026-08-24T08:00:00Z'
+		});
+		render(LoginPage);
+		const user = userEvent.setup();
+
+		await user.type(screen.getByLabelText(/e-mail/i), 'demo@lilly.app');
+		await user.type(screen.getByLabelText(/passwort/i), 'demo1234');
+		await user.click(screen.getByRole('button', { name: /anmelden/i }));
+
+		await vi.waitFor(() => expect(deactivateAccountLocally).toHaveBeenCalledOnce());
+		expect(goto).toHaveBeenCalledWith('/account/deletion');
 	});
 
 	it('shows error message on failed login', async () => {

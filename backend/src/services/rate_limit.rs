@@ -52,6 +52,8 @@ pub enum RateLimitPolicy {
     OAuthStart,
     OAuthCallback,
     Refresh,
+    Reauth,
+    AccountDeletion,
     PublicApi,
     AuthenticatedApi,
 }
@@ -68,6 +70,8 @@ impl RateLimitPolicy {
             Self::OAuthStart => "oauth_start",
             Self::OAuthCallback => "oauth_callback",
             Self::Refresh => "refresh",
+            Self::Reauth => "reauth",
+            Self::AccountDeletion => "account_deletion",
             Self::PublicApi => "public_api",
             Self::AuthenticatedApi => "authenticated_api",
         }
@@ -283,7 +287,9 @@ impl RequestSecurity {
         match policy {
             RateLimitPolicy::Register => self.config.register,
             RateLimitPolicy::LoginClient => self.config.login_client,
-            RateLimitPolicy::LoginAccount => self.config.login_account,
+            RateLimitPolicy::LoginAccount
+            | RateLimitPolicy::Reauth
+            | RateLimitPolicy::AccountDeletion => self.config.login_account,
             RateLimitPolicy::ResendVerification => self.config.resend_verification,
             RateLimitPolicy::PasswordResetRequest => self.config.password_reset_request,
             RateLimitPolicy::PasswordResetConfirm => self.config.password_reset_confirm,

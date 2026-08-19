@@ -7,7 +7,7 @@
 		type AuthOptionsResponse,
 		type OAuthProvider
 	} from '$lib/api/auth';
-	import { initAuth } from '$lib/stores/auth.svelte';
+	import { deactivateAccountLocally, initAuth } from '$lib/stores/auth.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -85,7 +85,12 @@
 		showResendVerification = false;
 
 		try {
-			await login({ email: trimmedEmail, password });
+			const result = await login({ email: trimmedEmail, password });
+			if (result.account_state === 'pending_deletion') {
+				await deactivateAccountLocally();
+				await goto(resolve('/account/deletion'));
+				return;
+			}
 			await initAuth();
 			const returnTo = page.url.searchParams.get('return_to');
 			await goto(resolve(returnTo === '/oauth/link' ? '/oauth/link' : '/'));

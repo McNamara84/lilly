@@ -8,14 +8,14 @@ pub struct ThreadAccessRow {
     pub thread_id: u32,
     pub trade_id: u32,
     pub trade_status: String,
-    pub initiator_id: u32,
-    pub responder_id: u32,
+    pub initiator_id: Option<u32>,
+    pub responder_id: Option<u32>,
     pub partner_display_name: String,
 }
 
 impl ThreadAccessRow {
-    pub fn recipient_id(&self, sender_id: u32) -> u32 {
-        if self.initiator_id == sender_id {
+    pub fn recipient_id(&self, sender_id: u32) -> Option<u32> {
+        if self.initiator_id == Some(sender_id) {
             self.responder_id
         } else {
             self.initiator_id
@@ -45,10 +45,15 @@ pub async fn find_threads(
 ) -> Result<Vec<ThreadListRow>, sqlx::Error> {
     sqlx::query_as::<_, ThreadListRow>(
         "SELECT mt.id AS thread_id, t.id AS trade_id, t.status AS trade_status,
-                partner.id AS partner_id, partner.display_name AS partner_display_name,
-                partner.profile_public AS partner_profile_public,
-                partner.avatar_path AS partner_avatar_path,
-                partner.location AS partner_location,
+                CASE WHEN partner.account_state = 'active' THEN partner.id END AS partner_id,
+                CASE WHEN partner.account_state = 'active' THEN partner.display_name
+                     ELSE 'Gelöschtes Konto' END AS partner_display_name,
+                COALESCE(partner.account_state = 'active' AND partner.profile_public, FALSE)
+                    AS partner_profile_public,
+                CASE WHEN partner.account_state = 'active' THEN partner.avatar_path END
+                    AS partner_avatar_path,
+                CASE WHEN partner.account_state = 'active' THEN partner.location END
+                    AS partner_location,
                 (SELECT m.content FROM messages m WHERE m.thread_id = mt.id
                  ORDER BY m.id DESC LIMIT 1) AS last_message,
                 (SELECT m.created_at FROM messages m WHERE m.thread_id = mt.id
@@ -59,7 +64,7 @@ pub async fn find_threads(
                 mt.updated_at
          FROM message_threads mt
          JOIN trades t ON t.id = mt.trade_id
-         JOIN users partner ON partner.id = CASE
+         LEFT JOIN users partner ON partner.id = CASE
              WHEN t.initiator_id = ? THEN t.responder_id ELSE t.initiator_id END
          WHERE t.initiator_id = ? OR t.responder_id = ?
          ORDER BY COALESCE(last_message_at, mt.created_at) DESC, mt.id DESC
@@ -83,10 +88,11 @@ pub async fn find_thread_access(
     sqlx::query_as::<_, ThreadAccessRow>(
         "SELECT mt.id AS thread_id, t.id AS trade_id, t.status AS trade_status,
                 t.initiator_id, t.responder_id,
-                partner.display_name AS partner_display_name
+                CASE WHEN partner.account_state = 'active' THEN partner.display_name
+                     ELSE 'Gelöschtes Konto' END AS partner_display_name
          FROM message_threads mt
          JOIN trades t ON t.id = mt.trade_id
-         JOIN users partner ON partner.id = CASE
+         LEFT JOIN users partner ON partner.id = CASE
              WHEN t.initiator_id = ? THEN t.responder_id ELSE t.initiator_id END
          WHERE mt.id = ? AND (t.initiator_id = ? OR t.responder_id = ?)",
     )
@@ -106,10 +112,11 @@ pub async fn lock_thread_access(
     sqlx::query_as::<_, ThreadAccessRow>(
         "SELECT mt.id AS thread_id, t.id AS trade_id, t.status AS trade_status,
                 t.initiator_id, t.responder_id,
-                partner.display_name AS partner_display_name
+                CASE WHEN partner.account_state = 'active' THEN partner.display_name
+                     ELSE 'Gelöschtes Konto' END AS partner_display_name
          FROM message_threads mt
          JOIN trades t ON t.id = mt.trade_id
-         JOIN users partner ON partner.id = CASE
+         LEFT JOIN users partner ON partner.id = CASE
              WHEN t.initiator_id = ? THEN t.responder_id ELSE t.initiator_id END
          WHERE mt.id = ? AND (t.initiator_id = ? OR t.responder_id = ?)
          FOR UPDATE",

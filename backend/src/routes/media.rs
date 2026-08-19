@@ -651,6 +651,9 @@ mod tests {
                     media_url_prefix: "/media".to_string(),
                     photo_upload_config: crate::config::PhotoUploadConfig::default(),
                     media_storage: storage,
+                    erasure_ledger: crate::services::account_erasure::ErasureLedger::new(
+                        media_root.join("erasure-ledger"),
+                    ),
                     import_scheduler_config: ImportSchedulerConfig {
                         enabled: false,
                         schedule: "0 10 6 * * Sat *".to_string(),

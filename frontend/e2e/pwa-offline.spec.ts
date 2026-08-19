@@ -114,8 +114,15 @@ test('collection reloads offline and a merged create/edit syncs exactly once', a
 	} finally {
 		await context.setOffline(false);
 		if (createdEntryId !== null) {
-			const response = await page.request.delete(`/api/v1/me/collection/${createdEntryId}`);
-			expect(response.ok()).toBe(true);
+			await expect
+				.poll(
+					async () => {
+						const response = await page.request.delete(`/api/v1/me/collection/${createdEntryId}`);
+						return [204, 404].includes(response.status()) ? 'removed' : `HTTP ${response.status()}`;
+					},
+					{ timeout: 10000 }
+				)
+				.toBe('removed');
 		}
 	}
 });

@@ -139,7 +139,7 @@ pub struct MatchItemViewRow {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TradePartnerResponse {
-    pub id: u32,
+    pub id: Option<u32>,
     pub display_name: String,
     pub avatar_path: Option<String>,
     pub location: Option<String>,
@@ -148,7 +148,7 @@ pub struct TradePartnerResponse {
 impl From<&MatchListRow> for TradePartnerResponse {
     fn from(row: &MatchListRow) -> Self {
         Self {
-            id: row.partner_id,
+            id: Some(row.partner_id),
             display_name: row.partner_display_name.clone(),
             avatar_path: row
                 .partner_profile_public
@@ -260,9 +260,9 @@ fn normalize_entry_ids(field: &str, values: &[u32]) -> Result<Vec<u32>, String> 
 #[allow(dead_code)]
 pub struct TradeRecord {
     pub id: u32,
-    pub match_id: u32,
-    pub initiator_id: u32,
-    pub responder_id: u32,
+    pub match_id: Option<u32>,
+    pub initiator_id: Option<u32>,
+    pub responder_id: Option<u32>,
     pub status: String,
     pub cancellation_reason: Option<String>,
     pub proposed_at: NaiveDateTime,
@@ -277,9 +277,9 @@ pub struct TradeRecord {
 #[allow(dead_code)]
 pub struct TradeListRow {
     pub id: u32,
-    pub match_id: u32,
-    pub initiator_id: u32,
-    pub responder_id: u32,
+    pub match_id: Option<u32>,
+    pub initiator_id: Option<u32>,
+    pub responder_id: Option<u32>,
     pub status: String,
     pub cancellation_reason: Option<String>,
     pub proposed_at: NaiveDateTime,
@@ -290,7 +290,7 @@ pub struct TradeListRow {
     pub partner_completion_confirmed_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub partner_id: u32,
+    pub partner_id: Option<u32>,
     pub partner_display_name: String,
     pub partner_profile_public: bool,
     pub partner_avatar_path: Option<String>,
@@ -305,8 +305,8 @@ pub struct TradeItemViewRow {
     pub offer_entry_id: Option<u32>,
     pub wanted_entry_id: Option<u32>,
     pub issue_id: u32,
-    pub offered_by_user_id: u32,
-    pub receiving_user_id: u32,
+    pub offered_by_user_id: Option<u32>,
+    pub receiving_user_id: Option<u32>,
     pub issue_number: u32,
     pub title: String,
     pub series_id: u32,
@@ -362,7 +362,7 @@ impl From<&TradeItemViewRow> for TradeItemResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct TradeResponse {
     pub id: u32,
-    pub match_id: u32,
+    pub match_id: Option<u32>,
     pub status: String,
     pub role: String,
     pub partner: TradePartnerResponse,

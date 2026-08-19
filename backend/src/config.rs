@@ -125,6 +125,7 @@ pub struct AppConfig {
     pub admin_email: Option<String>,
     pub media_path: String,
     pub media_url_prefix: String,
+    pub account_erasure_ledger_path: String,
     pub photo_upload: PhotoUploadConfig,
     pub e2e: E2eConfig,
     pub import_scheduler_enabled: bool,
@@ -228,6 +229,9 @@ impl AppConfig {
                 }),
             media_path: get("MEDIA_PATH").unwrap_or_else(|| "/media".to_string()),
             media_url_prefix: get("MEDIA_URL_PREFIX").unwrap_or_else(|| "/media".to_string()),
+            account_erasure_ledger_path: get("ACCOUNT_ERASURE_LEDGER_PATH")
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "/erasure-ledger/account-erasure.log".to_string()),
             photo_upload,
             e2e: E2eConfig {
                 demo_seed_enabled,
@@ -450,6 +454,10 @@ mod tests {
         assert!(config.admin_email.is_none());
         assert_eq!(config.media_path, "/media");
         assert_eq!(config.media_url_prefix, "/media");
+        assert_eq!(
+            config.account_erasure_ledger_path,
+            "/erasure-ledger/account-erasure.log"
+        );
         assert_eq!(config.photo_upload.max_upload_bytes, 5 * 1024 * 1024);
         assert_eq!(config.photo_upload.max_count, 4);
         assert_eq!(config.photo_upload.max_edge, 2_048);
@@ -492,6 +500,17 @@ mod tests {
             config.trusted_proxy_cidrs[1]
                 .contains(&"2001:db8::42".parse::<std::net::IpAddr>().unwrap())
         );
+    }
+
+    #[test]
+    fn account_erasure_ledger_path_is_configurable() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "ACCOUNT_ERASURE_LEDGER_PATH" => Some("/safe/ledger.log".to_string()),
+            _ => None,
+        });
+        assert_eq!(config.account_erasure_ledger_path, "/safe/ledger.log");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use axum_extra::extract::CookieJar;
 use chrono::Utc;
 
 use super::AppState;
-use crate::auth::middleware::AuthUser;
+use crate::auth::middleware::{AuthUser, OptionalAuthUser};
 use crate::auth::oauth::{
     OAUTH_FLOW_COOKIE, OAUTH_LINK_COOKIE, OAUTH_TTL_SECONDS, clear_short_lived_cookie,
     constant_time_secret_eq, generate_flow_secrets, hash_secret, link_confirmation_token,
@@ -58,11 +58,13 @@ async fn options(State(state): State<AppState>) -> Json<AuthOptionsResponse> {
     })
 }
 
+#[allow(clippy::too_many_lines)]
 async fn start_oauth(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     headers: HeaderMap,
     PeerAddress(peer_address): PeerAddress,
+    auth: OptionalAuthUser,
     jar: CookieJar,
     Json(payload): Json<OAuthStartRequest>,
 ) -> Result<(CookieJar, Json<OAuthStartResponse>), AppError> {
@@ -82,8 +84,28 @@ async fn start_oauth(
             code: "OAUTH_PROVIDER_DISABLED".to_string(),
         });
     }
+    let reauth_user_id = match payload.intent {
+        OAuthIntent::Reauth => {
+            let auth = auth.0.ok_or_else(|| {
+                AppError::Unauthorized("Authentication required for reauthentication".to_string())
+            })?;
+            let methods = oauth_auth_methods(&state, auth.user_id).await?;
+            let linked = match provider {
+                OAuthProvider::Google => methods.google,
+                OAuthProvider::GitHub => methods.github,
+            };
+            if !linked {
+                return Err(AppError::ConflictWithCode {
+                    message: "This OAuth provider is not linked to the account".to_string(),
+                    code: "REAUTH_METHOD_UNAVAILABLE".to_string(),
+                });
+            }
+            Some(auth.user_id)
+        }
+        OAuthIntent::Login | OAuthIntent::Register => None,
+    };
     let consent = match payload.intent {
-        OAuthIntent::Login => (None, None),
+        OAuthIntent::Login | OAuthIntent::Reauth => (None, None),
         OAuthIntent::Register => {
             if !payload.privacy_consent {
                 return Err(AppError::BadRequest(
@@ -119,6 +141,7 @@ async fn start_oauth(
             browser_binding_hash: &secrets.browser_binding_hash,
             provider: provider.as_str(),
             intent: payload.intent.as_str(),
+            reauth_user_id,
             pkce_verifier: &secrets.pkce_verifier,
             privacy_policy_version: consent.0,
             consented_at: consent.1,
@@ -203,6 +226,7 @@ async fn oauth_callback(
     let failure_path = match intent {
         OAuthIntent::Login => "/login",
         OAuthIntent::Register => "/register",
+        OAuthIntent::Reauth => "/profile",
     };
     if query.error.is_some() {
         return oauth_redirect(&state, failure_path, "OAUTH_PROVIDER_DENIED", jar).into_response();
@@ -237,20 +261,29 @@ async fn oauth_callback(
     match oauth::find_user_by_identity(&state.inner.pool, provider.as_str(), &profile.subject).await
     {
         Ok(Some(user)) => {
+            if intent == OAuthIntent::Reauth && flow.reauth_user_id != Some(user.id) {
+                return oauth_redirect(&state, failure_path, "OAUTH_REAUTH_MISMATCH", jar)
+                    .into_response();
+            }
             if let Err(error) =
                 oauth::touch_identity(&state.inner.pool, provider.as_str(), &profile.subject, now)
                     .await
             {
                 tracing::warn!(error = %error, user_id = user.id, "Failed to update OAuth login timestamp");
             }
-            let success_path = oauth_login_success_path(&jar);
-            return match super::auth::authenticated_jar(&state, jar, &user).await {
-                Ok(jar) => (jar, Redirect::to(&app_url(&state, success_path))).into_response(),
-                Err(error) => error.into_response(),
+            let success_path = if intent == OAuthIntent::Reauth {
+                "/profile?reauth=success"
+            } else {
+                oauth_login_success_path(&jar)
             };
+            return authenticated_or_recovery_redirect(&state, jar, &user, success_path).await;
         }
         Ok(None) => {}
         Err(error) => return AppError::from(error).into_response(),
+    }
+
+    if intent == OAuthIntent::Reauth {
+        return oauth_redirect(&state, failure_path, "OAUTH_REAUTH_MISMATCH", jar).into_response();
     }
 
     match users::find_user_by_email(&state.inner.pool, &profile.email).await {
@@ -277,10 +310,9 @@ async fn oauth_callback(
 
     match oauth::create_oauth_user(&state.inner.pool, &profile, policy_version, consented_at).await
     {
-        Ok(user) => match super::auth::authenticated_jar(&state, jar, &user).await {
-            Ok(jar) => (jar, Redirect::to(&app_url(&state, "/?oauth=registered"))).into_response(),
-            Err(error) => error.into_response(),
-        },
+        Ok(user) => {
+            authenticated_or_recovery_redirect(&state, jar, &user, "/?oauth=registered").await
+        }
         Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
             tracing::info!(provider = %provider, "Concurrent OAuth registration detected");
             match oauth::find_user_by_identity(
@@ -290,13 +322,10 @@ async fn oauth_callback(
             )
             .await
             {
-                Ok(Some(user)) => match super::auth::authenticated_jar(&state, jar, &user).await {
-                    Ok(jar) => {
-                        let success_path = oauth_login_success_path(&jar);
-                        (jar, Redirect::to(&app_url(&state, success_path))).into_response()
-                    }
-                    Err(error) => error.into_response(),
-                },
+                Ok(Some(user)) => {
+                    let success_path = oauth_login_success_path(&jar);
+                    authenticated_or_recovery_redirect(&state, jar, &user, success_path).await
+                }
                 Ok(None) => pending_link_redirect(&state, jar, &profile, now).await,
                 Err(error) => AppError::from(error).into_response(),
             }
@@ -474,6 +503,50 @@ fn oauth_login_success_path(jar: &CookieJar) -> &'static str {
     }
 }
 
+async fn oauth_auth_methods(
+    state: &AppState,
+    user_id: u32,
+) -> Result<crate::db::account_erasure::AuthMethodsRow, AppError> {
+    crate::db::account_erasure::find_auth_methods(&state.inner.pool, user_id)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Authentication required".to_string()))
+}
+
+async fn authenticated_or_recovery_redirect(
+    state: &AppState,
+    jar: CookieJar,
+    user: &crate::models::user::User,
+    success_path: &str,
+) -> Response {
+    if !user.is_active() {
+        return match crate::services::account_erasure::issue_recovery_token(
+            &state.inner.pool,
+            user.id,
+            Utc::now().naive_utc(),
+        )
+        .await
+        {
+            Ok(Some((raw_token, scheduled_for))) => {
+                let jar = crate::services::account_erasure::recovery_jar(
+                    jar.add(super::auth::clear_cookie("access_token", "/api"))
+                        .add(super::auth::clear_cookie("refresh_token", "/api/v1/auth")),
+                    raw_token,
+                    scheduled_for,
+                    state.inner.cookie_secure,
+                );
+                (jar, Redirect::to(&app_url(state, "/account/deletion"))).into_response()
+            }
+            Ok(None) => oauth_redirect(state, "/login", "ACCOUNT_DELETION_WINDOW_EXPIRED", jar)
+                .into_response(),
+            Err(error) => error.into_response(),
+        };
+    }
+    match super::auth::authenticated_jar(state, jar, user).await {
+        Ok(jar) => (jar, Redirect::to(&app_url(state, success_path))).into_response(),
+        Err(error) => error.into_response(),
+    }
+}
+
 async fn pending_link_redirect(
     state: &AppState,
     jar: CookieJar,
@@ -482,7 +555,7 @@ async fn pending_link_redirect(
 ) -> Response {
     let raw_link_token = random_urlsafe_token();
     let expires_at = now + chrono::Duration::seconds(OAUTH_TTL_SECONDS);
-    if let Err(error) = oauth::insert_pending_link(
+    let pending_link_created = match oauth::insert_pending_link_if_account_active(
         &state.inner.pool,
         &hash_secret(&raw_link_token),
         profile,
@@ -491,7 +564,11 @@ async fn pending_link_redirect(
     )
     .await
     {
-        return AppError::from(error).into_response();
+        Ok(created) => created,
+        Err(error) => return AppError::from(error).into_response(),
+    };
+    if !pending_link_created {
+        return oauth_redirect(state, "/login", "ACCOUNT_DELETION_PENDING", jar).into_response();
     }
     let jar = jar.add(short_lived_cookie(
         OAUTH_LINK_COOKIE,
@@ -569,6 +646,9 @@ mod tests {
                 media_url_prefix: "/media".to_string(),
                 photo_upload_config: PhotoUploadConfig::default(),
                 media_storage: MediaStorage::new(&media_path),
+                erasure_ledger: crate::services::account_erasure::ErasureLedger::new(
+                    media_path.join("erasure-ledger"),
+                ),
                 import_scheduler_config: ImportSchedulerConfig {
                     enabled: false,
                     schedule: "0 10 6 * * Sat *".to_string(),
@@ -691,6 +771,7 @@ mod tests {
                 browser_binding_hash: &hash_secret(browser_binding),
                 provider: provider.as_str(),
                 intent: intent.as_str(),
+                reauth_user_id: None,
                 pkce_verifier: "callback-test-pkce",
                 privacy_policy_version: policy_version,
                 consented_at: policy_version.map(|_| now),

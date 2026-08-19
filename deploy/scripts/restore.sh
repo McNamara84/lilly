@@ -7,6 +7,7 @@ readonly SHARED_DIR="${LILLY_ROOT}/shared"
 readonly APP_ENV_FILE="${SHARED_DIR}/.env.production"
 readonly DEPLOYMENT_ENV_FILE="${SHARED_DIR}/.deployment.env"
 readonly CURRENT_COMPOSE_FILE="${LILLY_ROOT}/current/docker-compose.production.yml"
+readonly ERASURE_LEDGER="${SHARED_DIR}/erasure-ledger/account-erasure.log"
 
 backup_dir=""
 confirmation=""
@@ -27,6 +28,11 @@ while (( $# > 0 )); do
   esac
 done
 
+if [[ ! -f "${ERASURE_LEDGER}" ]]; then
+  echo "Live account-erasure ledger is missing; refusing unsafe restore: ${ERASURE_LEDGER}" >&2
+  exit 1
+fi
+
 if [[ "${confirmation}" != "RESTORE_LILLY" || -z "${backup_dir}" ]]; then
   echo "Restore requires --backup and --confirm RESTORE_LILLY" >&2
   exit 2
@@ -44,6 +50,7 @@ for required_file in \
   "${backup_dir}/SHA256SUMS" \
   "${backup_dir}/database.sql.gz" \
   "${backup_dir}/media.tar.gz" \
+  "${backup_dir}/account-erasure.log" \
   "${APP_ENV_FILE}" \
   "${DEPLOYMENT_ENV_FILE}" \
   "${CURRENT_COMPOSE_FILE}"; do
@@ -101,6 +108,9 @@ docker run --rm --interactive \
   caddy:2.11.4-alpine \
   sh -ec 'find /restore -mindepth 1 -delete; tar -C /restore -xzf -' \
   <"${backup_dir}/media.tar.gz"
+
+echo "Replaying the live account-erasure ledger against the restored snapshot..."
+compose run --rm --no-deps backend privacy replay-erasure-ledger
 
 echo "Starting the restored LILLY stack..."
 compose up -d --wait --remove-orphans

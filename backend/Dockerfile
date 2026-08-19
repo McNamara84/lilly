@@ -36,22 +36,40 @@ RUN touch backend/src/main.rs importer-core/src/lib.rs importer-adapters/src/lib
 ENV SQLX_OFFLINE=true
 RUN cargo build --release -p lilly-backend
 
-FROM debian:trixie-slim
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --system appuser && useradd --system --gid appuser --no-create-home appuser
+# Keep ownership stable for the persistent media volume and the host-mounted,
+# mode-0600 account-erasure ledger across image upgrades.
+RUN groupadd --system --gid 999 appuser && \
+    useradd --system --uid 999 --gid appuser --no-create-home appuser
 
-# Create media directory writable by appuser (Docker volume mounts over this)
-RUN mkdir -p /media && chown appuser:appuser /media
+# Create persistent mount points writable by appuser.
+RUN mkdir -p /media /erasure-ledger && chown appuser:appuser /media /erasure-ledger
 
 WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/target/release/lilly-backend ./
 COPY --from=builder --chown=appuser:appuser /app/backend/migrations ./migrations
 
-USER appuser
-
 ENV RUST_LOG=info
 EXPOSE 8080
+
+FROM runtime AS development
+
+# A new named development volume is populated from this image directory.
+RUN touch /erasure-ledger/account-erasure.log && \
+    chown appuser:appuser /erasure-ledger/account-erasure.log && \
+    chmod 0600 /erasure-ledger/account-erasure.log
+
+USER appuser
+
+CMD ["./lilly-backend"]
+
+FROM runtime AS production
+
+# Production intentionally contains no ledger file. The host provisioning step
+# must provide it through the bind mount or startup fails closed.
+USER appuser
 
 CMD ["./lilly-backend"]

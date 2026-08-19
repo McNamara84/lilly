@@ -67,7 +67,7 @@ pub struct MarkThreadReadRequest {
 pub struct MessageRecord {
     pub id: u32,
     pub thread_id: u32,
-    pub sender_id: u32,
+    pub sender_id: Option<u32>,
     pub client_message_id: String,
     pub content: String,
     pub created_at: NaiveDateTime,
@@ -78,7 +78,7 @@ pub struct MessageRecord {
 pub struct MessageResponse {
     pub id: u32,
     pub thread_id: u32,
-    pub sender_id: u32,
+    pub sender_id: Option<u32>,
     pub content: String,
     pub created_at: NaiveDateTime,
     pub read_at: Option<NaiveDateTime>,
@@ -94,7 +94,7 @@ impl MessageResponse {
             content: record.content,
             created_at: record.created_at,
             read_at: record.read_at,
-            is_mine: record.sender_id == user_id,
+            is_mine: record.sender_id == Some(user_id),
         }
     }
 }
@@ -110,7 +110,7 @@ pub struct ThreadListRow {
     pub thread_id: u32,
     pub trade_id: u32,
     pub trade_status: String,
-    pub partner_id: u32,
+    pub partner_id: Option<u32>,
     pub partner_display_name: String,
     pub partner_profile_public: bool,
     pub partner_avatar_path: Option<String>,
@@ -145,7 +145,11 @@ impl From<&ThreadListRow> for ThreadSummaryResponse {
                 display_name: row.partner_display_name.clone(),
                 avatar_path: row
                     .partner_profile_public
-                    .then(|| avatar_content_url(row.partner_id, row.partner_avatar_path.is_some()))
+                    .then(|| {
+                        row.partner_id.and_then(|partner_id| {
+                            avatar_content_url(partner_id, row.partner_avatar_path.is_some())
+                        })
+                    })
                     .flatten(),
                 location: row
                     .partner_profile_public
@@ -207,7 +211,7 @@ mod tests {
             thread_id: 3,
             trade_id: 5,
             trade_status: "accepted".to_string(),
-            partner_id: 7,
+            partner_id: Some(7),
             partner_display_name: "Sammlerin".to_string(),
             partner_profile_public: profile_public,
             partner_avatar_path: Some("internal-storage-key.jpg".to_string()),

@@ -10,6 +10,7 @@ use crate::services::media::MediaStorage;
 use crate::services::oauth::OAuthService;
 use crate::services::rate_limit::RequestSecurity;
 
+pub mod account_erasure;
 pub mod admin;
 pub mod auth;
 pub mod collection;
@@ -43,6 +44,7 @@ pub struct AppStateInner {
     pub media_url_prefix: String,
     pub photo_upload_config: PhotoUploadConfig,
     pub media_storage: MediaStorage,
+    pub erasure_ledger: crate::services::account_erasure::ErasureLedger,
     pub import_scheduler_config: ImportSchedulerConfig,
     pub request_security: RequestSecurity,
 }

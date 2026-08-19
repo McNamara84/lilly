@@ -26,6 +26,17 @@ pub struct User {
     pub display_name: String,
     pub role: String,
     pub email_verified: bool,
+    pub account_state: String,
+    pub session_version: u32,
+    #[allow(dead_code)]
+    pub erasure_subject: String,
+}
+
+impl User {
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.account_state == "active"
+    }
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -39,6 +50,13 @@ pub struct LoginRequest {
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_state: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "super::serde_datetime::serialize_optional_utc_naive"
+    )]
+    pub scheduled_for: Option<chrono::NaiveDateTime>,
 }
 
 #[derive(Debug, Deserialize, Validate)]

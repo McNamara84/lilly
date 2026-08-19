@@ -32,6 +32,11 @@ Generate a dedicated Ed25519 key, transfer only its public part with the existin
 sudo deploy/scripts/provision-server.sh /path/to/lilly-deploy.pub
 ```
 
+This one-time provisioning creates the empty account-erasure ledger with owner/group `999:999`
+and mode `0600`. Re-running it for an existing installation whose ledger is missing fails closed;
+do not create an empty replacement, because it would lose the restore protection for completed
+deletions. Recover the live ledger from the separately retained offsite copy instead.
+
 Generate the private environment with the supplied helper. It creates unique URL-safe MariaDB passwords and a high-entropy JWT secret, writes the file atomically, and sets mode `0600` and ownership to `lilly-deploy`:
 
 ```bash
@@ -110,6 +115,10 @@ journalctl -u lilly-backup.service
 find /opt/lilly/backups -maxdepth 2 -type f -name COMPLETE -print
 ```
 
+Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log`; it must be included in offsite copies and must never be replaced by an older backup copy. Its file mode is `0600`; the containing directory is owned by the deployment user and the backend container group (GID 999) with mode `0770`.
+
+Backups created before account-erasure support do not contain this marker and are intentionally rejected by `restore.sh`. After rolling out this version, create and verify a fresh backup before accepting deletion requests; retire all older restore sets according to the applicable retention policy.
+
 A restore is intentionally manual and destructive:
 
 ```bash
@@ -117,6 +126,8 @@ A restore is intentionally manual and destructive:
   --backup /opt/lilly/backups/<BACKUP_DIRECTORY> \
   --confirm RESTORE_LILLY
 ```
+
+The restore script refuses to proceed without the live erasure ledger. After restoring database and media, it runs `lilly-backend privacy replay-erasure-ledger` before starting any public service. The replay permanently removes every account recorded after the restored snapshot. A replay failure keeps the stack offline; investigate the ledger and database instead of bypassing this guard.
 
 Verify a backup in a disposable environment before relying on it for production recovery.
 
