@@ -5,6 +5,7 @@ group "e2e" {
 target "backend" {
   context    = "."
   dockerfile = "backend/Dockerfile"
+  target     = "development"
   tags       = ["lilly-backend:e2e"]
   cache-from = ["type=gha,scope=e2e-backend"]
 }
