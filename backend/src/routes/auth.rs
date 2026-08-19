@@ -5,7 +5,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
-use chrono::Utc;
+use chrono::{NaiveDateTime, Utc};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use validator::Validate;
@@ -416,13 +416,21 @@ pub(super) async fn authenticated_jar(
     jar: CookieJar,
     user: &crate::models::user::User,
 ) -> Result<CookieJar, AppError> {
+    authenticated_jar_at(state, jar, user, Utc::now().naive_utc()).await
+}
+
+pub(super) async fn authenticated_jar_at(
+    state: &AppState,
+    jar: CookieJar,
+    user: &crate::models::user::User,
+    authenticated_at: NaiveDateTime,
+) -> Result<CookieJar, AppError> {
     if !user.is_active() {
         return Err(AppError::Forbidden {
             message: "Account deletion is pending".to_string(),
             code: Some("ACCOUNT_DELETION_PENDING".to_string()),
         });
     }
-    let authenticated_at = Utc::now().naive_utc();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let auth_time = authenticated_at.and_utc().timestamp() as usize;
     let access_token = jwt::create_token_with_auth(

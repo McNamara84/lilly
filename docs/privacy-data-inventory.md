@@ -51,7 +51,7 @@ Das Live-Ledger liegt in Produktion standardmäßig unter `/opt/lilly/shared/era
 lilly-backend privacy replay-erasure-ledger
 ```
 
-Der Replay sucht alle im Ledger vermerkten Subjects in einem restaurierten Datenbankstand und führt die Löschung erneut aus. Ein ungültiger Ledger-Eintrag, ein Schreib-/Lesefehler oder ein danach noch erreichbares Subject bricht den Restore ab.
+Der Replay sucht alle im Ledger vermerkten Subjects in einem restaurierten Datenbankstand und führt die Löschung erneut aus. Ein ungültiger Ledger-Eintrag, ein Schreib-/Lesefehler oder ein danach noch erreichbares Subject bricht den Restore ab. Auch der normale Produktionsstart schlägt bei einem fehlenden oder nicht zugreifbaren Live-Ledger fehl; eine leere Datei wird ausschließlich bei der ersten Server-Provisionierung angelegt.
 
 ## Prüfkriterien
 

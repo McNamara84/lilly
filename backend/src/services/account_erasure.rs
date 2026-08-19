@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum_extra::extract::CookieJar;
@@ -29,36 +29,24 @@ impl ErasureLedger {
         Self { path: path.into() }
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub async fn ensure_exists(&self) -> Result<(), std::io::Error> {
-        if let Some(parent) = self.path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
+    pub async fn require_existing(&self) -> Result<(), std::io::Error> {
+        let metadata = tokio::fs::metadata(&self.path).await?;
+        if !metadata.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "account erasure ledger path is not a regular file",
+            ));
         }
-        let file = tokio::fs::OpenOptions::new()
-            .create(true)
+        tokio::fs::OpenOptions::new()
+            .read(true)
             .append(true)
             .open(&self.path)
             .await?;
-        file.sync_all().await?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            tokio::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600)).await?;
-        }
         Ok(())
     }
 
     pub async fn subjects(&self) -> Result<BTreeSet<String>, std::io::Error> {
-        let content = match tokio::fs::read_to_string(&self.path).await {
-            Ok(content) => content,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(BTreeSet::new());
-            }
-            Err(error) => return Err(error),
-        };
+        let content = tokio::fs::read_to_string(&self.path).await?;
         content
             .lines()
             .filter(|line| !line.trim().is_empty())
@@ -86,21 +74,14 @@ impl ErasureLedger {
         if self.subjects().await?.contains(subject) {
             return Ok(());
         }
-        if let Some(parent) = self.path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        let mut options = tokio::fs::OpenOptions::new();
-        options.create(true).append(true);
-        let mut file = options.open(&self.path).await?;
+        let mut file = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&self.path)
+            .await?;
         file.write_all(subject.as_bytes()).await?;
         file.write_all(b"\n").await?;
         file.flush().await?;
         file.sync_all().await?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            tokio::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600)).await?;
-        }
         Ok(())
     }
 }
@@ -313,12 +294,7 @@ async fn process_storage_pending(state: &AppStateInner) -> Result<(), anyhow::Er
 }
 
 pub async fn replay_ledger(state: &AppStateInner) -> Result<u64, anyhow::Error> {
-    if tokio::fs::metadata(state.erasure_ledger.path())
-        .await
-        .is_err()
-    {
-        anyhow::bail!("account erasure ledger is missing");
-    }
+    state.erasure_ledger.require_existing().await?;
     let subjects = state.erasure_ledger.subjects().await?;
     let now = Utc::now().naive_utc();
     let mut restored = 0_u64;
@@ -338,9 +314,6 @@ pub async fn replay_ledger(state: &AppStateInner) -> Result<u64, anyhow::Error> 
 
 pub fn spawn_worker(state: Arc<AppStateInner>) {
     tokio::spawn(async move {
-        if let Err(error) = state.erasure_ledger.ensure_exists().await {
-            tracing::error!(error = %error, "Failed to initialise account erasure ledger");
-        }
         if let Err(error) = account_erasure::recover_running_jobs(&state.pool).await {
             tracing::error!(error = %error, "Failed to recover interrupted account erasure jobs");
         }
@@ -387,6 +360,8 @@ pub fn recovery_jar(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     async fn database_pool() -> Option<sqlx::MySqlPool> {
@@ -421,6 +396,13 @@ mod tests {
         .last_insert_id()
         .try_into()
         .unwrap()
+    }
+
+    async fn initialise_test_ledger(path: &Path) {
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(path, b"").await.unwrap();
     }
 
     fn erasure_test_state(
@@ -473,6 +455,8 @@ mod tests {
         let path = root.join("ledger");
         let ledger = ErasureLedger::new(&path);
         let subject = "a".repeat(64);
+        initialise_test_ledger(&path).await;
+        ledger.require_existing().await.unwrap();
         ledger.record(&subject).await.unwrap();
         ledger.record(&subject).await.unwrap();
         assert_eq!(ledger.subjects().await.unwrap().len(), 1);
@@ -486,6 +470,52 @@ mod tests {
             ledger.subjects().await.unwrap_err().kind(),
             std::io::ErrorKind::InvalidData
         );
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn missing_ledger_is_never_created_at_runtime() {
+        let root = std::env::temp_dir().join(format!(
+            "lilly-missing-erasure-ledger-{}",
+            random_urlsafe_token()
+        ));
+        let path = root.join("ledger");
+        let ledger = ErasureLedger::new(&path);
+        let subject = "b".repeat(64);
+
+        assert_eq!(
+            ledger.require_existing().await.unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            ledger.subjects().await.unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            ledger.record(&subject).await.unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert!(!path.exists());
+        assert!(!root.exists());
+    }
+
+    #[tokio::test]
+    async fn removed_ledger_is_not_recreated_by_a_later_write() {
+        let root = std::env::temp_dir().join(format!(
+            "lilly-removed-erasure-ledger-{}",
+            random_urlsafe_token()
+        ));
+        let path = root.join("ledger");
+        let ledger = ErasureLedger::new(&path);
+        initialise_test_ledger(&path).await;
+        ledger.record(&"c".repeat(64)).await.unwrap();
+        tokio::fs::remove_file(&path).await.unwrap();
+
+        assert_eq!(
+            ledger.record(&"d".repeat(64)).await.unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert!(!path.exists());
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 
@@ -514,6 +544,7 @@ mod tests {
                 .unwrap()
         );
 
+        initialise_test_ledger(&ledger_path).await;
         state.erasure_ledger.record(&subject).await.unwrap();
         assert_eq!(replay_ledger(&state).await.unwrap(), 1);
         assert!(
@@ -931,7 +962,9 @@ mod tests {
             .unwrap()
             .unwrap();
         let root = std::env::temp_dir().join(format!("lilly-final-erasure-{suffix}"));
-        let ledger = ErasureLedger::new(root.join("ledger"));
+        let ledger_path = root.join("ledger");
+        initialise_test_ledger(&ledger_path).await;
+        let ledger = ErasureLedger::new(ledger_path);
         ledger.record(&target.erasure_subject).await.unwrap();
         account_erasure::mark_ledger_recorded(&pool, job.id, now)
             .await

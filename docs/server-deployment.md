@@ -32,6 +32,11 @@ Generate a dedicated Ed25519 key, transfer only its public part with the existin
 sudo deploy/scripts/provision-server.sh /path/to/lilly-deploy.pub
 ```
 
+This one-time provisioning creates the empty account-erasure ledger with owner/group `999:999`
+and mode `0600`. Re-running it for an existing installation whose ledger is missing fails closed;
+do not create an empty replacement, because it would lose the restore protection for completed
+deletions. Recover the live ledger from the separately retained offsite copy instead.
+
 Generate the private environment with the supplied helper. It creates unique URL-safe MariaDB passwords and a high-entropy JWT secret, writes the file atomically, and sets mode `0600` and ownership to `lilly-deploy`:
 
 ```bash

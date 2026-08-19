@@ -75,6 +75,12 @@ async fn main() {
     }
 
     let config = config::AppConfig::from_env();
+    let erasure_ledger =
+        services::account_erasure::ErasureLedger::new(&config.account_erasure_ledger_path);
+    if let Err(error) = erasure_ledger.require_existing().await {
+        eprintln!("Account erasure ledger is unavailable; refusing to start: {error}");
+        std::process::exit(EXIT_DATABASE_ERROR);
+    }
 
     let pool = MySqlPoolOptions::new()
         .max_connections(10)
@@ -161,9 +167,7 @@ async fn main() {
             media_url_prefix: config.media_url_prefix,
             photo_upload_config: config.photo_upload,
             media_storage,
-            erasure_ledger: services::account_erasure::ErasureLedger::new(
-                config.account_erasure_ledger_path,
-            ),
+            erasure_ledger,
             import_scheduler_config: import_scheduler_config.clone(),
             request_security,
         }),

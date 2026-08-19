@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 readonly DEPLOY_USER="lilly-deploy"
+readonly BACKEND_CONTAINER_UID="999"
 readonly BACKEND_CONTAINER_GID="999"
 readonly LILLY_ROOT="/opt/lilly"
 readonly PUBLIC_KEY_FILE="${1:-}"
@@ -20,6 +21,11 @@ if [[ -z "${PUBLIC_KEY_FILE}" || ! -f "${PUBLIC_KEY_FILE}" ]]; then
   exit 2
 fi
 
+root_already_existed=0
+if [[ -e "${LILLY_ROOT}" ]]; then
+  root_already_existed=1
+fi
+
 if ! id "${DEPLOY_USER}" >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash "${DEPLOY_USER}"
 fi
@@ -34,6 +40,18 @@ install -d -m 0750 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
   "${LILLY_ROOT}/backups"
 install -d -m 0770 -o "${DEPLOY_USER}" -g "${BACKEND_CONTAINER_GID}" \
   "${LILLY_ROOT}/shared/erasure-ledger"
+readonly ERASURE_LEDGER="${LILLY_ROOT}/shared/erasure-ledger/account-erasure.log"
+if [[ ! -e "${ERASURE_LEDGER}" ]]; then
+  if (( root_already_existed )); then
+    echo "Existing installation is missing its account-erasure ledger; refusing to create an empty replacement: ${ERASURE_LEDGER}" >&2
+    exit 1
+  fi
+  install -m 0600 -o "${BACKEND_CONTAINER_UID}" -g "${BACKEND_CONTAINER_GID}" \
+    /dev/null "${ERASURE_LEDGER}"
+elif [[ ! -f "${ERASURE_LEDGER}" ]]; then
+  echo "Account-erasure ledger is not a regular file: ${ERASURE_LEDGER}" >&2
+  exit 1
+fi
 install -d -m 0700 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
   "/home/${DEPLOY_USER}/.ssh"
 

@@ -3,7 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_extra::extract::CookieJar;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use super::AppState;
 use crate::auth::middleware::{AdminUser, AuthUser, OptionalAuthUser, RecentAuthUser};
@@ -142,8 +142,15 @@ async fn cancel_deletion(
         .enforce_token(RateLimitPolicy::AccountDeletion, &raw_token)
         .await?;
     let user = cancel(&state.inner.pool, &raw_token, Utc::now().naive_utc()).await?;
-    let jar =
-        super::auth::authenticated_jar(&state, jar.add(clear_recovery_cookie()), &user).await?;
+    // Possession of the recovery cookie is not a credential check. Keep the
+    // restored session deliberately stale so another deletion requires reauth.
+    let jar = super::auth::authenticated_jar_at(
+        &state,
+        jar.add(clear_recovery_cookie()),
+        &user,
+        DateTime::<Utc>::UNIX_EPOCH.naive_utc(),
+    )
+    .await?;
     Ok((
         jar,
         Json(LoginResponse {
@@ -231,7 +238,62 @@ fn invalid_credentials() -> AppError {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use lilly_importer_core::AdapterRegistry;
+    use sqlx::mysql::MySqlPoolOptions;
+
     use super::*;
+    use crate::routes::AppStateInner;
+    use crate::services::email::EmailService;
+    use crate::services::import_scheduler::ImportSchedulerConfig;
+
+    async fn database_pool() -> Option<sqlx::MySqlPool> {
+        let database_url = std::env::var("DATABASE_URL").ok()?;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .ok()?;
+        crate::db::migrate_test_database(&pool).await.ok()?;
+        Some(pool)
+    }
+
+    fn test_state(pool: sqlx::MySqlPool) -> AppState {
+        let media_path = PathBuf::from("/tmp/lilly-account-erasure-route-tests");
+        AppState {
+            inner: Arc::new(AppStateInner {
+                pool,
+                jwt_secret: "account-erasure-route-test-secret".to_string(),
+                jwt_access_expiry: 900,
+                jwt_refresh_expiry: 2_592_000,
+                password_reset_ttl_seconds: 3_600,
+                email_service: EmailService::Log {
+                    from: "test@example.test".to_string(),
+                },
+                app_base_url: "http://localhost".to_string(),
+                cookie_secure: false,
+                oauth_service: crate::services::oauth::OAuthService::disabled(),
+                privacy_policy_version: "test-v1".to_string(),
+                adapter_registry: AdapterRegistry::new(),
+                media_path: media_path.clone(),
+                media_url_prefix: "/media".to_string(),
+                photo_upload_config: crate::config::PhotoUploadConfig::default(),
+                media_storage: crate::services::media::MediaStorage::new(&media_path),
+                erasure_ledger: crate::services::account_erasure::ErasureLedger::new(
+                    media_path.join("erasure-ledger"),
+                ),
+                import_scheduler_config: ImportSchedulerConfig {
+                    enabled: false,
+                    schedule: "0 10 6 * * Sat *".to_string(),
+                    timezone: "Europe/Berlin".to_string(),
+                    adapters: Vec::new(),
+                },
+                request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
+            }),
+        }
+    }
 
     #[test]
     fn recent_authentication_has_strict_time_bounds() {
@@ -249,5 +311,97 @@ mod tests {
             panic!("expected forbidden error");
         };
         assert_eq!(code.as_deref(), Some("ACCOUNT_DELETION_RECOVERY_REQUIRED"));
+    }
+
+    #[tokio::test]
+    async fn cancellation_session_requires_fresh_reauthentication_before_another_deletion() {
+        let Some(pool) = database_pool().await else {
+            return;
+        };
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let user_id: u32 = sqlx::query(
+            "INSERT INTO users (email, display_name, email_verified) VALUES (?, ?, TRUE)",
+        )
+        .bind(format!("recovery-session-{suffix}@example.test"))
+        .bind("Recovery Session")
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_id()
+        .try_into()
+        .unwrap();
+        let now = Utc::now().naive_utc();
+        let recovery_token = crate::auth::oauth::random_urlsafe_token();
+        sqlx::query(
+            "INSERT INTO account_erasure_jobs \
+             (user_id, previous_profile_public, previous_collection_public, requested_at, scheduled_for) \
+             VALUES (?, TRUE, TRUE, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(now)
+        .bind(now + chrono::Duration::days(7))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO account_erasure_recovery_tokens \
+             (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(hash_secret(&recovery_token))
+        .bind(user_id)
+        .bind(now)
+        .bind(now + chrono::Duration::days(7))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE users SET account_state = 'pending_deletion', \
+             profile_public = FALSE, collection_public = FALSE, \
+             session_version = session_version + 1 WHERE id = ?",
+        )
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let recovery_cookie =
+            crate::services::account_erasure::recovery_cookie(recovery_token, 600, false);
+
+        let (jar, _) = cancel_deletion(
+            State(test_state(pool.clone())),
+            HeaderMap::new(),
+            PeerAddress(None),
+            CookieJar::new().add(recovery_cookie),
+        )
+        .await
+        .unwrap();
+
+        let access_token = jar.get("access_token").unwrap().value();
+        let claims =
+            crate::auth::jwt::validate_token(access_token, "account-erasure-route-test-secret")
+                .unwrap();
+        assert_eq!(claims.auth_time, 0);
+        assert!(!authentication_is_recent(
+            claims.auth_time,
+            Utc::now().timestamp()
+        ));
+        let refresh_authenticated_at: chrono::NaiveDateTime = sqlx::query_scalar(
+            "SELECT authenticated_at FROM refresh_tokens \
+             WHERE user_id = ? AND revoked = FALSE ORDER BY id DESC LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(refresh_authenticated_at.and_utc().timestamp(), 0);
+
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }
