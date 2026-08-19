@@ -35,11 +35,64 @@ describe('offline authentication context', () => {
 		const { getAuthState, initAuth } = await import('$lib/stores/auth.svelte');
 		await initAuth();
 
+		messageHandler?.({ data: { type: 'logout', user_id: 7 } } as MessageEvent);
+		expect(getAuthState().user).toEqual(profile(7));
+		messageHandler?.({ data: { type: 'account-deletion', user_id: 8 } } as MessageEvent);
+		expect(getAuthState().user).toEqual(profile(7));
 		messageHandler?.({ data: { type: 'account-deletion', user_id: 7 } } as MessageEvent);
 
 		await vi.waitFor(() => expect(getAuthState().user).toBeNull());
 		const { getCachedProfile } = await import('$lib/offline/database');
 		await vi.waitFor(async () => expect(await getCachedProfile()).toBeNull());
+	});
+
+	it('purges IndexedDB, service-worker caches, and other tabs after local deactivation', async () => {
+		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		await saveConfirmedProfile(profile(7));
+		const serviceWorkerPost = vi.fn();
+		const broadcastPost = vi.fn();
+		const broadcastClose = vi.fn();
+		class BroadcastChannelMock {
+			addEventListener() {}
+			postMessage = broadcastPost;
+			close = broadcastClose;
+		}
+		vi.stubGlobal('navigator', {
+			serviceWorker: {
+				ready: Promise.resolve({ active: { postMessage: serviceWorkerPost } })
+			}
+		});
+		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
+		const { deactivateAccountLocally, getAuthState } = await import('$lib/stores/auth.svelte');
+
+		await deactivateAccountLocally();
+
+		const { getCachedProfile } = await import('$lib/offline/database');
+		expect(await getCachedProfile()).toBeNull();
+		expect(getAuthState().isAuthenticated).toBe(false);
+		expect(getAuthState().isOfflineSession).toBe(false);
+		expect(serviceWorkerPost).toHaveBeenCalledWith({ type: 'PURGE_PRIVATE_DATA' });
+		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(broadcastClose).toHaveBeenCalledOnce();
+	});
+
+	it('removes a cached identity when the backend reports pending account deletion', async () => {
+		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		await saveConfirmedProfile(profile(7));
+		const { fetchMe, refreshToken } = await import('$lib/api/auth');
+		vi.mocked(fetchMe).mockRejectedValue(
+			Object.assign(new Error('Account deletion is pending'), {
+				code: 'ACCOUNT_DELETION_PENDING'
+			})
+		);
+		vi.mocked(refreshToken).mockRejectedValue(new Error('Refresh rejected'));
+		const { getAuthState, initAuth } = await import('$lib/stores/auth.svelte');
+
+		await initAuth();
+
+		const { getCachedProfile } = await import('$lib/offline/database');
+		expect(await getCachedProfile()).toBeNull();
+		expect(getAuthState().user).toBeNull();
 	});
 
 	it('restores only a confirmed cached user after a network failure', async () => {

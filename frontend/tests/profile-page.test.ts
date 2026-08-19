@@ -51,7 +51,8 @@ vi.mock('$lib/api/account-erasure', () => ({
 	fetchAccountDeletionOptions: (...args: unknown[]) => mockFetchDeletionOptions(...args),
 	requestAccountDeletion: (...args: unknown[]) => mockRequestAccountDeletion(...args),
 	reauthenticateWithPassword: (...args: unknown[]) => mockReauthenticateWithPassword(...args),
-	availableOAuthMethods: () => []
+	availableOAuthMethods: (options: { google: boolean; github: boolean }) =>
+		(['google', 'github'] as const).filter((provider) => options[provider])
 }));
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn((...args: unknown[]) => mockGoto(...args)) }));
@@ -85,6 +86,7 @@ function authedState() {
 describe('Profile Page', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		window.history.replaceState(null, '', '/');
 		mockGetAuthState.mockReturnValue(authedState());
 		mockFetchOwnProfile.mockResolvedValue({ ...profile });
 		mockUpdateProfile.mockResolvedValue({ ...profile });
@@ -174,6 +176,105 @@ describe('Profile Page', () => {
 		expect(await screen.findByText('Anmeldung erneut bestätigen')).toBeInTheDocument();
 		expect(screen.getByLabelText('Passwort')).toBeInTheDocument();
 		expect(screen.getByRole('alert')).toHaveTextContent(/Bitte bestätige deine Anmeldung erneut/);
+	});
+
+	it('reauthenticates with the password before scheduling deletion', async () => {
+		mockFetchDeletionOptions.mockResolvedValue({
+			recent_authentication: false,
+			password: true,
+			google: false,
+			github: false,
+			confirmation_phrase: 'KONTO LÖSCHEN',
+			grace_days: 7
+		});
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId('open-account-deletion'));
+		await user.type(screen.getByLabelText('Passwort'), 'very secret');
+		await user.type(screen.getByTestId('account-deletion-confirmation'), 'KONTO LÖSCHEN');
+		await user.click(screen.getByTestId('confirm-account-deletion'));
+
+		await waitFor(() => expect(mockReauthenticateWithPassword).toHaveBeenCalledWith('very secret'));
+		expect(mockReauthenticateWithPassword.mock.invocationCallOrder[0]).toBeLessThan(
+			mockRequestAccountDeletion.mock.invocationCallOrder[0]
+		);
+		expect(mockDeactivateAccountLocally).toHaveBeenCalledOnce();
+	});
+
+	it('starts OAuth reauthentication with a linked provider', async () => {
+		const { startOAuth } = await import('$lib/api/auth');
+		vi.mocked(startOAuth).mockResolvedValue('#github-reauth');
+		mockFetchDeletionOptions.mockResolvedValue({
+			recent_authentication: false,
+			password: false,
+			google: false,
+			github: true,
+			confirmation_phrase: 'KONTO LÖSCHEN',
+			grace_days: 7
+		});
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId('open-account-deletion'));
+		await user.click(screen.getByRole('button', { name: 'Mit GitHub bestätigen' }));
+
+		expect(startOAuth).toHaveBeenCalledWith('github', 'reauth');
+		await waitFor(() => expect(window.location.hash).toBe('#github-reauth'));
+	});
+
+	it('reports OAuth reauthentication startup failures and resets the button', async () => {
+		const { startOAuth } = await import('$lib/api/auth');
+		vi.mocked(startOAuth).mockRejectedValue('untyped OAuth failure');
+		mockFetchDeletionOptions.mockResolvedValue({
+			recent_authentication: false,
+			password: false,
+			google: true,
+			github: false,
+			confirmation_phrase: 'KONTO LÖSCHEN',
+			grace_days: 7
+		});
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId('open-account-deletion'));
+		const oauthButton = screen.getByRole('button', { name: 'Mit Google bestätigen' });
+		await user.click(oauthButton);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Anmeldung konnte nicht gestartet werden.'
+		);
+		expect(oauthButton).toBeEnabled();
+	});
+
+	it('requires a linked provider when password reauthentication is unavailable', async () => {
+		mockFetchDeletionOptions.mockResolvedValue({
+			recent_authentication: false,
+			password: false,
+			google: false,
+			github: false,
+			confirmation_phrase: 'KONTO LÖSCHEN',
+			grace_days: 7
+		});
+		render(ProfilePage);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId('open-account-deletion'));
+		await user.type(screen.getByTestId('account-deletion-confirmation'), 'KONTO LÖSCHEN');
+		await user.click(screen.getByTestId('confirm-account-deletion'));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(/verknüpften Anbieter/);
+		expect(mockRequestAccountDeletion).not.toHaveBeenCalled();
+		await fireEvent(document.querySelector('dialog')!, new Event('close'));
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
+
+	it('disables account deletion for an offline session', async () => {
+		mockGetAuthState.mockReturnValue({ ...authedState(), isOfflineSession: true });
+		render(ProfilePage);
+
+		expect(await screen.findByTestId('open-account-deletion')).toBeDisabled();
+		expect(screen.getByText('Diese Aktion ist offline nicht verfügbar.')).toBeInTheDocument();
 	});
 
 	it('edits and normalizes display name and optional location', async () => {

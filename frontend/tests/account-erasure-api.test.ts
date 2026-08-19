@@ -98,4 +98,19 @@ describe('account-erasure API', () => {
 			})
 		).toEqual(['google']);
 	});
+
+	it('uses the stable fallback for a non-JSON error response', async () => {
+		fetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 502,
+			json: async () => {
+				throw new SyntaxError('invalid JSON');
+			}
+		});
+
+		await expect(fetchAccountDeletionOptions()).rejects.toMatchObject({
+			message: 'Ein unerwarteter Fehler ist aufgetreten.',
+			status: 502
+		});
+	});
 });

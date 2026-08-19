@@ -543,7 +543,7 @@
 				<button
 					type="button"
 					class="mt-5 rounded-lg border px-4 py-2 font-semibold disabled:opacity-50"
-					style="border-color: var(--color-error); color: var(--color-error);"
+					style="border-color: var(--color-error-foreground); color: var(--color-error-foreground);"
 					disabled={!deletionOptions || deletionOffline}
 					onclick={openDeletionDialog}
 					data-testid="open-account-deletion"

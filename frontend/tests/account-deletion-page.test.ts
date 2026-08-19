@@ -59,4 +59,44 @@ describe('Account deletion recovery page', () => {
 		expect(screen.getByRole('link', { name: 'Zur Anmeldung' })).toHaveAttribute('href', '/login');
 		expect(screen.getByRole('alert')).toHaveTextContent('Recovery required');
 	});
+
+	it('uses a safe fallback when loading fails without an Error object', async () => {
+		mockFetchStatus.mockRejectedValue('untyped status failure');
+
+		render(AccountDeletionPage);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Der Löschstatus konnte nicht geladen werden.'
+		);
+	});
+
+	it('shows when the cancellation window has expired', async () => {
+		mockFetchStatus.mockResolvedValue({
+			status: 'running',
+			requested_at: '2026-08-17T08:00:00Z',
+			scheduled_for: '2026-08-24T08:00:00Z',
+			can_cancel: false
+		});
+
+		render(AccountDeletionPage);
+
+		expect(await screen.findByText('Die Widerrufsfrist ist abgelaufen.')).toBeInTheDocument();
+		expect(screen.queryByTestId('cancel-account-deletion')).not.toBeInTheDocument();
+	});
+
+	it('reports cancellation failures and enables retrying', async () => {
+		mockCancelDeletion.mockRejectedValue('untyped cancellation failure');
+		render(AccountDeletionPage);
+		const user = userEvent.setup();
+		const cancelButton = await screen.findByTestId('cancel-account-deletion');
+
+		await user.click(cancelButton);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Die Löschung konnte nicht widerrufen werden.'
+		);
+		expect(cancelButton).toBeEnabled();
+		expect(mockInitAuth).not.toHaveBeenCalled();
+		expect(mockGoto).not.toHaveBeenCalled();
+	});
 });
