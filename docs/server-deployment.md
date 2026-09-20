@@ -1,15 +1,28 @@
 # LILLY server deployment runbook
 
-This runbook covers the production Compose stack in `deploy/`. The stack is deliberately isolated from the existing `maddrax-fanclub` and `nextcloud` Compose projects.
+This runbook covers the production Compose stack in `deploy/`. The stack is deliberately isolated from the existing `maddrax-fanclub` and `nextcloud` Compose projects. Public HTTPS traffic is terminated by a shared Traefik reverse proxy that is operated outside this repository.
 
 ## Safety invariants
 
 - Always pass `--project-name lilly` and the absolute LILLY Compose file.
 - Never bind the LILLY stack itself to host ports 80 or 443.
 - Never run a global Docker volume prune as part of deployment or backup cleanup.
-- Never edit the existing Nginx site files for the club website or Nextcloud.
-- Run `nginx -t` before every Nginx reload.
+- Never change the shared Traefik stack, its certificates or the labels of other Compose projects as part of a LILLY deployment.
+- Never publish the LILLY host port on a public address; it is reserved for local health checks (`127.0.0.1:8091`).
 - Keep `/opt/lilly/shared/.env.production` on the server only, with mode `0600`.
+
+## Prerequisites: Traefik ingress
+
+The LILLY `caddy` service joins the external Docker network `proxy` and announces itself to Traefik through container labels. Before the first deployment the host must provide:
+
+- a running Traefik (v3) instance attached to the network `proxy` (`docker network create --subnet 172.30.0.0/24 proxy`),
+- an entrypoint named `websecure` (TCP 443) and an ACME certificate resolver named `le`,
+- a Docker provider limited to containers with `traefik.enable=true` (`exposedByDefault=false`),
+- DNS `A` (and, if reachability was tested, `AAAA`) records for `lilly.maddrax-fanclub.de` pointing to the server.
+
+`deploy.sh` fails early with a clear message when the network `proxy` does not exist. The public host name defaults to `lilly.maddrax-fanclub.de`; override it with `LILLY_PUBLIC_HOST` in `/opt/lilly/shared/.env.production` if required. Security headers (HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`) are set by a middleware defined in the container labels, so no shared Traefik file configuration is needed.
+
+Traefik replaces `X-Forwarded-*` headers from untrusted clients by default. Do not configure `forwardedHeaders.trustedIPs` for the public entrypoint; the LILLY Caddy and backend only trust private ranges (`TRUSTED_PROXY_CIDRS=172.16.0.0/12`, which covers the `proxy` network).
 
 ## One-time GitHub configuration
 
@@ -21,6 +34,8 @@ Create a GitHub Environment named `production` without a required reviewer so pu
 | `LILLY_SERVER_USER`        | `lilly-deploy`                                             |
 | `LILLY_SERVER_SSH_KEY`     | Dedicated Ed25519 private key                              |
 | `LILLY_SERVER_KNOWN_HOSTS` | Trusted complete OpenSSH `known_hosts` line for the server |
+
+The deploy job connects with `StrictHostKeyChecking=yes`. After reinstalling the server, either restore its previous SSH host keys or update `LILLY_SERVER_KNOWN_HOSTS` (for example from `ssh-keyscan -t ed25519 <host>`, verified out of band) before the next deployment.
 
 After the first workflow image build, ensure both `lilly-backend` and `lilly-frontend` packages are linked to this repository and publicly readable in GHCR. The deploy job uses its ephemeral repository token for the first pull and logs out immediately afterward, so no long-lived package credential is stored on the server. Do not place application, MariaDB, JWT, SMTP, or OAuth secrets in GitHub.
 
@@ -43,34 +58,34 @@ Generate the private environment with the supplied helper. It creates unique URL
 sudo /opt/lilly/releases/<RELEASE>/scripts/configure-environment.py \
   --mail-source /root/maddrax-fanclub/.env.production \
   --output /opt/lilly/shared/.env.production \
-  --app-base-url http://<SERVER_IP>:8091
+  --app-base-url https://lilly.maddrax-fanclub.de
 ```
 
 Copy only the SMTP host, port, username, password and suitable sender from the club website's server-side environment into the LILLY environment. Map an existing implicit SSL/TLS setup on port 465 to `SMTP_TLS_MODE=tls`; use `SMTP_TLS_MODE=starttls` for a submission server on port 587. Do not source the other application's file at LILLY runtime and do not copy any unrelated value. Leave OAuth values and `ADMIN_EMAIL` empty until their intended values are available.
 
 The generated environment also sets a one-hour password-reset lifetime, the documented rate-limit
 defaults and `TRUSTED_PROXY_CIDRS=172.16.0.0/12` for the private Docker bridge. Do not add public
-client networks to that trust list. The public Nginx configuration overwrites incoming
-`X-Forwarded-For`; Caddy and the backend then parse the chain from right to left. If the Docker
+client networks to that trust list. Traefik replaces incoming `X-Forwarded-For` values from
+untrusted clients; Caddy and the backend then parse the chain from right to left. If the Docker
 network changes to a non-matching subnet, update the CIDR narrowly before enabling public traffic.
 
-For the temporary test phase, use:
+The helper sets `COOKIE_SECURE=true` for `https://` URLs. Keep both values in the production environment:
 
 ```dotenv
-APP_BASE_URL=http://<SERVER_IP>:8091
-COOKIE_SECURE=false
+APP_BASE_URL=https://lilly.maddrax-fanclub.de
+COOKIE_SECURE=true
 ```
 
 Create `/opt/lilly/shared/.deployment.env`:
 
 ```dotenv
 LILLY_IMAGE_TAG=<FULL_COMMIT_SHA>
-LILLY_BIND_ADDRESS=0.0.0.0
+LILLY_BIND_ADDRESS=127.0.0.1
 LILLY_HOST_PORT=8091
 LILLY_RESOURCE_PREFIX=lilly
 ```
 
-The public port is plain HTTP. Use only a disposable password and no sensitive personal data until HTTPS is active.
+The host port stays on the loopback interface and is only used for health checks by `deploy.sh` and `restore.sh`; users reach LILLY exclusively through Traefik over HTTPS. If `.deployment.env` is missing, `deploy.sh` defaults to `127.0.0.1`.
 
 ## Routine deployment
 
@@ -131,32 +146,20 @@ The restore script refuses to proceed without the live erasure ledger. After res
 
 Verify a backup in a disposable environment before relying on it for production recovery.
 
-## DNS and HTTPS cutover
+## DNS and HTTPS
 
 1. Point the DNS A record for `lilly.maddrax-fanclub.de` to the server. Add an AAAA record only if IPv6 reachability was tested.
-2. Record baseline responses for `maddrax-fanclub.de`, `www.maddrax-fanclub.de` and `cloud.maddrax-fanclub.de`.
-3. Install `deploy/nginx/lilly-http.conf` as a new LILLY-only site, create `/var/www/letsencrypt`, enable only that site, run `nginx -t`, then reload Nginx.
-4. Request a separate certificate:
+2. Make sure the Traefik prerequisites above are met. Traefik requests and renews the certificate automatically on the first request for the host name (HTTP-01 challenge on port 80). Test with the ACME staging CA first if the host name was never issued before, to avoid Let's Encrypt rate limits.
+3. Verify HTTPS, the HTTP-to-HTTPS redirect, secure cookies, registration, password reset, `Retry-After`, client-IP handling (the backend must see the real client address, not a Docker gateway), API calls and media access.
+4. Confirm that `<SERVER_IP>:8091` is not reachable from outside. Then repeat the baseline checks for the other domains served by Traefik.
 
-   ```bash
-   sudo certbot certonly --webroot \
-     --webroot-path /var/www/letsencrypt \
-     --domain lilly.maddrax-fanclub.de
-   ```
+## Rebuilding on a fresh server
 
-5. Replace only the new LILLY site with `deploy/nginx/lilly-https.conf`, run `nginx -t`, and reload Nginx.
-6. Change the server-side values to:
-
-   ```dotenv
-   APP_BASE_URL=https://lilly.maddrax-fanclub.de
-   COOKIE_SECURE=true
-   LILLY_BIND_ADDRESS=127.0.0.1
-   ```
-
-7. Recreate only the LILLY stack and verify HTTPS, secure cookies, registration, password reset,
-   `Retry-After`, client-IP handling, API calls and media access.
-8. Confirm that public access to `<SERVER_IP>:8091` is closed and repeat all baseline checks for the existing domains.
-9. Run `certbot renew --dry-run`.
+1. Install Docker and the Traefik stack (see prerequisites) and create the `proxy` network.
+2. Run `deploy/scripts/provision-server.sh` **on the empty host, before restoring any file below `/opt/lilly`**. It creates the deployment user and the empty account-erasure ledger; on a host where `/opt/lilly` already exists it deliberately refuses to create a replacement ledger.
+3. Restore `/opt/lilly/shared/.env.production` and `/opt/lilly/shared/.deployment.env` from the offsite copy, the backup directories below `/opt/lilly/backups/` and, if one exists, the live ledger `/opt/lilly/shared/erasure-ledger/account-erasure.log`. Never restore the ledger from an older snapshot than the newest available copy.
+4. Deploy the release (`workflow_dispatch` of the `Main Branch` workflow, or `deploy.sh <FULL_COMMIT_SHA>`) and then run `restore.sh` with the newest complete backup.
+5. Update `LILLY_SERVER_KNOWN_HOSTS` if the host keys changed, re-enable `lilly-backup.timer` and verify one full backup.
 
 ## Rollback
 

@@ -47,7 +47,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-bind_address="0.0.0.0"
+bind_address="127.0.0.1"
 host_port="8091"
 resource_prefix="lilly"
 if [[ -f "${DEPLOYMENT_ENV_FILE}" ]]; then
@@ -117,6 +117,11 @@ rollback() {
 
 echo "Validating release ${RELEASE_ID}..."
 compose_new config --quiet
+
+if ! docker network inspect proxy >/dev/null 2>&1; then
+  echo "The external Docker network 'proxy' does not exist. Start the Traefik stack first." >&2
+  exit 1
+fi
 
 if [[ -n "${previous_release}" && -x "${previous_release}/scripts/backup.sh" ]]; then
   "${previous_release}/scripts/backup.sh" pre-deploy

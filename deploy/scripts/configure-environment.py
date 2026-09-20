@@ -87,6 +87,7 @@ def main() -> None:
     source = parse_dotenv(args.mail_source)
     encryption = source.get("MAIL_ENCRYPTION", "").split()[0].lower()
     tls_mode = "tls" if encryption in {"ssl", "smtps"} else "starttls"
+    cookie_secure = "true" if args.app_base_url.lower().startswith("https://") else "false"
 
     database_password = secrets.token_hex(32)
     database_root_password = secrets.token_hex(32)
@@ -114,7 +115,7 @@ def main() -> None:
         "PRIVACY_POLICY_VERSION": "2026-08-14",
         "ADMIN_EMAIL": args.admin_email.strip(),
         "APP_BASE_URL": args.app_base_url,
-        "COOKIE_SECURE": "false",
+        "COOKIE_SECURE": cookie_secure,
         "TRUSTED_PROXY_CIDRS": "172.16.0.0/12",
         "RATE_LIMIT_REGISTER": "5/900",
         "RATE_LIMIT_LOGIN_CLIENT": "30/900",

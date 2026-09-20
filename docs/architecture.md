@@ -673,7 +673,7 @@ lilly/
   Backend-Instanz vorgesehen; mehrere Instanzen benötigen später einen gemeinsamen Store.
 - **Proxy-Vertrauen:** `Forwarded`, `X-Forwarded-For` und `X-Real-IP` werden nur akzeptiert, wenn
   der unmittelbare Socket-Peer in `TRUSTED_PROXY_CIDRS` liegt. Die Referenzkonfiguration
-  überschreibt die Kette am öffentlichen Nginx-Eingang und wertet sie danach von rechts aus.
+  ersetzt nicht vertrauenswürdige Header am öffentlichen Traefik-Eingang und wertet die Kette danach von rechts aus.
 - **Input-Validierung:** Alle Eingaben werden serverseitig validiert (serde + validator-Crate). SQL Injection wird durch SQLx-Prepared-Statements verhindert.
 - **XSS:** SvelteKit escaped Output automatisch. User-generierte Notizen werden ausschließlich als Text gespeichert und gerendert; ungeprüftes HTML wird nicht ausgegeben.
 - **CSRF:** Access- und Refresh-Token liegen in `HttpOnly`-Cookies mit `SameSite=Lax`; mutierende
