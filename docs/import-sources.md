@@ -22,7 +22,7 @@ Serien und Hefte erhalten neben der klickbaren Quell-URL immer `source_key` und 
 | Quell-ID | stabiler Redirect `Quelle:MX{n}` | vollständiger kanonischer Seitentitel, z. B. `JS 1000 - Das Schwert des Salomo` |
 | Quell-URL | Zielseite aus der Parse-Antwort | URL des kanonischen Seitentitels |
 
-Pflichtfelder sind Heftnummer, Titel, mindestens ein Autor, Ersterscheinungsdatum und vollständige Provenienz. Listen werden getrimmt, geleert, dedupliziert und deterministisch sortiert. Ungültige Teilpositionen oder fehlende Pflichtfelder erzeugen einen recordbezogenen Fehler; ein bereits gespeicherter Stand bleibt dabei unverändert.
+Pflichtfelder sind Heftnummer, Titel, mindestens ein Autor und vollständige Provenienz. Das Ersterscheinungsdatum ist optional, weil es in den Wikis teilweise (noch) nicht gepflegt ist; ein Heft ohne Datum wird ohne `published_at` importiert und bei einem späteren Lauf nachgezogen. Listen werden getrimmt, geleert, dedupliziert und deterministisch sortiert. Ungültige Teilpositionen oder fehlende Pflichtfelder erzeugen einen recordbezogenen Fehler; ein bereits gespeicherter Stand bleibt dabei unverändert.
 
 ## Vollständige Synchronisation
 

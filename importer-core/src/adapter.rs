@@ -245,11 +245,6 @@ pub fn normalize_and_validate_issue(
             "Issue {expected_issue_number} has no author"
         )));
     }
-    if issue.published_at.is_none() {
-        return Err(AdapterError::Parse(format!(
-            "Issue {expected_issue_number} has no first publication date"
-        )));
-    }
     let valid_multipart = match (issue.part_number, issue.part_total) {
         (None, None) => true,
         (Some(number), Some(total)) => number > 0 && number <= total,
@@ -507,7 +502,8 @@ mod tests {
 
         let mut missing_date = valid_issue();
         missing_date.published_at = None;
-        assert!(normalize_and_validate_issue(descriptor, 1, missing_date).is_err());
+        let undated = normalize_and_validate_issue(descriptor, 1, missing_date).unwrap();
+        assert_eq!(undated.published_at, None);
     }
 
     #[test]
