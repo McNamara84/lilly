@@ -28,6 +28,13 @@ test.describe('Personal issue photos', () => {
 			data: { profile_public: false, collection_public: false }
 		});
 		expect(resetVisibility.ok()).toBe(true);
+		// Other specs running in the same worker change the status of this entry and restore it
+		// through the offline-first UI queue, which may not have reached the server yet. Photos are
+		// only available for owned or duplicate copies, so the precondition is made explicit.
+		const resetStatus = await page.request.patch(`/api/v1/me/collection/${entryId}`, {
+			data: { status: 'owned' }
+		});
+		expect(resetStatus.ok()).toBe(true);
 
 		await page.goto(`/issues/${entry!.issue_id}`);
 		await expect(page.getByTestId('photo-uploader')).toBeVisible();

@@ -112,7 +112,11 @@ jobs:
           SQLX_OFFLINE: "true"
 
   e2e:
-    name: E2E Tests
+    name: E2E Tests (${{ matrix.browser }})
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     uses: ./.github/workflows/playwright-e2e.yml
     with:
-      browser: chromium
+      browser: ${{ matrix.browser }}
