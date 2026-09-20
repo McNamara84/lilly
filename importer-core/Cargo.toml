@@ -10,7 +10,7 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
 [dependencies]
-reqwest = { version = "0.13.4", features = ["json"] }
+reqwest = { version = "0.13.5", features = ["json"] }
 async-trait = "0.1.92"
 chrono = { version = "0.4.45", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }

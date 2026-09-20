@@ -15,10 +15,9 @@ tokio = { version = "1.53.1", features = ["full"] }
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "tls-rustls", "mysql", "migrate", "chrono", "json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-jsonwebtoken = { version = "11.0.0", features = ["aws_lc_rs"] }
-argon2 = "0.5.3"
-rand_core = { version = "0.6.4", features = ["getrandom"] }
-tower-http = { version = "0.7.0", features = ["cors", "trace"] }
+jsonwebtoken = { version = "11.1.0", features = ["aws_lc_rs"] }
+argon2 = "0.6.0"
+tower-http = { version = "0.7.1", features = ["cors", "trace"] }
 http = "1.5.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -32,19 +31,19 @@ anyhow = "1.0.104"
 async-trait = "0.1.92"
 lettre = { version = "0.11.23", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder", "hostname"] }
 sha2 = "0.11.0"
-rand = "0.10.2"
+rand = "0.10.3"
 zxcvbn = "3.1.1"
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 hex = "0.4.3"
-hashlink = "0.11.1"
-base64 = "0.22.1"
+hashlink = "0.12.2"
+base64 = "0.23.1"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 time = "0.3.55"
-reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "rustls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "rustls"] }
 url = "2.5.8"
-ipnet = "2.12.1"
+ipnet = "2.12.2"
 lilly-importer-core = { path = "../importer-core" }
 lilly-importer-adapters = { path = "../importer-adapters" }
 
 [dev-dependencies]
-tower = { version = "0.5.2", features = ["util"] }
+tower = { version = "0.5.3", features = ["util"] }

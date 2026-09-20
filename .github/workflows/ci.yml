@@ -44,7 +44,7 @@ jobs:
       - run: npm install --global npm@12.0.2
       - run: npm ci
       - run: npm run test:coverage
-      - uses: codecov/codecov-action@v7.0.0
+      - uses: codecov/codecov-action@v7.1.1
         with:
           files: frontend/coverage/lcov.info
           flags: frontend
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mariadb:
-        image: mariadb:12.3.2
+        image: mariadb:12.3.3
         env:
           MARIADB_ROOT_PASSWORD: test_root
           MARIADB_DATABASE: lilly_test

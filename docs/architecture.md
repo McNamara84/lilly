@@ -110,9 +110,9 @@ Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 | Container  | Image                                       | Port (intern)    | Aufgabe                                                                           |
 | ---------- | ------------------------------------------- | ---------------- | --------------------------------------------------------------------------------- |
 | `caddy`    | `caddy:2.11.4-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
-| `frontend` | `node:26.7.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
-| `backend`  | `rust:1.97.1-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
-| `db`       | `mariadb:12.3.2`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                                           |
+| `frontend` | `node:26.9.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
+| `backend`  | `rust:1.98.1-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
+| `db`       | `mariadb:12.3.3`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                                           |
 | `importer` | Rust CLI (eigener Build)                    | –                | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB                    |
 
 ### 3.3 Request-Flow
