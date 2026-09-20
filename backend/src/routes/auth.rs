@@ -318,6 +318,26 @@ async fn resend_verification(
     }))
 }
 
+/// Re-hash a password that was stored with outdated Argon2 parameters. Failures never block the
+/// login: the old hash stays valid and the upgrade is retried on the next successful sign-in.
+async fn upgrade_password_hash(state: &AppState, user_id: u32, current_hash: &str, password: &str) {
+    if !password::needs_rehash(current_hash) {
+        return;
+    }
+    let new_hash = match password::hash_password(password) {
+        Ok(hash) => hash,
+        Err(error) => {
+            tracing::warn!(user_id, %error, "Password hash upgrade failed while hashing");
+            return;
+        }
+    };
+    match users::replace_password_hash(&state.inner.pool, user_id, current_hash, &new_hash).await {
+        Ok(true) => tracing::info!(user_id, "Password hash upgraded to current Argon2id policy"),
+        Ok(false) => {}
+        Err(error) => tracing::warn!(user_id, %error, "Password hash upgrade failed while storing"),
+    }
+}
+
 async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -361,6 +381,8 @@ async fn login(
             "Invalid email or password".to_string(),
         ));
     }
+
+    upgrade_password_hash(&state, user.id, password_hash, &payload.password).await;
 
     // Check email verification
     if !user.email_verified {

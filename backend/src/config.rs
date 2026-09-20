@@ -177,6 +177,12 @@ impl AppConfig {
         );
         let app_base_url = get("APP_BASE_URL").unwrap_or_else(|| "http://localhost".to_string());
         let app_base_url = validate_app_base_url(&app_base_url);
+        let cookie_secure = get("COOKIE_SECURE")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "false".to_string())
+            .parse::<bool>()
+            .expect("COOKIE_SECURE must be `true` or `false`");
+        assert_transport_security(&app_base_url, cookie_secure);
         let rate_limits = rate_limit_config(&get);
         let trusted_proxy_cidrs = trusted_proxy_cidrs(&get);
         let password_reset_ttl_seconds = get("PASSWORD_RESET_TTL_SECONDS")
@@ -214,10 +220,7 @@ impl AppConfig {
             smtp_password: get("SMTP_PASSWORD").filter(|s| !s.is_empty()),
             smtp_from: get("SMTP_FROM").unwrap_or_else(|| "noreply@lilly.app".to_string()),
             app_base_url,
-            cookie_secure: get("COOKIE_SECURE")
-                .unwrap_or_else(|| "false".to_string())
-                .parse()
-                .unwrap_or(false),
+            cookie_secure,
             google_oauth,
             github_oauth,
             privacy_policy_version,
@@ -330,6 +333,21 @@ fn trusted_proxy_cidrs(get: &impl Fn(&str) -> Option<String>) -> Vec<ipnet::IpNe
                 .unwrap_or_else(|_| panic!("TRUSTED_PROXY_CIDRS contains invalid CIDR: {value}"))
         })
         .collect()
+}
+
+/// Keep the public origin and the cookie policy consistent: an HTTPS deployment must never issue
+/// cookies without the `Secure` flag, and `Secure` cookies are unusable behind a plain-HTTP origin
+/// (and would also make generated links and OAuth redirect URIs point at HTTP).
+fn assert_transport_security(app_base_url: &str, cookie_secure: bool) {
+    let https = app_base_url.starts_with("https://");
+    assert!(
+        !https || cookie_secure,
+        "COOKIE_SECURE must be true when APP_BASE_URL uses https"
+    );
+    assert!(
+        !cookie_secure || https,
+        "COOKIE_SECURE=true requires an https APP_BASE_URL"
+    );
 }
 
 fn validate_app_base_url(value: &str) -> String {
@@ -717,9 +735,44 @@ mod tests {
             "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
             "JWT_SECRET" => Some("test-secret".to_string()),
             "APP_BASE_URL" => Some("  https://lilly.example/  ".to_string()),
+            "COOKIE_SECURE" => Some("true".to_string()),
             _ => None,
         });
         assert_eq!(config.app_base_url, "https://lilly.example");
+        assert!(config.cookie_secure);
+    }
+
+    #[test]
+    #[should_panic(expected = "COOKIE_SECURE must be true when APP_BASE_URL uses https")]
+    fn https_origin_without_secure_cookies_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "APP_BASE_URL" => Some("https://lilly.example".to_string()),
+            _ => None,
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "COOKIE_SECURE=true requires an https APP_BASE_URL")]
+    fn secure_cookies_on_a_plain_http_origin_fail_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "COOKIE_SECURE" => Some("true".to_string()),
+            _ => None,
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "COOKIE_SECURE must be `true` or `false`")]
+    fn malformed_cookie_secure_value_fails_configuration() {
+        let _ = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "COOKIE_SECURE" => Some("yes".to_string()),
+            _ => None,
+        });
     }
 
     #[test]

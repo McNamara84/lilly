@@ -462,7 +462,14 @@ Die Authentifizierung basiert auf einem JWT-Paar:
 - **Datenschutz-Einwilligung:** Passwort- und OAuth-Registrierung speichern Policy-Version,
   Zeitpunkt und Registrierungsweg atomar mit dem Konto. Eine zwischen Anzeige und Abschluss
   geänderte Version wird mit `PRIVACY_POLICY_CHANGED` zurückgewiesen.
-- **Passwort-Hashing:** argon2id mit empfohlenen Parametern (m=19456, t=2, p=1).
+- **Passwort-Hashing:** argon2id (Version 0x13) mit explizit konfigurierten Parametern
+  m=19456 KiB, t=2, p=1 (OWASP-Mindestprofil, in `backend/src/auth/password.rs`). Das Salt erzeugt
+  die Argon2-Implementierung pro Hash. Registrierung, Passwort-Reset und Login nutzen denselben
+  Service. **Upgrade-Policy:** Nach einem erfolgreichen Login wird ein Hash, dessen Algorithmus,
+  Version oder Parameter von der aktuellen Konfiguration abweicht, transparent neu berechnet und
+  nur ersetzt, wenn der gespeicherte Hash unverändert ist (kein Überschreiben eines parallelen
+  Resets). Ein fehlgeschlagenes Upgrade blockiert den Login nicht und wird beim nächsten Login
+  wiederholt. Klartext-Passwörter werden weder gespeichert noch geloggt.
 - **Passwort-Wiederherstellung:** Ein 256-Bit-Token wird ausschließlich als SHA-256-Hash
   gespeichert und ist standardmäßig 60 Minuten gültig. Nur das jüngste Token eines verifizierten
   Passwortkontos ist aktiv. Ein erfolgreicher Reset setzt das Passwort und widerruft alle

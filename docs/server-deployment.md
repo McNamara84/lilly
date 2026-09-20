@@ -76,6 +76,11 @@ APP_BASE_URL=https://lilly.maddrax-fanclub.de
 COOKIE_SECURE=true
 ```
 
+The backend refuses to start when the two values disagree: an `https://` `APP_BASE_URL` requires
+`COOKIE_SECURE=true`, and `COOKIE_SECURE=true` requires an `https://` `APP_BASE_URL`. This keeps
+session cookies `Secure` and every generated link and OAuth redirect URI on HTTPS. `COOKIE_SECURE`
+accepts only `true` or `false`.
+
 Create `/opt/lilly/shared/.deployment.env`:
 
 ```dotenv
