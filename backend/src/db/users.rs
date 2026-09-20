@@ -18,6 +18,24 @@ pub async fn find_auth_state(
         .await
 }
 
+/// Replace a password hash after a successful login. The `previous_hash` guard keeps a concurrent
+/// password reset or change from being overwritten by a stale rehash.
+pub async fn replace_password_hash(
+    pool: &MySqlPool,
+    user_id: u32,
+    previous_hash: &str,
+    new_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    let result =
+        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?")
+            .bind(new_hash)
+            .bind(user_id)
+            .bind(previous_hash)
+            .execute(pool)
+            .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 pub async fn find_user_by_email(
     pool: &MySqlPool,
     email: &str,
@@ -217,13 +235,67 @@ pub async fn seed_e2e_worker_users(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_user, e2e_worker_email};
+    use super::{create_user, e2e_worker_email, replace_password_hash};
     use sqlx::mysql::MySqlPoolOptions;
 
     #[test]
     fn test_e2e_worker_email_is_deterministic() {
         assert_eq!(e2e_worker_email(0), "e2e-worker-0@lilly.app");
         assert_eq!(e2e_worker_email(12), "e2e-worker-12@lilly.app");
+    }
+
+    #[tokio::test]
+    async fn password_hash_replacement_is_guarded_by_the_previous_hash() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let now = chrono::Utc::now().naive_utc();
+        let user_id = create_user(
+            &pool,
+            &format!("rehash-{suffix}@example.test"),
+            "old-hash",
+            "Rehash Collector",
+            &format!("rehash-token-{suffix}"),
+            now + chrono::Duration::hours(24),
+            now,
+            "policy-rehash-v1",
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            !replace_password_hash(&pool, user_id, "stale-hash", "new-hash")
+                .await
+                .unwrap()
+        );
+        assert!(
+            replace_password_hash(&pool, user_id, "old-hash", "new-hash")
+                .await
+                .unwrap()
+        );
+        let stored: (String,) = sqlx::query_as("SELECT password_hash FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stored.0, "new-hash");
+
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
