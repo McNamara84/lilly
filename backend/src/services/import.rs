@@ -2020,7 +2020,7 @@ mod tests {
     }
 
     #[test]
-    fn published_or_undated_issue_still_requires_complete_metadata() {
+    fn published_issue_requires_authors_but_not_a_publication_date() {
         let today = NaiveDate::from_ymd_opt(2026, 8, 8).unwrap();
         let published = sync_issue(695, "Published stub", Vec::new(), today);
         let published_error =
@@ -2037,12 +2037,10 @@ mod tests {
             today,
         );
         undated.published_at = None;
-        let undated_error =
-            prepare_issue_for_import(SYNC_DESCRIPTOR, 695, undated, today).unwrap_err();
-        assert_eq!(
-            undated_error.to_string(),
-            "Parse error: Issue 695 has no first publication date"
-        );
+        match prepare_issue_for_import(SYNC_DESCRIPTOR, 695, undated, today).unwrap() {
+            PreparedIssue::Published(issue) => assert_eq!(issue.published_at, None),
+            PreparedIssue::Future(_) => panic!("an undated issue must not be treated as future"),
+        }
     }
 
     #[test]
