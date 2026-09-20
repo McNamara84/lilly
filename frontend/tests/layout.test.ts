@@ -65,6 +65,29 @@ describe('Layout', () => {
 		expect(link).toHaveAttribute('href', '/');
 	});
 
+	it('links the imprint and privacy policy from the footer for anonymous visitors', () => {
+		renderLayout();
+		expect(screen.getByTestId('footer-imprint-link')).toHaveAttribute('href', '/imprint');
+		expect(screen.getByTestId('footer-privacy-link')).toHaveAttribute('href', '/privacy');
+	});
+
+	it('keeps the legal footer links for authenticated users', () => {
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: {
+				id: 1,
+				email: 'test@test.com',
+				display_name: 'Max Mustermann',
+				email_verified: true,
+				role: 'user' as const
+			},
+			isLoading: false
+		});
+		renderLayout();
+		expect(screen.getByTestId('footer-imprint-link')).toHaveAttribute('href', '/imprint');
+		expect(screen.getByTestId('footer-privacy-link')).toHaveAttribute('href', '/privacy');
+	});
+
 	it('renders the theme toggle button', () => {
 		renderLayout();
 		const themeButton = screen.getByLabelText(/modus wechseln/i);

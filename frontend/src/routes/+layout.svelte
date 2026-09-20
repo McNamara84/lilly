@@ -188,5 +188,19 @@
 	<main class="pt-14">
 		{@render children()}
 	</main>
+	<footer
+		class="px-4 py-6 text-center text-xs"
+		style="color: var(--text-secondary);"
+		data-testid="site-footer"
+	>
+		<nav aria-label="Rechtliches" class="flex items-center justify-center gap-4">
+			<a href={resolve('/imprint')} class="underline" data-testid="footer-imprint-link">
+				Impressum
+			</a>
+			<a href={resolve('/privacy')} class="underline" data-testid="footer-privacy-link">
+				Datenschutz
+			</a>
+		</nav>
+	</footer>
 	<OfflineStatus />
 </div>
