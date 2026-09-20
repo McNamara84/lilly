@@ -1,4 +1,4 @@
-FROM node:26.7.0-alpine AS dependencies
+FROM node:26.9.0-alpine AS dependencies
 
 WORKDIR /app
 RUN npm install --global npm@12.0.2
@@ -14,7 +14,7 @@ FROM dependencies AS production-dependencies
 
 RUN npm prune --omit=dev
 
-FROM node:26.7.0-alpine AS production
+FROM node:26.9.0-alpine AS production
 
 WORKDIR /app
 COPY --from=build /app/build ./build
