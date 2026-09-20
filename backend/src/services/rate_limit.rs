@@ -31,13 +31,16 @@ where
 {
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(Self(
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> {
+        std::future::ready(Ok(Self(
             parts
                 .extensions
                 .get::<ConnectInfo<SocketAddr>>()
                 .map(|connect_info| connect_info.0),
-        ))
+        )))
     }
 }
 

@@ -38,16 +38,18 @@ install -d -m 0750 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" \
   "${LILLY_ROOT}/releases" \
   "${LILLY_ROOT}/shared" \
   "${LILLY_ROOT}/backups"
-install -d -m 0770 -o "${DEPLOY_USER}" -g "${BACKEND_CONTAINER_GID}" \
-  "${LILLY_ROOT}/shared/erasure-ledger"
+# uutils coreutils (default on Ubuntu 26.04) rejects numeric IDs for install -o/-g when no
+# matching user/group exists on the host, so ownership for the container IDs is set with chown/chgrp.
+install -d -m 0770 -o "${DEPLOY_USER}" "${LILLY_ROOT}/shared/erasure-ledger"
+chgrp "${BACKEND_CONTAINER_GID}" "${LILLY_ROOT}/shared/erasure-ledger"
 readonly ERASURE_LEDGER="${LILLY_ROOT}/shared/erasure-ledger/account-erasure.log"
 if [[ ! -e "${ERASURE_LEDGER}" ]]; then
   if (( root_already_existed )); then
     echo "Existing installation is missing its account-erasure ledger; refusing to create an empty replacement: ${ERASURE_LEDGER}" >&2
     exit 1
   fi
-  install -m 0600 -o "${BACKEND_CONTAINER_UID}" -g "${BACKEND_CONTAINER_GID}" \
-    /dev/null "${ERASURE_LEDGER}"
+  install -m 0600 /dev/null "${ERASURE_LEDGER}"
+  chown "${BACKEND_CONTAINER_UID}:${BACKEND_CONTAINER_GID}" "${ERASURE_LEDGER}"
 elif [[ ! -f "${ERASURE_LEDGER}" ]]; then
   echo "Account-erasure ledger is not a regular file: ${ERASURE_LEDGER}" >&2
   exit 1
