@@ -1,13 +1,11 @@
 use argon2::{
     Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
-use rand_core::OsRng;
 
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let hash = argon2.hash_password(password.as_bytes(), &salt)?;
+    // argon2 0.6 generates a random salt itself (default `getrandom` feature).
+    let hash = Argon2::default().hash_password(password.as_bytes())?;
     Ok(hash.to_string())
 }
 
@@ -33,6 +31,17 @@ pub fn validate_password_strength(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hashes stored before the argon2 0.6 upgrade must keep working. This PHC string was
+    /// produced by argon2 0.5.3 with `Argon2::default()` and a random salt, exactly like the
+    /// previous `hash_password` implementation.
+    #[test]
+    fn verifies_hashes_created_before_the_argon2_0_6_upgrade() {
+        let legacy_hash = "$argon2id$v=19$m=19456,t=2,p=1$50KPF7EqQptqJkfElIOyfA$y1NicTAED9UAZ7pfX3TK6eLGhsOGU4qp25zvhn6Y54Y";
+
+        assert!(verify_password("legacy-pass-2026!", legacy_hash).expect("legacy hash must parse"));
+        assert!(!verify_password("wrong-password", legacy_hash).expect("legacy hash must parse"));
+    }
 
     #[test]
     fn test_hash_and_verify_password() {
