@@ -1,5 +1,6 @@
 pub mod account_erasure;
 pub mod admin_roles;
+pub mod browser_security;
 pub mod e2e_import;
 pub mod email;
 pub mod import;

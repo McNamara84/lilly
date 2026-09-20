@@ -867,6 +867,46 @@ mod tests {
     }
 
     #[test]
+    fn hostile_input_is_never_interpolated_into_generated_sql() {
+        const PAYLOADS: [&str; 5] = [
+            "' OR '1'='1",
+            "'; DROP TABLE users; --",
+            "1 UNION SELECT password_hash FROM users",
+            "\" OR 1=1 /*",
+            "x'; SLEEP(5); --",
+        ];
+
+        for payload in PAYLOADS {
+            let value = Some(payload.to_string());
+            let params = CollectionQueryParams {
+                series_slug: value.clone(),
+                status: value.clone(),
+                condition: value.clone(),
+                condition_min: value.clone(),
+                condition_max: value.clone(),
+                title: value.clone(),
+                author: value.clone(),
+                q: value.clone(),
+                sort: value.clone(),
+                sort_dir: value,
+                ..CollectionQueryParams::default()
+            };
+
+            let (where_clause, order_clause) = build_filter_clauses(&params);
+
+            for sql in [&where_clause, &order_clause] {
+                assert!(!sql.contains(payload), "{payload} leaked into: {sql}");
+                assert!(!sql.contains("DROP TABLE"), "{sql}");
+            }
+            // Unknown sort keys and directions fall back to the fixed defaults.
+            assert!(
+                order_clause.starts_with("i.issue_number ASC"),
+                "{order_clause}"
+            );
+        }
+    }
+
+    #[test]
     fn collection_sort_fields_map_to_expected_sql() {
         let cases = [
             ("series", "s.name"),
