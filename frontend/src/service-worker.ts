@@ -27,6 +27,20 @@ async function networkFirstNavigation(request: Request): Promise<Response> {
 	}
 }
 
+// Routes that are not cached themselves (trades, messages, admin, ...) show a small static page
+// offline instead of the browser's generic error page. It is deliberately not the app shell: the
+// route chunks of these pages are not cached, so hydrating them offline would fail. Online, the
+// request is passed through untouched.
+async function offlinePageNavigation(request: Request): Promise<Response> {
+	try {
+		return await fetch(request);
+	} catch (error) {
+		const page = await (await caches.open(APP_CACHE)).match('/offline.html');
+		if (page) return page;
+		throw error;
+	}
+}
+
 async function staleWhileRevalidate(request: Request): Promise<Response> {
 	const cache = await caches.open(COVER_CACHE);
 	const cached = await cache.match(request);
@@ -86,8 +100,12 @@ worker.addEventListener('fetch', (event) => {
 	const url = new URL(request.url);
 	if (url.origin !== worker.location.origin || isPrivateCachePath(url.pathname)) return;
 
-	if (request.mode === 'navigate' && isCacheableNavigationPath(url.pathname)) {
-		event.respondWith(networkFirstNavigation(request));
+	if (request.mode === 'navigate') {
+		if (isCacheableNavigationPath(url.pathname)) {
+			event.respondWith(networkFirstNavigation(request));
+		} else if (!url.pathname.startsWith('/media/') && !url.pathname.startsWith('/_app/')) {
+			event.respondWith(offlinePageNavigation(request));
+		}
 		return;
 	}
 

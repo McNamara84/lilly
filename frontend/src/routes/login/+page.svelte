@@ -11,6 +11,8 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import OfflineNotice from '$lib/components/offline/OfflineNotice.svelte';
+	import { getOfflineStatus } from '$lib/offline/status.svelte';
 
 	let email = $state('');
 	let password = $state('');
@@ -22,6 +24,7 @@
 	let resendSent = $state(false);
 	let authOptions = $state<AuthOptionsResponse | null>(null);
 	let oauthLoading = $state<OAuthProvider | null>(null);
+	const offline = getOfflineStatus();
 
 	let trimmedEmail = $derived(email.trim());
 	let oauthErrorCode = $derived(page.url.searchParams.get('oauth_error'));
@@ -166,6 +169,7 @@
 		</div>
 
 		<!-- Login Form -->
+		<div class="mb-4"><OfflineNotice feature="Die Anmeldung" /></div>
 		<form onsubmit={handleSubmit} class="space-y-4" novalidate data-testid="login-form">
 			{#if successMessage}
 				<div
@@ -336,7 +340,7 @@
 		<div class="grid grid-cols-2 gap-3">
 			<button
 				type="button"
-				disabled={!authOptions?.oauth.google || oauthLoading !== null}
+				disabled={!offline.online || !authOptions?.oauth.google || oauthLoading !== null}
 				onclick={() => handleOAuth('google')}
 				class="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
 				style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-secondary);"
@@ -367,7 +371,7 @@
 			</button>
 			<button
 				type="button"
-				disabled={!authOptions?.oauth.github || oauthLoading !== null}
+				disabled={!offline.online || !authOptions?.oauth.github || oauthLoading !== null}
 				onclick={() => handleOAuth('github')}
 				class="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
 				style="background-color: var(--surface-raised); border: 1px solid var(--glass-border); color: var(--text-secondary);"
