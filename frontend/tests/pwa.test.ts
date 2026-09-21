@@ -20,6 +20,14 @@ describe('PWA assets and cache policy', () => {
 		}
 	});
 
+	it('ships a script-free static offline page that points back to the collection', () => {
+		const html = readFileSync(resolve(process.cwd(), 'static/offline.html'), 'utf8');
+
+		expect(html).toContain('Offline nicht verfügbar');
+		expect(html).toContain('href="/collection"');
+		expect(html).not.toMatch(/<script/i);
+	});
+
 	it('never caches APIs or private media but allows shared reference covers', () => {
 		expect(isPrivateCachePath('/api/v1/me/collection')).toBe(true);
 		expect(isPrivateCachePath('/api/v1/entries/1/photos')).toBe(true);

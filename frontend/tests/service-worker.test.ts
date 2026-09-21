@@ -128,6 +128,32 @@ describe('service worker', () => {
 		await expect(dispatchFetch(request)).rejects.toThrow('offline');
 	});
 
+	it('shows the static offline page for uncached routes without changing online behaviour', async () => {
+		const request = new Request('https://lilly.test/trades');
+		Object.defineProperty(request, 'mode', { value: 'navigate' });
+
+		fetchMock.mockResolvedValueOnce(new Response('live trades'));
+		expect(await (await dispatchFetch(request))?.text()).toBe('live trades');
+		expect(appCache.put).not.toHaveBeenCalled();
+
+		appCache.entries.set('/offline.html', new Response('offline page'));
+		appCache.entries.set('/', new Response('cached shell'));
+		fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+		expect(await (await dispatchFetch(request))?.text()).toBe('offline page');
+
+		appCache.entries.clear();
+		fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+		await expect(dispatchFetch(request)).rejects.toThrow('offline');
+	});
+
+	it('does not answer navigations to private media or build assets with the offline page', () => {
+		for (const path of ['/media/photos/1', '/_app/immutable/chunk.js']) {
+			const request = new Request(`https://lilly.test${path}`);
+			Object.defineProperty(request, 'mode', { value: 'navigate' });
+			expect(dispatchFetch(request)).toBeUndefined();
+		}
+	});
+
 	it('serves cover images stale-while-revalidate and app assets cache-first', async () => {
 		const cover = new Request('https://lilly.test/media/covers/maddrax/1.webp');
 		coverCache.entries.set(cover.url, new Response('old cover'));

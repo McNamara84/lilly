@@ -562,7 +562,8 @@ SvelteKit baut `frontend/src/service-worker.ts` zusammen mit dem versionierten W
 - **Idempotenz und Konflikte:** Das Backend speichert `(user_id, mutation_id)` samt Request-Fingerprint und Ergebnis. Wiederholungen ändern nichts doppelt; veraltete Revisionen werden geparkt. Der Nutzer entscheidet sichtbar zwischen Serverstand und erneutem Anwenden des lokalen Stands.
 - **Logout:** Profilkontext, Sammlung, Queue, Konflikte und Snapshot-Metadaten des abgemeldeten Benutzers werden gelöscht. Der unpersönliche App-Shell-Cache darf bestehen bleiben.
 - **Fotos:** Foto-Uploads sind im MVP bewusst onlinepflichtig. Ausgewählte Dateien werden nicht dauerhaft in einer Offline-Queue abgelegt; die UI meldet Übertragungsfehler und lässt vorhandene Fotos unverändert.
-- **Tausch:** Tausch-Funktionen erfordern eine aktive Internetverbindung.
+- **Tausch und Nachrichten:** Diese Funktionen erfordern eine aktive Internetverbindung. Die Bereiche `/trades` und `/messages` zeigen offline über `OnlineOnly` einen eindeutigen Hinweis mit Link zur Sammlung statt eines Ladefehlers; Anmeldung und Registrierung zeigen `OfflineNotice` und deaktivieren die OAuth-Buttons.
+- **Nicht gecachte Routen:** Wird eine nicht gecachte Seite (z. B. `/trades`, `/admin`) direkt offline geöffnet, liefert der Service Worker die vorab gecachte statische Seite `offline.html` statt der Browser-Fehlerseite. Bewusst ist es nicht die App-Shell, weil die Route-Chunks dieser Seiten nicht gecacht sind und das Hydrieren offline scheitern würde. Online werden solche Anfragen unverändert durchgereicht.
 
 ### 7.3 Performance-Gates
 

@@ -126,3 +126,38 @@ test('collection reloads offline and a merged create/edit syncs exactly once', a
 		}
 	}
 });
+
+test('routes that need a connection show a clear offline page instead of a browser error', async ({
+	page,
+	context,
+	browserName
+}) => {
+	// Playwright WebKit cannot navigate a service-worker-controlled page offline (see above).
+	test.skip(browserName === 'webkit', 'Offline navigation is not supported by Playwright WebKit');
+
+	try {
+		await page.goto('/collection');
+		await expect(page.getByTestId('collection-title')).toBeVisible();
+		await page.evaluate(async () => {
+			await navigator.serviceWorker.ready;
+		});
+		await expect
+			.poll(() =>
+				page.evaluate(async () => {
+					const names = await caches.keys();
+					for (const name of names) {
+						if (await (await caches.open(name)).match('/offline.html')) return true;
+					}
+					return false;
+				})
+			)
+			.toBe(true);
+
+		await context.setOffline(true);
+		await page.goto('/trades');
+		await expect(page.getByRole('heading', { name: 'Offline nicht verfügbar' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Zur Sammlung' })).toBeVisible();
+	} finally {
+		await context.setOffline(false);
+	}
+});
