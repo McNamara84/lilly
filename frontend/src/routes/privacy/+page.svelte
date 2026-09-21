@@ -28,7 +28,8 @@
 			</h2>
 			<p>
 				Verantwortlich für die Datenverarbeitung auf dieser Plattform ist der Betreiber von LILLY.
-				Kontaktdaten können über die Plattform angefragt werden.
+				Name, Anschrift und Kontaktdaten des Betreibers finden Sie im
+				<a class="underline" href={resolve('/imprint')}>Impressum</a>.
 			</p>
 		</section>
 

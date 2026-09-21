@@ -87,6 +87,14 @@ services:
     image: lilly-frontend:e2e
     build:
       context: ./frontend
+    environment:
+      IMPRINT_OPERATOR_NAME: ${IMPRINT_OPERATOR_NAME:-}
+      IMPRINT_ADDRESS: ${IMPRINT_ADDRESS:-}
+      IMPRINT_EMAIL: ${IMPRINT_EMAIL:-}
+      IMPRINT_PHONE: ${IMPRINT_PHONE:-}
+      IMPRINT_RESPONSIBLE_PERSON: ${IMPRINT_RESPONSIBLE_PERSON:-}
+      IMPRINT_ADDITIONAL: ${IMPRINT_ADDITIONAL:-}
+      IMPRINT_LAST_UPDATED: ${IMPRINT_LAST_UPDATED:-}
     depends_on:
       backend:
         condition: service_healthy

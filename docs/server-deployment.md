@@ -81,6 +81,23 @@ The backend refuses to start when the two values disagree: an `https://` `APP_BA
 session cookies `Secure` and every generated link and OAuth redirect URI on HTTPS. `COOKIE_SECURE`
 accepts only `true` or `false`.
 
+### Legal notice and privacy policy
+
+LILLY publishes an imprint at `/imprint` and a privacy policy at `/privacy`; both are public and linked from the footer of every page. The imprint is configured through the following variables in `/opt/lilly/shared/.env.production`, so no source change is needed. Use `|` to separate lines:
+
+```dotenv
+IMPRINT_OPERATOR_NAME=<name of the person or association>
+IMPRINT_ADDRESS=<street and number>|<postal code and city>|<country>
+IMPRINT_EMAIL=<contact address>
+# Optional:
+IMPRINT_PHONE=
+IMPRINT_RESPONSIBLE_PERSON=
+IMPRINT_ADDITIONAL=<register entry>|<VAT ID>
+IMPRINT_LAST_UPDATED=2026-09-20
+```
+
+Name, address and email are required; until all three are set the page tells visitors that no imprint has been configured. **The operator is responsible for reviewing and completing the legal content (imprint and privacy policy) for the actual installation.** The texts shipped with LILLY are a starting point, not legal advice.
+
 Create `/opt/lilly/shared/.deployment.env`:
 
 ```dotenv
