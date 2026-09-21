@@ -210,12 +210,19 @@ async fn main() {
         .layer(middleware::from_fn_with_state(
             app_state.clone(),
             services::rate_limit::enforce_general_api_rate_limit,
+        ))
+        .layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            services::browser_security::enforce_same_origin,
         ));
 
     let app = Router::new()
         .merge(routes::health::router())
         .merge(rate_limited_api)
         .with_state(app_state)
+        .layer(middleware::from_fn(
+            services::browser_security::add_security_headers,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer());
 

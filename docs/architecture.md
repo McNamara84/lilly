@@ -684,8 +684,23 @@ lilly/
 - **Input-Validierung:** Alle Eingaben werden serverseitig validiert (serde + validator-Crate). SQL Injection wird durch SQLx-Prepared-Statements verhindert.
 - **XSS:** SvelteKit escaped Output automatisch. User-generierte Notizen werden ausschließlich als Text gespeichert und gerendert; ungeprüftes HTML wird nicht ausgegeben.
 - **CSRF:** Access- und Refresh-Token liegen in `HttpOnly`-Cookies mit `SameSite=Lax`; mutierende
-  Browseraufrufe verwenden JSON und die CORS-Policy erlaubt nur die eigene Origin. OAuth nutzt
-  zusätzlich einmaligen State, PKCE und eine gebundene Browserkennung.
+  Browseraufrufe verwenden JSON und die CORS-Policy erlaubt nur die eigene Origin. Zusätzlich
+  lehnt die Middleware `enforce_same_origin` (`services/browser_security.rs`) jede
+  zustandsändernde Anfrage (POST, PUT, PATCH, DELETE) ab, deren `Origin` nicht `APP_BASE_URL`
+  entspricht (lokale Entwicklungs-Origins nur bei `COOKIE_SECURE=false`) oder die ohne `Origin`
+  als `Sec-Fetch-Site: cross-site` gemeldet wird (`403 CROSS_ORIGIN_REQUEST_REJECTED`). Lesende
+  Anfragen verändern keinen Zustand. OAuth nutzt zusätzlich einmaligen State, PKCE und eine
+  gebundene Browserkennung.
+- **Sicherheits-Header:** Die API setzt `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` und eine restriktive CSP (`default-src 'none'`). Das Frontend
+  liefert über `kit.csp` in `svelte.config.js` eine Content-Security-Policy (`default-src 'self'`,
+  Skripte nur mit Nonce/Hash, `object-src 'none'`, `frame-ancestors 'self'`, `base-uri 'self'`,
+  `form-action 'self'`; `style-src` erlaubt Inline-Style-Attribute, da die Oberfläche sie
+  verwendet) sowie über `hooks.server.ts` `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Permissions-Policy` und `Cross-Origin-Opener-Policy`. HSTS setzt Traefik.
+  Fremde Ressourcen (Fonts, Skripte, Analytics) werden nicht geladen.
+- **Abhängigkeits-Prüfung:** Der Workflow `security.yml` führt bei Änderungen an Lockfiles sowie
+  wöchentlich `npm audit --omit=dev --audit-level=high` und `cargo audit` (RustSec) aus.
 - **Passwort-Reset:** Unbekannte, unbestätigte, reine OAuth- und berechtigte Adressen erhalten
   denselben Status und Body. Rohe Reset-Tokens werden weder gespeichert noch protokolliert,
   parallele Bestätigungen werden per Zeilensperre auf genau einen Erfolg begrenzt und alle
