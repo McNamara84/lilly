@@ -7,6 +7,14 @@ vi.mock('$app/paths', () => ({
 	resolve: (path: string) => path
 }));
 
+vi.mock('$env/dynamic/private', () => ({
+	env: {
+		IMPRINT_OPERATOR_NAME: 'Server Betreiber',
+		IMPRINT_ADDRESS: 'Weg 2|54321 Ort',
+		IMPRINT_EMAIL: 'server@example.org'
+	}
+}));
+
 const completeEnv = {
 	IMPRINT_OPERATOR_NAME: 'Beispiel Betreiber e.V.',
 	IMPRINT_ADDRESS: 'Musterstraße 1 | 12345 Musterstadt | Deutschland',
@@ -73,6 +81,21 @@ describe('Imprint page', () => {
 		expect(screen.queryByTestId('imprint-unconfigured')).not.toBeInTheDocument();
 	});
 
+	it('omits the optional sections when only the required details are configured', () => {
+		renderPage(
+			readImprintConfig({
+				IMPRINT_OPERATOR_NAME: 'Minimal e.V.',
+				IMPRINT_ADDRESS: 'Weg 1',
+				IMPRINT_EMAIL: 'minimal@example.org'
+			})
+		);
+
+		expect(screen.getByTestId('imprint-operator')).toHaveTextContent('Minimal e.V.');
+		expect(screen.getByTestId('imprint-contact')).not.toHaveTextContent('Telefon');
+		expect(screen.queryByTestId('imprint-responsible')).not.toBeInTheDocument();
+		expect(screen.queryByTestId('imprint-last-updated')).not.toBeInTheDocument();
+	});
+
 	it('shows how to configure the imprint when the operator has not provided one', () => {
 		renderPage(readImprintConfig({}));
 
@@ -93,5 +116,16 @@ describe('Imprint page', () => {
 		expect(screen.getByTestId('imprint-operator')).toHaveTextContent(
 			'<img src=x onerror=alert(1)>'
 		);
+	});
+});
+
+describe('Imprint page server load', () => {
+	it('builds the imprint from the server environment', async () => {
+		const { load } = await import('../src/routes/imprint/+page.server');
+		const result = (await load({} as Parameters<typeof load>[0])) as { imprint: ImprintConfig };
+
+		expect(result.imprint.configured).toBe(true);
+		expect(result.imprint.operatorName).toBe('Server Betreiber');
+		expect(result.imprint.addressLines).toEqual(['Weg 2', '54321 Ort']);
 	});
 });

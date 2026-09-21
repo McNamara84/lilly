@@ -4,6 +4,8 @@
 
 	let { data }: { data: { imprint: ImprintConfig } } = $props();
 	const imprint = $derived(data.imprint);
+	const phoneLines = $derived(imprint.phone ? [`Telefon: ${imprint.phone}`] : []);
+	const updatedLines = $derived(imprint.lastUpdated ? [`Stand: ${imprint.lastUpdated}`] : []);
 </script>
 
 <svelte:head>
@@ -28,7 +30,7 @@
 				<h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">Kontakt</h2>
 				<p>
 					E-Mail: <a class="underline" href={`mailto:${imprint.email}`}>{imprint.email}</a>
-					{#if imprint.phone}<br />Telefon: {imprint.phone}{/if}
+					{#each phoneLines as line (line)}<br />{line}{/each}
 				</p>
 			</section>
 
@@ -62,8 +64,8 @@
 			<a class="underline" href={resolve('/privacy')}>Datenschutzerklärung</a>.
 		</p>
 
-		{#if imprint.lastUpdated}
-			<p data-testid="imprint-last-updated">Stand: {imprint.lastUpdated}</p>
-		{/if}
+		{#each updatedLines as line (line)}
+			<p data-testid="imprint-last-updated">{line}</p>
+		{/each}
 	</div>
 </div>
