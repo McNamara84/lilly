@@ -76,6 +76,11 @@ APP_BASE_URL=https://lilly.maddrax-fanclub.de
 COOKIE_SECURE=true
 ```
 
+The backend refuses to start when the two values disagree: an `https://` `APP_BASE_URL` requires
+`COOKIE_SECURE=true`, and `COOKIE_SECURE=true` requires an `https://` `APP_BASE_URL`. This keeps
+session cookies `Secure` and every generated link and OAuth redirect URI on HTTPS. `COOKIE_SECURE`
+accepts only `true` or `false`.
+
 ### Legal notice and privacy policy
 
 LILLY publishes an imprint at `/imprint` and a privacy policy at `/privacy`; both are public and linked from the footer of every page. The imprint is configured through the following variables in `/opt/lilly/shared/.env.production`, so no source change is needed. Use `|` to separate lines:
