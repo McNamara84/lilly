@@ -1,5 +1,5 @@
-import { env } from '$env/dynamic/private';
-import { readImprintConfig } from '$lib/imprint';
+import * as env from '$app/env/private';
+import { readImprintConfig } from '#lib/imprint.js';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = () => ({

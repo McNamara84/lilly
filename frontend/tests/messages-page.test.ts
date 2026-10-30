@@ -8,12 +8,14 @@ const mocks = vi.hoisted(() => ({
 	goto: vi.fn()
 }));
 
-vi.mock('$lib/stores/auth.svelte', () => ({ getAuthState: () => mocks.getAuthState() }));
-vi.mock('$lib/api/messages', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({ getAuthState: () => mocks.getAuthState() }));
+vi.mock('#lib/api/messages.js', () => ({
 	fetchMessageThreads: (...args: unknown[]) => mocks.fetchMessageThreads(...args)
 }));
 vi.mock('$app/navigation', () => ({ goto: (...args: unknown[]) => mocks.goto(...args) }));
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
 
 const thread = {
 	id: 12,

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import CollectionFilterBar from '../src/lib/components/collection/CollectionFilterBar.svelte';
-import type { CollectionQueryParams } from '$lib/api/collection';
+import type { CollectionQueryParams } from '#lib/api/collection.js';
 
 describe('CollectionFilterBar', () => {
 	let onfilterchange: (params: CollectionQueryParams) => void;

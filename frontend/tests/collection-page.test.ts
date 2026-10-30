@@ -4,7 +4,7 @@ import CollectionPage from '../src/routes/collection/+page.svelte';
 
 const mockGetAuthState = vi.fn();
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mockGetAuthState()
 }));
 
@@ -14,7 +14,7 @@ const mockAddToCollection = vi.fn();
 const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
-vi.mock('$lib/api/collection', () => ({
+vi.mock('#lib/api/collection.js', () => ({
 	fetchCollection: (...args: unknown[]) => mockFetchCollection(...args),
 	fetchCollectionEntriesByIssue: (...args: unknown[]) => mockFetchCollectionEntriesByIssue(...args),
 	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
@@ -25,7 +25,7 @@ vi.mock('$lib/api/collection', () => ({
 const mockFetchSeries = vi.fn();
 const mockFetchIssue = vi.fn();
 
-vi.mock('$lib/api/series', () => ({
+vi.mock('#lib/api/series.js', () => ({
 	fetchSeries: () => mockFetchSeries(),
 	fetchIssue: (...args: unknown[]) => mockFetchIssue(...args)
 }));
@@ -35,7 +35,7 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
 function authedState() {
@@ -399,9 +399,8 @@ describe('Collection Page', () => {
 		await fireEvent.change(series, { target: { value: 'maddrax' } });
 
 		expect(goto).toHaveBeenCalledWith('/collection?series_slug=maddrax', {
-			replaceState: false,
-			noScroll: true,
-			keepFocus: true
+			replace: false,
+			reset: false
 		});
 	});
 });

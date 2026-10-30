@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { page } from '$app/stores';
-	import { fetchSeriesIssues, fetchSeries, type Series, type Issue } from '$lib/api/series';
+	import { page } from '$app/state';
+	import { fetchSeriesIssues, fetchSeries, type Series, type Issue } from '#lib/api/series.js';
 
 	let series = $state<Series | null>(null);
 	let issues = $state<Issue[]>([]);
@@ -10,7 +10,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	const slug = $derived($page.params.slug ?? '');
+	const slug = $derived(page.params.slug ?? '');
 
 	async function loadData() {
 		if (!slug) {

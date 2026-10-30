@@ -1189,7 +1189,7 @@ mod tests {
                 .partner_completion_confirmed_at
                 .is_none()
         );
-        assert!(first_confirmation.photo_storage_keys.is_empty());
+        assert_eq!(first_confirmation.photo_storage_keys, [] as [String; 0]);
         assert_eq!(collection_entry_count(&pool, first_offer_id).await, 1);
         assert_eq!(collection_entry_count(&pool, second_offer_id).await, 1);
 
@@ -1319,7 +1319,7 @@ mod tests {
                 .await
                 .expect("completed trade retry must be idempotent");
         assert_eq!(repeated_completion.trade.status, "completed");
-        assert!(repeated_completion.photo_storage_keys.is_empty());
+        assert_eq!(repeated_completion.photo_storage_keys, [] as [String; 0]);
         let completed_cancellation =
             trades::cancel_trade(&pool, first_user_id, completion_proposal.id).await;
         assert!(matches!(

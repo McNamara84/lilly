@@ -5,7 +5,7 @@ import {
 	fetchCollectionPhotos,
 	fetchPhotoPolicy,
 	uploadCollectionPhoto
-} from '$lib/api/media';
+} from '#lib/api/media.js';
 
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);

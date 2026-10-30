@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isCacheableNavigationPath, isPrivateCachePath } from '$lib/offline/cache-policy';
+import { isCacheableNavigationPath, isPrivateCachePath } from '#lib/offline/cache-policy.js';
 
 describe('PWA assets and cache policy', () => {
 	it('provides a standalone manifest with all required icons', () => {

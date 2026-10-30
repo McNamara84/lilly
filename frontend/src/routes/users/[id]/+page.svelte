@@ -5,9 +5,9 @@
 		fetchPublicCollectionStats,
 		fetchPublicProfile,
 		type PublicProfile
-	} from '$lib/api/profile';
-	import type { CollectionStats } from '$lib/api/collection';
-	import SeriesProgressBar from '$lib/components/collection/SeriesProgressBar.svelte';
+	} from '#lib/api/profile.js';
+	import type { CollectionStats } from '#lib/api/collection.js';
+	import SeriesProgressBar from '#lib/components/collection/SeriesProgressBar.svelte';
 
 	let profile = $state<PublicProfile | null>(null);
 	let stats = $state<CollectionStats | null>(null);
@@ -120,9 +120,10 @@
 				<section class="glass-elevated rounded-lg p-6" aria-labelledby="public-stats-heading">
 					<div class="mb-4 flex items-center justify-between gap-3">
 						<h2 id="public-stats-heading" class="text-lg font-semibold">Sammlung</h2>
-						<a href={resolve(`/users/${profile.id}/collection`)} class="text-sm underline">
-							Sammlung öffnen
-						</a>
+
+						<a href={resolve(`users/${profile.id}/collection`)} class="text-sm underline"
+							>Sammlung öffnen</a
+						>
 					</div>
 					<div
 						class="mb-6 rounded-lg p-4"

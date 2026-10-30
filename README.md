@@ -198,15 +198,18 @@ lilly/
 
 ### Frontend
 
+Use Node.js **26.13.0 LTS** (see `.nvmrc`) and npm **12.2.1**.
+
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev          # Start dev server on http://localhost:5173
 ```
 
 ### Backend
 
-Requires [Rust](https://rustup.rs/) and a running MariaDB instance.
+Requires [rustup](https://rustup.rs/) and a running MariaDB instance. The repository's
+`rust-toolchain.toml` selects Rust **1.99.1**, including Clippy and rustfmt.
 
 ```bash
 cd backend
@@ -443,6 +446,7 @@ Detailed planning documents are located in the [`docs/`](docs/) folder:
 | [screens.json](docs/screens.json)                           | Machine-readable page structure and routing                                            |
 | [trading.md](docs/trading.md)                               | Reciprocal matching, trade workflow, privacy, notifications, and message retention     |
 | [privacy-data-inventory.md](docs/privacy-data-inventory.md) | Personal-data inventory, erasure/anonymisation rules, backups, and verification        |
+| [dependency-updates.md](docs/dependency-updates.md) | Updated versions, compatibility decisions, security checks, and remaining upstream findings |
 
 ---
 

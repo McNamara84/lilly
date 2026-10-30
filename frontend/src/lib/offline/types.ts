@@ -2,9 +2,9 @@ import type {
 	AddCollectionEntryRequest,
 	CollectionEntry,
 	UpdateCollectionEntryRequest
-} from '$lib/api/collection';
-import type { MeResponse } from '$lib/api/auth';
-import type { Issue, Series } from '$lib/api/series';
+} from '#lib/api/collection.js';
+import type { MeResponse } from '#lib/api/auth.js';
+import type { Issue, Series } from '#lib/api/series.js';
 
 export interface OfflineSnapshot {
 	schema_version: number;

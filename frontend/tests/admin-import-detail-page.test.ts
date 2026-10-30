@@ -1,41 +1,27 @@
+import { fromStore, writable } from 'svelte/store';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import ImportDetailPage from '../src/routes/admin/import/[id]/+page.svelte';
 
-function createMockStore<T>(initial: T) {
-	let value = initial;
-	const subs = new Set<(v: T) => void>();
-	return {
-		subscribe(fn: (v: T) => void) {
-			subs.add(fn);
-			fn(value);
-			return () => subs.delete(fn);
-		},
-		set(v: T) {
-			value = v;
-			subs.forEach((fn) => fn(v));
-		}
-	};
-}
+const mockPage = writable({ params: { id: '5' } });
+const pageState = fromStore(mockPage);
 
-const mockPage = createMockStore({ params: { id: '5' } });
-
-vi.mock('$app/stores', () => ({
-	page: {
-		subscribe: (fn: (value: unknown) => void) => mockPage.subscribe(fn)
+vi.mock('$app/state', () => ({
+	get page() {
+		return pageState.current;
 	}
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
 vi.mock('$app/navigation', () => ({
 	goto: vi.fn()
 }));
 
-vi.mock('$lib/api/admin', () => ({
+vi.mock('#lib/api/admin.js', () => ({
 	fetchImportJob: vi.fn(),
 	fetchImportSeriesIssues: vi.fn(),
 	fetchImportReviewItems: vi.fn(),
@@ -55,7 +41,7 @@ import {
 	cancelImport,
 	retryImport,
 	activateImport
-} from '$lib/api/admin';
+} from '#lib/api/admin.js';
 import { goto } from '$app/navigation';
 
 const completedJob = {

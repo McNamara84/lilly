@@ -1,12 +1,12 @@
-import { fetchMe, logout as apiLogout, refreshToken } from '$lib/api/auth';
-import type { MeResponse } from '$lib/api/auth';
-import { refreshOfflineSnapshot, syncPendingCollectionChanges } from '$lib/api/collection';
+import { fetchMe, logout as apiLogout, refreshToken } from '#lib/api/auth.js';
+import type { MeResponse } from '#lib/api/auth.js';
+import { refreshOfflineSnapshot, syncPendingCollectionChanges } from '#lib/api/collection.js';
 import {
 	clearOfflineUserData,
 	getCachedProfile,
 	saveConfirmedProfile
-} from '$lib/offline/database';
-import { isNetworkFailure } from '$lib/offline/network';
+} from '#lib/offline/database.js';
+import { isNetworkFailure } from '#lib/offline/network.js';
 
 let user = $state<MeResponse | null>(null);
 let isLoading = $state(true);

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { userEvent } from '@testing-library/user-event';
 import ProfilePage from '../src/routes/profile/+page.svelte';
 
@@ -19,17 +20,17 @@ const mockReauthenticateWithPassword = vi.fn();
 const mockGoto = vi.fn();
 const mockOfflineStatus = { online: true };
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mockGetAuthState(),
 	setUser: (...args: unknown[]) => mockSetUser(...args),
 	deactivateAccountLocally: (...args: unknown[]) => mockDeactivateAccountLocally(...args)
 }));
 
-vi.mock('$lib/offline/status.svelte', () => ({
+vi.mock('#lib/offline/status.svelte.js', () => ({
 	getOfflineStatus: () => mockOfflineStatus
 }));
 
-vi.mock('$lib/api/profile', () => ({
+vi.mock('#lib/api/profile.js', () => ({
 	fetchOwnProfile: (...args: unknown[]) => mockFetchOwnProfile(...args),
 	updateProfile: (...args: unknown[]) => mockUpdateProfile(...args),
 	uploadAvatar: (...args: unknown[]) => mockUploadAvatar(...args),
@@ -37,7 +38,7 @@ vi.mock('$lib/api/profile', () => ({
 	updateVisibility: (...args: unknown[]) => mockUpdateVisibility(...args)
 }));
 
-vi.mock('$lib/api/media', () => ({
+vi.mock('#lib/api/media.js', () => ({
 	DEFAULT_PHOTO_POLICY: {
 		allowed_media_types: ['image/jpeg', 'image/png', 'image/webp'],
 		max_upload_bytes: 5 * 1024 * 1024,
@@ -47,12 +48,12 @@ vi.mock('$lib/api/media', () => ({
 	fetchPhotoPolicy: (...args: unknown[]) => mockFetchPhotoPolicy(...args)
 }));
 
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	fetchPrivacyConsents: (...args: unknown[]) => mockFetchPrivacyConsents(...args),
 	startOAuth: vi.fn()
 }));
 
-vi.mock('$lib/api/account-erasure', () => ({
+vi.mock('#lib/api/account-erasure.js', () => ({
 	fetchAccountDeletionOptions: (...args: unknown[]) => mockFetchDeletionOptions(...args),
 	requestAccountDeletion: (...args: unknown[]) => mockRequestAccountDeletion(...args),
 	reauthenticateWithPassword: (...args: unknown[]) => mockReauthenticateWithPassword(...args),
@@ -61,7 +62,9 @@ vi.mock('$lib/api/account-erasure', () => ({
 }));
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn((...args: unknown[]) => mockGoto(...args)) }));
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
 
 const profile = {
 	id: 7,
@@ -89,6 +92,13 @@ function authedState() {
 }
 
 describe('Profile Page', () => {
+	it('waits for authentication to finish before loading an editable profile', async () => {
+		mockGetAuthState.mockReturnValue({ ...authedState(), isLoading: true });
+		render(ProfilePage);
+		await tick();
+		expect(mockFetchOwnProfile).not.toHaveBeenCalled();
+	});
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockOfflineStatus.online = true;
@@ -209,7 +219,7 @@ describe('Profile Page', () => {
 	});
 
 	it('starts OAuth reauthentication with a linked provider', async () => {
-		const { startOAuth } = await import('$lib/api/auth');
+		const { startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(startOAuth).mockResolvedValue('#github-reauth');
 		mockFetchDeletionOptions.mockResolvedValue({
 			recent_authentication: false,
@@ -230,7 +240,7 @@ describe('Profile Page', () => {
 	});
 
 	it('reports OAuth reauthentication startup failures and resets the button', async () => {
-		const { startOAuth } = await import('$lib/api/auth');
+		const { startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(startOAuth).mockRejectedValue('untyped OAuth failure');
 		mockFetchDeletionOptions.mockResolvedValue({
 			recent_authentication: false,

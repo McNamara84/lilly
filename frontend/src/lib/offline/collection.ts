@@ -4,7 +4,7 @@ import type {
 	CollectionQueryParams,
 	PaginatedCollection,
 	UpdateCollectionEntryRequest
-} from '$lib/api/collection';
+} from '#lib/api/collection.js';
 import {
 	deleteConflict,
 	deleteMutation,

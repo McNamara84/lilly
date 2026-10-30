@@ -5,14 +5,14 @@ const mocks = vi.hoisted(() => ({
 	mergeCollectionEntries: vi.fn().mockRejectedValue(new Error('IndexedDB unavailable'))
 }));
 
-vi.mock('$lib/offline/database', () => ({
+vi.mock('#lib/offline/database.js', () => ({
 	getCachedProfile: mocks.getCachedProfile,
 	listStoredCollectionEntries: vi.fn(),
 	mergeCollectionEntries: mocks.mergeCollectionEntries,
 	replaceOfflineSnapshot: vi.fn()
 }));
 
-import { fetchCollection } from '$lib/api/collection';
+import { fetchCollection } from '#lib/api/collection.js';
 
 describe('collection API cache failures', () => {
 	it('does not fail a successful request when background cache merging fails', async () => {

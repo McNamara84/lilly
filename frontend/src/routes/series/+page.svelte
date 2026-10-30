@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fetchSeries, type Series } from '$lib/api/series';
+	import { fetchSeries, type Series } from '#lib/api/series.js';
 	import { resolve } from '$app/paths';
 
 	let seriesList = $state<Series[]>([]);
@@ -54,7 +54,7 @@
 		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="series-grid">
 			{#each seriesList as series (series.id)}
 				<a
-					href={resolve(`/series/${series.slug}`)}
+					href={resolve(`series/${series.slug}`)}
 					class="glass-elevated rounded-lg p-6 block transition-transform hover:scale-[1.02]"
 					data-testid="series-card"
 				>

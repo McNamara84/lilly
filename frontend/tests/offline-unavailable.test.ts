@@ -10,7 +10,7 @@ import RegisterPage from '../src/routes/register/+page.svelte';
 
 const connection = vi.hoisted(() => ({ online: false }));
 
-vi.mock('$lib/offline/status.svelte', () => ({
+vi.mock('#lib/offline/status.svelte.js', () => ({
 	getOfflineStatus: () => ({
 		get online() {
 			return connection.online;
@@ -18,17 +18,19 @@ vi.mock('$lib/offline/status.svelte', () => ({
 	})
 }));
 
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/login') } }));
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	login: vi.fn(),
 	register: vi.fn(),
 	resendVerification: vi.fn(),
 	fetchAuthOptions: vi.fn(),
 	startOAuth: vi.fn()
 }));
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	initAuth: vi.fn().mockResolvedValue(undefined),
 	deactivateAccountLocally: vi.fn().mockResolvedValue(undefined)
 }));
@@ -40,7 +42,7 @@ const children = createRawSnippet(() => ({
 describe('offline-unavailable states', () => {
 	beforeEach(async () => {
 		connection.online = false;
-		const { fetchAuthOptions } = await import('$lib/api/auth');
+		const { fetchAuthOptions } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: true, github: true }

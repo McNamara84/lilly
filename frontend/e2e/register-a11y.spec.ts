@@ -4,6 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 test.describe('Register Page Accessibility', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/register');
+		await expect(page.getByTestId('email-input')).toBeEnabled();
 	});
 
 	test('has no automatically detectable accessibility violations', async ({ page }) => {

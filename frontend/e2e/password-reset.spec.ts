@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type APIRequestContext, type Playwright } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
+import type { PlaywrightWorkerArgs } from '@playwright/test';
 
 type MailpitAddress = { Address: string };
 type MailpitMessageSummary = {
@@ -10,7 +11,9 @@ type MailpitMessageSummary = {
 type MailpitMessages = { messages: MailpitMessageSummary[] };
 type MailpitMessage = MailpitMessageSummary & { HTML: string };
 
-async function mailpitContext(playwright: Playwright): Promise<APIRequestContext> {
+async function mailpitContext(
+	playwright: PlaywrightWorkerArgs['playwright']
+): Promise<APIRequestContext> {
 	return playwright.request.newContext({
 		baseURL: process.env.MAILPIT_API_URL ?? 'http://127.0.0.1:8025'
 	});

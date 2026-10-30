@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { Trade } from '$lib/api/trades';
+	import type { Trade } from '#lib/api/trades.js';
 
 	let { trade }: { trade: Trade } = $props();
 
@@ -30,7 +30,7 @@
 		</span>
 	</header>
 	<a
-		href={resolve(`/trades/${trade.id}`)}
+		href={resolve(`trades/${trade.id}`)}
 		class="mt-4 inline-block text-sm font-semibold underline"
 		style="color: var(--color-brand-500);"
 	>

@@ -8,12 +8,12 @@
 		updateCollectionEntry,
 		type CollectionEntry,
 		type PersistedCollectionStatus
-	} from '$lib/api/collection';
-	import { fetchAllSeriesIssues, fetchSeries, type Issue, type Series } from '$lib/api/series';
-	import type { ConditionGrade } from '$lib/collection/conditions';
-	import IssueDetailSheet from '$lib/components/collection/IssueDetailSheet.svelte';
-	import SeriesStatusGrid from '$lib/components/collection/SeriesStatusGrid.svelte';
-	import { getAuthState } from '$lib/stores/auth.svelte';
+	} from '#lib/api/collection.js';
+	import { fetchAllSeriesIssues, fetchSeries, type Issue, type Series } from '#lib/api/series.js';
+	import type { ConditionGrade } from '#lib/collection/conditions.js';
+	import IssueDetailSheet from '#lib/components/collection/IssueDetailSheet.svelte';
+	import SeriesStatusGrid from '#lib/components/collection/SeriesStatusGrid.svelte';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
 
 	const auth = getAuthState();
 
@@ -35,7 +35,7 @@
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
-			void goto(resolve('/login'));
+			void goto(resolve('login'));
 		} else if (auth.isAuthenticated && !seriesRequested) {
 			seriesRequested = true;
 			void loadSeries();
@@ -224,6 +224,7 @@
 		<p class="mb-4 text-sm" style="color: var(--text-secondary);">
 			Wähle ein Heft, um Status, Zustand und persönliche Notiz zu bearbeiten.
 		</p>
+
 		<SeriesStatusGrid {issues} {entries} onselect={openDetails} />
 	{/if}
 </div>

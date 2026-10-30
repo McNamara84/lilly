@@ -3,8 +3,8 @@ import {
 	getStoredIssue,
 	listStoredIssues,
 	listStoredSeries
-} from '$lib/offline/database';
-import { isNetworkFailure } from '$lib/offline/network';
+} from '#lib/offline/database.js';
+import { isNetworkFailure } from '#lib/offline/network.js';
 
 const API_BASE = '/api/v1';
 

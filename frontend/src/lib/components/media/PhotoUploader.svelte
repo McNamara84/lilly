@@ -8,8 +8,8 @@
 		uploadCollectionPhoto,
 		type CollectionPhoto,
 		type PhotoPolicy
-	} from '$lib/api/media';
-	import { getOfflineStatus } from '$lib/offline/status.svelte';
+	} from '#lib/api/media.js';
+	import { getOfflineStatus } from '#lib/offline/status.svelte.js';
 
 	interface Props {
 		entryId: number;

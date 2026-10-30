@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { getAuthState, performLogout } from '$lib/stores/auth.svelte';
+	import { getAuthState, performLogout } from '#lib/stores/auth.svelte.js';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { fetchCollectionStats, type CollectionStats } from '$lib/api/collection';
-	import StatsCard from '$lib/components/stats/StatsCard.svelte';
-	import SeriesProgressBar from '$lib/components/collection/SeriesProgressBar.svelte';
-	import { fetchMatches, type TradeMatch } from '$lib/api/trades';
+	import { fetchCollectionStats, type CollectionStats } from '#lib/api/collection.js';
+	import StatsCard from '#lib/components/stats/StatsCard.svelte';
+	import SeriesProgressBar from '#lib/components/collection/SeriesProgressBar.svelte';
+	import { fetchMatches, type TradeMatch } from '#lib/api/trades.js';
 
 	const auth = getAuthState();
 
@@ -16,7 +16,7 @@
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
-			goto(resolve('/login'));
+			goto(resolve('login'));
 		}
 	});
 
@@ -49,7 +49,7 @@
 
 	async function handleLogout() {
 		await performLogout();
-		await goto(resolve('/login'));
+		await goto(resolve('login'));
 	}
 
 	const hasCollection = $derived(
@@ -80,8 +80,10 @@
 		</div>
 
 		<!-- Stats Cards -->
+
 		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8" data-testid="stats-row">
 			<StatsCard label="Gesamte Hefte" value={stats?.total_owned ?? 0} icon="📚" />
+
 			<StatsCard
 				label="Sammlungsfortschritt"
 				value={stats?.overall_progress_percent === null || stats === null
@@ -132,14 +134,14 @@
 		<!-- Quick links -->
 		<div class="flex flex-wrap gap-3 mt-6 mb-8" data-testid="quick-links">
 			<a
-				href={resolve('/collection')}
+				href={resolve('collection')}
 				class="rounded-lg px-4 py-2.5 text-sm font-semibold"
 				style="background: var(--color-brand-500); color: #000;"
 			>
 				Zur Sammlung
 			</a>
 			<a
-				href={resolve('/collection/add')}
+				href={resolve('collection/add')}
 				class="rounded-lg px-4 py-2.5 text-sm font-semibold"
 				style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
 			>
@@ -150,10 +152,8 @@
 		<section class="glass-elevated mb-6 rounded-lg p-6" data-testid="trade-suggestions">
 			<div class="mb-3 flex items-center justify-between gap-3">
 				<h3 class="text-lg font-semibold" style="color: var(--text-primary);">Tausch-Vorschläge</h3>
-				<a
-					href={resolve('/trades')}
-					class="text-sm underline"
-					style="color: var(--color-brand-500);">Alle anzeigen</a
+				<a href={resolve('trades')} class="text-sm underline" style="color: var(--color-brand-500);"
+					>Alle anzeigen</a
 				>
 			</div>
 			{#if tradeMatches.length === 0}
@@ -163,7 +163,7 @@
 			{:else}
 				<div class="grid gap-3 sm:grid-cols-3">
 					{#each tradeMatches as match (match.id)}
-						<a href={resolve('/trades')} class="rounded-lg p-3" style="background: var(--glass);">
+						<a href={resolve('trades')} class="rounded-lg p-3" style="background: var(--glass);">
 							<span class="block font-semibold">{match.partner.display_name}</span>
 							<span class="block text-xs" style="color: var(--text-secondary);">
 								{match.my_offers.length} ↔ {match.partner_offers.length} Hefte · {match.match_score}%

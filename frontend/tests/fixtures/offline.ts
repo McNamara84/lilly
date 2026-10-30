@@ -1,7 +1,7 @@
-import type { MeResponse } from '$lib/api/auth';
-import type { CollectionEntry } from '$lib/api/collection';
-import type { Issue, Series } from '$lib/api/series';
-import type { OfflineSnapshot } from '$lib/offline/types';
+import type { MeResponse } from '#lib/api/auth.js';
+import type { CollectionEntry } from '#lib/api/collection.js';
+import type { Issue, Series } from '#lib/api/series.js';
+import type { OfflineSnapshot } from '#lib/offline/types.js';
 
 export const profile = (id: number): MeResponse => ({
 	id,

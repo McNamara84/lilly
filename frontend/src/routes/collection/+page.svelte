@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getAuthState } from '$lib/stores/auth.svelte';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -13,18 +13,18 @@
 		type CollectionEntry,
 		type CollectionQueryParams,
 		type PersistedCollectionStatus
-	} from '$lib/api/collection';
-	import type { ConditionGrade } from '$lib/collection/conditions';
-	import { fetchSeries } from '$lib/api/series';
-	import CollectionFilterBar from '$lib/components/collection/CollectionFilterBar.svelte';
-	import CoverGrid from '$lib/components/collection/CoverGrid.svelte';
-	import IssueDetailSheet from '$lib/components/collection/IssueDetailSheet.svelte';
-	import { fetchIssue, type Issue } from '$lib/api/series';
+	} from '#lib/api/collection.js';
+	import type { ConditionGrade } from '#lib/collection/conditions.js';
+	import { fetchSeries } from '#lib/api/series.js';
+	import CollectionFilterBar from '#lib/components/collection/CollectionFilterBar.svelte';
+	import CoverGrid from '#lib/components/collection/CoverGrid.svelte';
+	import IssueDetailSheet from '#lib/components/collection/IssueDetailSheet.svelte';
+	import { fetchIssue, type Issue } from '#lib/api/series.js';
 	import {
 		normalizeCollectionQuery,
 		parseCollectionQuery,
 		serializeCollectionQuery
-	} from '$lib/utils/collection-query';
+	} from '#lib/utils/collection-query.js';
 
 	const auth = getAuthState();
 
@@ -45,7 +45,7 @@
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
-			goto(resolve('/login'));
+			goto(resolve('login'));
 		}
 	});
 
@@ -81,12 +81,10 @@
 
 	function navigateToCollection(params: CollectionQueryParams, replaceState = false) {
 		const query = serializeCollectionQuery(params).toString();
-		const destination = query ? resolve(`/collection?${query}`) : resolve('/collection');
-		return goto(destination, {
-			replaceState,
-			noScroll: true,
-			keepFocus: true
-		});
+
+		const destination = query ? resolve(`collection?${query}`) : resolve('collection');
+
+		return goto(destination, { replace: replaceState, reset: false });
 	}
 
 	async function loadCollection(params: CollectionQueryParams) {
@@ -196,7 +194,7 @@
 				Meine Sammlung
 			</h1>
 			<a
-				href={resolve('/collection/add')}
+				href={resolve('collection/add')}
 				class="rounded-lg px-4 py-2 text-sm font-semibold"
 				style="background: var(--color-brand-500); color: #000;"
 				data-testid="collection-fab"

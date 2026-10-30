@@ -297,7 +297,10 @@ test.describe('Trade lists', () => {
 			await page.goto('/trades');
 			await page.getByTestId('trade-history-tab').click();
 			await expect(
-				page.getByTestId('trade-summary-card').filter({ hasText: 'Abgeschlossen' })
+				page.getByTestId('trade-summary-card').filter({
+					has: page.locator(`a[href="/trades/${tradeId}"]`),
+					hasText: 'Abgeschlossen'
+				})
 			).toBeVisible();
 		} finally {
 			try {

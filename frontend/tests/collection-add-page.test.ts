@@ -6,14 +6,14 @@ import AddPage from '../src/routes/collection/add/+page.svelte';
 
 const mockGetAuthState = vi.fn();
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mockGetAuthState()
 }));
 
 const mockFetchSeries = vi.fn();
 const mockFetchAllSeriesIssues = vi.fn();
 
-vi.mock('$lib/api/series', () => ({
+vi.mock('#lib/api/series.js', () => ({
 	fetchSeries: () => mockFetchSeries(),
 	fetchAllSeriesIssues: (...args: unknown[]) => mockFetchAllSeriesIssues(...args)
 }));
@@ -23,7 +23,7 @@ const mockAddToCollection = vi.fn();
 const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
-vi.mock('$lib/api/collection', () => ({
+vi.mock('#lib/api/collection.js', () => ({
 	fetchAllCollectionEntries: (...args: unknown[]) => mockFetchAllCollectionEntries(...args),
 	addToCollection: (...args: unknown[]) => mockAddToCollection(...args),
 	updateCollectionEntry: (...args: unknown[]) => mockUpdateCollectionEntry(...args),
@@ -35,7 +35,7 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
 const mockSeries = [

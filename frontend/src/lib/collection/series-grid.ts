@@ -1,5 +1,5 @@
-import type { CollectionEntry, CollectionStatus } from '$lib/api/collection';
-import type { Issue } from '$lib/api/series';
+import type { CollectionEntry, CollectionStatus } from '#lib/api/collection.js';
+import type { Issue } from '#lib/api/series.js';
 
 export interface SeriesGridItem {
 	issue: Issue;

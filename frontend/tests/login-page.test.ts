@@ -8,7 +8,7 @@ const pageState = vi.hoisted(() => ({
 }));
 
 // Mock the API module
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	login: vi.fn(),
 	resendVerification: vi.fn(),
 	fetchAuthOptions: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock('$app/state', () => ({
 }));
 
 // Mock auth store
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	initAuth: vi.fn().mockResolvedValue(undefined),
 	deactivateAccountLocally: vi.fn().mockResolvedValue(undefined)
 }));
@@ -36,7 +36,7 @@ describe('Login Page', () => {
 		vi.clearAllMocks();
 		pageState.url = new URL('http://localhost/login');
 		window.history.replaceState({}, '', '/login');
-		const { fetchAuthOptions } = await import('$lib/api/auth');
+		const { fetchAuthOptions } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: false, github: false }
@@ -63,7 +63,7 @@ describe('Login Page', () => {
 	});
 
 	it('enables configured providers and starts OAuth login', async () => {
-		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		const { fetchAuthOptions, startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: true, github: false }
@@ -81,7 +81,7 @@ describe('Login Page', () => {
 	});
 
 	it('starts a configured GitHub login', async () => {
-		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		const { fetchAuthOptions, startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: false, github: true }
@@ -98,7 +98,7 @@ describe('Login Page', () => {
 	});
 
 	it('reports OAuth startup errors and resets the loading state', async () => {
-		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		const { fetchAuthOptions, startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: true, github: false }
@@ -115,7 +115,7 @@ describe('Login Page', () => {
 	});
 
 	it('navigates to the provider authorization URL after a successful OAuth start', async () => {
-		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		const { fetchAuthOptions, startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: true, github: false }
@@ -131,7 +131,7 @@ describe('Login Page', () => {
 	});
 
 	it('uses a safe fallback for untyped OAuth startup errors', async () => {
-		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		const { fetchAuthOptions, startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: true, github: false }
@@ -235,7 +235,7 @@ describe('Login Page', () => {
 	});
 
 	it('calls login API on valid form submission', async () => {
-		const { login } = await import('$lib/api/auth');
+		const { login } = await import('#lib/api/auth.js');
 		const mockLogin = vi.mocked(login);
 		mockLogin.mockResolvedValue({ message: 'Login successful' });
 
@@ -254,7 +254,7 @@ describe('Login Page', () => {
 
 	it('returns to account linking after a successful login', async () => {
 		pageState.url = new URL('http://localhost/login?return_to=%2Foauth%2Flink');
-		const { login } = await import('$lib/api/auth');
+		const { login } = await import('#lib/api/auth.js');
 		const { goto } = await import('$app/navigation');
 		vi.mocked(login).mockResolvedValue({ message: 'Login successful' });
 		render(LoginPage);
@@ -268,9 +268,9 @@ describe('Login Page', () => {
 	});
 
 	it('purges local account data and opens recovery for a pending deletion', async () => {
-		const { login } = await import('$lib/api/auth');
+		const { login } = await import('#lib/api/auth.js');
 		const { goto } = await import('$app/navigation');
-		const { deactivateAccountLocally } = await import('$lib/stores/auth.svelte');
+		const { deactivateAccountLocally } = await import('#lib/stores/auth.svelte.js');
 		vi.mocked(login).mockResolvedValue({
 			message: 'Account deletion is pending',
 			account_state: 'pending_deletion',
@@ -288,7 +288,7 @@ describe('Login Page', () => {
 	});
 
 	it('shows error message on failed login', async () => {
-		const { login } = await import('$lib/api/auth');
+		const { login } = await import('#lib/api/auth.js');
 		const mockLogin = vi.mocked(login);
 		mockLogin.mockRejectedValue(new Error('Invalid email or password'));
 
@@ -304,7 +304,7 @@ describe('Login Page', () => {
 	});
 
 	it('shows resend verification button when email is not verified', async () => {
-		const { login } = await import('$lib/api/auth');
+		const { login } = await import('#lib/api/auth.js');
 		const mockLogin = vi.mocked(login);
 		const error = new Error('Email not verified') as Error & { code?: string };
 		error.code = 'EMAIL_NOT_VERIFIED';
@@ -322,7 +322,7 @@ describe('Login Page', () => {
 	});
 
 	it('sends resend verification email on button click', async () => {
-		const { login, resendVerification } = await import('$lib/api/auth');
+		const { login, resendVerification } = await import('#lib/api/auth.js');
 		const mockLogin = vi.mocked(login);
 		const mockResend = vi.mocked(resendVerification);
 
@@ -346,7 +346,7 @@ describe('Login Page', () => {
 	});
 
 	it('keeps the resend response indistinguishable when delivery fails', async () => {
-		const { login, resendVerification } = await import('$lib/api/auth');
+		const { login, resendVerification } = await import('#lib/api/auth.js');
 		const error = new Error('Email not verified') as Error & { code?: string };
 		error.code = 'EMAIL_NOT_VERIFIED';
 		vi.mocked(login).mockRejectedValue(error);
@@ -363,7 +363,7 @@ describe('Login Page', () => {
 	});
 
 	it('shows generic error message on login failure without code', async () => {
-		const { login } = await import('$lib/api/auth');
+		const { login } = await import('#lib/api/auth.js');
 		const mockLogin = vi.mocked(login);
 		mockLogin.mockRejectedValue(new Error(''));
 
@@ -379,7 +379,7 @@ describe('Login Page', () => {
 	});
 
 	it('does not submit form when fields are invalid', async () => {
-		const { login } = await import('$lib/api/auth');
+		const { login } = await import('#lib/api/auth.js');
 		const mockLogin = vi.mocked(login);
 
 		render(LoginPage);
@@ -392,7 +392,7 @@ describe('Login Page', () => {
 	});
 
 	it('does not call resend when email is empty', async () => {
-		const { login, resendVerification } = await import('$lib/api/auth');
+		const { login, resendVerification } = await import('#lib/api/auth.js');
 		const mockLogin = vi.mocked(login);
 		const mockResend = vi.mocked(resendVerification);
 

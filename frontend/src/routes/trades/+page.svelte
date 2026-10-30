@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getAuthState } from '$lib/stores/auth.svelte';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
 	import {
 		fetchClosedTrades,
 		fetchMatches,
 		fetchOpenTrades,
 		type Trade,
 		type TradeMatch
-	} from '$lib/api/trades';
-	import TradeMatchCard from '$lib/components/trade/TradeMatchCard.svelte';
-	import TradeSummaryCard from '$lib/components/trade/TradeSummaryCard.svelte';
+	} from '#lib/api/trades.js';
+	import TradeMatchCard from '#lib/components/trade/TradeMatchCard.svelte';
+	import TradeSummaryCard from '#lib/components/trade/TradeSummaryCard.svelte';
 
 	const auth = getAuthState();
 	let activeTab = $state<'matches' | 'trades' | 'history'>('matches');
@@ -23,7 +23,7 @@
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
-			void goto(resolve('/login'));
+			void goto(resolve('login'));
 		} else if (auth.isAuthenticated && !loaded) {
 			loaded = true;
 			void load();
@@ -90,14 +90,14 @@
 		</div>
 		<nav class="flex flex-wrap gap-2" aria-label="Tauschlisten verwalten">
 			<a
-				href={resolve('/trades/offers')}
+				href={resolve('trades/offers')}
 				class="rounded-lg px-3 py-2 text-sm"
 				style="background: var(--glass);"
 			>
 				Tauschbare Hefte
 			</a>
 			<a
-				href={resolve('/trades/wanted')}
+				href={resolve('trades/wanted')}
 				class="rounded-lg px-3 py-2 text-sm"
 				style="background: var(--glass);"
 			>

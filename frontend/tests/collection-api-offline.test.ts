@@ -7,7 +7,7 @@ import {
 	refreshOfflineSnapshot,
 	syncPendingCollectionChanges,
 	updateCollectionEntry
-} from '$lib/api/collection';
+} from '#lib/api/collection.js';
 import {
 	deleteStoredCollectionEntry,
 	listMutations,
@@ -15,7 +15,7 @@ import {
 	replaceOfflineSnapshot,
 	resetOfflineDatabaseForTests,
 	saveConfirmedProfile
-} from '$lib/offline/database';
+} from '#lib/offline/database.js';
 import { entry, profile, snapshot } from './fixtures/offline';
 
 const mockFetch = vi.fn();

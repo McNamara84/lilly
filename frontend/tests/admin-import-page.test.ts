@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import AdminImportPage from '../src/routes/admin/import/+page.svelte';
 
-vi.mock('$lib/api/admin', () => ({
+vi.mock('#lib/api/admin.js', () => ({
 	fetchAdapters: vi.fn(),
 	startImport: vi.fn(),
 	fetchImportHistory: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: vi.fn((path: string) => path)
+	resolve: vi.fn((path: string) => (path.startsWith('/') ? path : `/${path}`))
 }));
 
 import {
@@ -23,7 +23,7 @@ import {
 	startImport,
 	fetchImportHistory,
 	fetchImportSchedule
-} from '$lib/api/admin';
+} from '#lib/api/admin.js';
 import { goto } from '$app/navigation';
 
 const mockAdapters = [

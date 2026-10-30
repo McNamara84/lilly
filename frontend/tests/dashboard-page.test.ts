@@ -8,16 +8,16 @@ const mockPerformLogout = vi.fn();
 const mockFetchCollectionStats = vi.fn();
 const mockFetchMatches = vi.fn();
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mockGetAuthState(),
 	performLogout: () => mockPerformLogout()
 }));
 
-vi.mock('$lib/api/collection', () => ({
+vi.mock('#lib/api/collection.js', () => ({
 	fetchCollectionStats: () => mockFetchCollectionStats()
 }));
 
-vi.mock('$lib/api/trades', () => ({
+vi.mock('#lib/api/trades.js', () => ({
 	fetchMatches: (...args: unknown[]) => mockFetchMatches(...args)
 }));
 
@@ -26,7 +26,7 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
 describe('Dashboard Page', () => {

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import ForgotPasswordPage from '../src/routes/forgot-password/+page.svelte';
 
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	requestPasswordReset: vi.fn()
 }));
 
@@ -25,7 +25,7 @@ describe('Forgot Password Page', () => {
 	});
 
 	it('validates empty and malformed email addresses without calling the API', async () => {
-		const { requestPasswordReset } = await import('$lib/api/auth');
+		const { requestPasswordReset } = await import('#lib/api/auth.js');
 		render(ForgotPasswordPage);
 		const user = userEvent.setup();
 
@@ -38,7 +38,7 @@ describe('Forgot Password Page', () => {
 	});
 
 	it('always shows the generic confirmation after success', async () => {
-		const { requestPasswordReset } = await import('$lib/api/auth');
+		const { requestPasswordReset } = await import('#lib/api/auth.js');
 		vi.mocked(requestPasswordReset).mockResolvedValue({ message: 'generic' });
 		render(ForgotPasswordPage);
 		const user = userEvent.setup();
@@ -52,7 +52,7 @@ describe('Forgot Password Page', () => {
 	});
 
 	it('shows retry timing for rate-limited requests', async () => {
-		const { requestPasswordReset } = await import('$lib/api/auth');
+		const { requestPasswordReset } = await import('#lib/api/auth.js');
 		const error = Object.assign(new Error('Too many requests'), { retry_after_seconds: 75 });
 		vi.mocked(requestPasswordReset).mockRejectedValue(error);
 		render(ForgotPasswordPage);
@@ -67,7 +67,7 @@ describe('Forgot Password Page', () => {
 	});
 
 	it('shows a safe fallback for untyped failures', async () => {
-		const { requestPasswordReset } = await import('$lib/api/auth');
+		const { requestPasswordReset } = await import('#lib/api/auth.js');
 		vi.mocked(requestPasswordReset).mockRejectedValue(new Error('Dienst nicht verfügbar'));
 		render(ForgotPasswordPage);
 		const user = userEvent.setup();

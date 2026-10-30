@@ -8,23 +8,23 @@
 		updateVisibility,
 		uploadAvatar,
 		type OwnProfile
-	} from '$lib/api/profile';
+	} from '#lib/api/profile.js';
 	import {
 		fetchPrivacyConsents,
 		startOAuth,
 		type OAuthProvider,
 		type PrivacyConsent
-	} from '$lib/api/auth';
+	} from '#lib/api/auth.js';
 	import {
 		availableOAuthMethods,
 		fetchAccountDeletionOptions,
 		requestAccountDeletion,
 		reauthenticateWithPassword,
 		type AccountDeletionOptions
-	} from '$lib/api/account-erasure';
-	import { DEFAULT_PHOTO_POLICY, fetchPhotoPolicy, type PhotoPolicy } from '$lib/api/media';
-	import { getOfflineStatus } from '$lib/offline/status.svelte';
-	import { deactivateAccountLocally, getAuthState, setUser } from '$lib/stores/auth.svelte';
+	} from '#lib/api/account-erasure.js';
+	import { DEFAULT_PHOTO_POLICY, fetchPhotoPolicy, type PhotoPolicy } from '#lib/api/media.js';
+	import { getOfflineStatus } from '#lib/offline/status.svelte.js';
+	import { deactivateAccountLocally, getAuthState, setUser } from '#lib/stores/auth.svelte.js';
 
 	const auth = getAuthState();
 	const offlineStatus = getOfflineStatus();
@@ -59,8 +59,8 @@
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
-			void goto(resolve('/login'));
-		} else if (auth.isAuthenticated && profile === null && loading) {
+			void goto(resolve('login'));
+		} else if (!auth.isLoading && auth.isAuthenticated && profile === null && loading) {
 			void loadProfile();
 		}
 	});
@@ -291,7 +291,7 @@
 			}
 			await deactivateAccountLocally();
 			deletionDialog?.close();
-			await goto(resolve('/account/deletion'));
+			await goto(resolve('account/deletion'));
 		} catch (cause) {
 			const apiError = cause as (Error & { code?: string }) | null;
 			if (apiError?.code === 'RECENT_AUTH_REQUIRED') {
@@ -486,6 +486,7 @@
 
 			<section class="glass-elevated rounded-lg p-6" aria-labelledby="visibility-heading">
 				<h2 id="visibility-heading" class="mb-2 text-lg font-semibold">Sichtbarkeit</h2>
+
 				<p class="mb-5 text-sm" style="color: var(--text-secondary);">
 					Profil und Sammlung können unabhängig voneinander freigegeben werden.
 				</p>
@@ -549,9 +550,9 @@
 						{saving ? 'Speichern …' : 'Sichtbarkeit speichern'}
 					</button>
 					{#if collectionPublic}
-						<a href={resolve(`/users/${profile.id}/collection`)} class="text-sm underline">
-							Öffentliche Sammlung ansehen
-						</a>
+						<a href={resolve(`users/${profile.id}/collection`)} class="text-sm underline"
+							>Öffentliche Sammlung ansehen</a
+						>
 					{/if}
 				</div>
 			</section>
@@ -670,9 +671,10 @@
 				data-testid="account-deletion-confirmation"
 			/>
 			<div class="mt-5 flex flex-wrap justify-end gap-3">
-				<button type="button" class="rounded-lg px-4 py-2" onclick={() => deletionDialog?.close()}>
-					Abbrechen
-				</button>
+				<button type="button" class="rounded-lg px-4 py-2" onclick={() => deletionDialog?.close()}
+					>Abbrechen</button
+				>
+
 				<button
 					type="submit"
 					class="rounded-lg px-4 py-2 font-semibold disabled:opacity-50"

@@ -3,16 +3,16 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import AdminSeriesPage from '../src/routes/admin/series/+page.svelte';
 
-vi.mock('$lib/api/admin', () => ({
+vi.mock('#lib/api/admin.js', () => ({
 	fetchAllSeries: vi.fn(),
 	deactivateSeries: vi.fn()
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
-import { fetchAllSeries, deactivateSeries } from '$lib/api/admin';
+import { fetchAllSeries, deactivateSeries } from '#lib/api/admin.js';
 
 const mockSeries = [
 	{

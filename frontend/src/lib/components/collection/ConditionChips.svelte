@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CONDITION_DEFINITIONS, type ConditionGrade } from '$lib/collection/conditions';
+	import { CONDITION_DEFINITIONS, type ConditionGrade } from '#lib/collection/conditions.js';
 
 	interface Props {
 		value: ConditionGrade | null;

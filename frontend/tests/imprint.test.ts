@@ -4,15 +4,17 @@ import { readImprintConfig, type ImprintConfig } from '../src/lib/imprint';
 import ImprintPage from '../src/routes/imprint/+page.svelte';
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
-vi.mock('$env/dynamic/private', () => ({
-	env: {
-		IMPRINT_OPERATOR_NAME: 'Server Betreiber',
-		IMPRINT_ADDRESS: 'Weg 2|54321 Ort',
-		IMPRINT_EMAIL: 'server@example.org'
-	}
+vi.mock('$app/env/private', () => ({
+	IMPRINT_OPERATOR_NAME: 'Server Betreiber',
+	IMPRINT_ADDRESS: 'Weg 2|54321 Ort',
+	IMPRINT_EMAIL: 'server@example.org',
+	IMPRINT_PHONE: '',
+	IMPRINT_RESPONSIBLE_PERSON: '',
+	IMPRINT_ADDITIONAL: '',
+	IMPRINT_LAST_UPDATED: ''
 }));
 
 const completeEnv = {

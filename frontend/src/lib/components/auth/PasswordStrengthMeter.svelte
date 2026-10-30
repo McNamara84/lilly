@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PasswordStrengthResult } from '$lib/utils/password-strength';
+	import type { PasswordStrengthResult } from '#lib/utils/password-strength.js';
 
 	let {
 		strength,

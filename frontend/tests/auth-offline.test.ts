@@ -2,13 +2,13 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { profile } from './fixtures/offline';
 
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	fetchMe: vi.fn(),
 	logout: vi.fn(),
 	refreshToken: vi.fn()
 }));
 
-vi.mock('$lib/api/collection', () => ({
+vi.mock('#lib/api/collection.js', () => ({
 	refreshOfflineSnapshot: vi.fn().mockResolvedValue(undefined),
 	syncPendingCollectionChanges: vi.fn().mockResolvedValue(null)
 }));
@@ -18,7 +18,7 @@ describe('offline authentication context', () => {
 		vi.clearAllMocks();
 		vi.unstubAllGlobals();
 		vi.resetModules();
-		const { resetOfflineDatabaseForTests } = await import('$lib/offline/database');
+		const { resetOfflineDatabaseForTests } = await import('#lib/offline/database.js');
 		await resetOfflineDatabaseForTests();
 	});
 
@@ -30,9 +30,9 @@ describe('offline authentication context', () => {
 			}
 		}
 		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
-		const { fetchMe } = await import('$lib/api/auth');
+		const { fetchMe } = await import('#lib/api/auth.js');
 		vi.mocked(fetchMe).mockResolvedValue(profile(7));
-		const { getAuthState, initAuth } = await import('$lib/stores/auth.svelte');
+		const { getAuthState, initAuth } = await import('#lib/stores/auth.svelte.js');
 		await initAuth();
 
 		messageHandler?.({ data: { type: 'logout', user_id: 7 } } as MessageEvent);
@@ -42,12 +42,12 @@ describe('offline authentication context', () => {
 		messageHandler?.({ data: { type: 'account-deletion', user_id: 7 } } as MessageEvent);
 
 		await vi.waitFor(() => expect(getAuthState().user).toBeNull());
-		const { getCachedProfile } = await import('$lib/offline/database');
+		const { getCachedProfile } = await import('#lib/offline/database.js');
 		await vi.waitFor(async () => expect(await getCachedProfile()).toBeNull());
 	});
 
 	it('purges IndexedDB, service-worker caches, and other tabs after local deactivation', async () => {
-		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		const { saveConfirmedProfile } = await import('#lib/offline/database.js');
 		await saveConfirmedProfile(profile(7));
 		const serviceWorkerPost = vi.fn();
 		const broadcastPost = vi.fn();
@@ -63,11 +63,11 @@ describe('offline authentication context', () => {
 			}
 		});
 		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
-		const { deactivateAccountLocally, getAuthState } = await import('$lib/stores/auth.svelte');
+		const { deactivateAccountLocally, getAuthState } = await import('#lib/stores/auth.svelte.js');
 
 		await deactivateAccountLocally();
 
-		const { getCachedProfile } = await import('$lib/offline/database');
+		const { getCachedProfile } = await import('#lib/offline/database.js');
 		expect(await getCachedProfile()).toBeNull();
 		expect(getAuthState().isAuthenticated).toBe(false);
 		expect(getAuthState().isOfflineSession).toBe(false);
@@ -77,7 +77,7 @@ describe('offline authentication context', () => {
 	});
 
 	it('reports IndexedDB cleanup failures after still notifying caches and other tabs', async () => {
-		const database = await import('$lib/offline/database');
+		const database = await import('#lib/offline/database.js');
 		await database.saveConfirmedProfile(profile(7));
 		vi.spyOn(database, 'clearOfflineUserData').mockRejectedValueOnce(
 			new Error('IndexedDB transaction failed')
@@ -96,7 +96,7 @@ describe('offline authentication context', () => {
 		});
 		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
 		const { deactivateAccountLocally, getAuthState, setUser } =
-			await import('$lib/stores/auth.svelte');
+			await import('#lib/stores/auth.svelte.js');
 		setUser(profile(7));
 
 		await expect(deactivateAccountLocally()).rejects.toThrow(/Lokale Kontodaten/);
@@ -114,7 +114,7 @@ describe('offline authentication context', () => {
 	});
 
 	it('does not wait for a service worker registration before completing local deactivation', async () => {
-		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		const { saveConfirmedProfile } = await import('#lib/offline/database.js');
 		await saveConfirmedProfile(profile(7));
 		const broadcastPost = vi.fn();
 		class BroadcastChannelMock {
@@ -129,7 +129,7 @@ describe('offline authentication context', () => {
 		});
 		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
 		const { deactivateAccountLocally, getAuthState, setUser } =
-			await import('$lib/stores/auth.svelte');
+			await import('#lib/stores/auth.svelte.js');
 		setUser(profile(7));
 
 		await deactivateAccountLocally();
@@ -139,7 +139,7 @@ describe('offline authentication context', () => {
 	});
 
 	it('still broadcasts deactivation when service-worker registration fails', async () => {
-		const database = await import('$lib/offline/database');
+		const database = await import('#lib/offline/database.js');
 		vi.spyOn(database, 'clearOfflineUserData').mockResolvedValueOnce(undefined);
 		const broadcastPost = vi.fn();
 		let rejectRegistration: ((reason: Error) => void) | undefined;
@@ -158,7 +158,7 @@ describe('offline authentication context', () => {
 		});
 		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
 		const { deactivateAccountLocally, getAuthState, setUser } =
-			await import('$lib/stores/auth.svelte');
+			await import('#lib/stores/auth.svelte.js');
 		setUser(profile(7));
 
 		const deactivation = deactivateAccountLocally();
@@ -172,31 +172,31 @@ describe('offline authentication context', () => {
 	});
 
 	it('removes a cached identity when the backend reports pending account deletion', async () => {
-		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		const { saveConfirmedProfile } = await import('#lib/offline/database.js');
 		await saveConfirmedProfile(profile(7));
-		const { fetchMe, refreshToken } = await import('$lib/api/auth');
+		const { fetchMe, refreshToken } = await import('#lib/api/auth.js');
 		vi.mocked(fetchMe).mockRejectedValue(
 			Object.assign(new Error('Account deletion is pending'), {
 				code: 'ACCOUNT_DELETION_PENDING'
 			})
 		);
 		vi.mocked(refreshToken).mockRejectedValue(new Error('Refresh rejected'));
-		const { getAuthState, initAuth } = await import('$lib/stores/auth.svelte');
+		const { getAuthState, initAuth } = await import('#lib/stores/auth.svelte.js');
 
 		await initAuth();
 
-		const { getCachedProfile } = await import('$lib/offline/database');
+		const { getCachedProfile } = await import('#lib/offline/database.js');
 		expect(await getCachedProfile()).toBeNull();
 		expect(getAuthState().user).toBeNull();
 	});
 
 	it('restores only a confirmed cached user after a network failure', async () => {
-		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		const { saveConfirmedProfile } = await import('#lib/offline/database.js');
 		await saveConfirmedProfile(profile(7));
-		const { fetchMe, refreshToken } = await import('$lib/api/auth');
+		const { fetchMe, refreshToken } = await import('#lib/api/auth.js');
 		vi.mocked(fetchMe).mockRejectedValue(new TypeError('Network unavailable'));
 
-		const { getAuthState, initAuth } = await import('$lib/stores/auth.svelte');
+		const { getAuthState, initAuth } = await import('#lib/stores/auth.svelte.js');
 		await initAuth();
 
 		expect(getAuthState().user).toEqual(profile(7));
@@ -205,13 +205,13 @@ describe('offline authentication context', () => {
 	});
 
 	it('does not use cached identity for an authentication rejection', async () => {
-		const { saveConfirmedProfile } = await import('$lib/offline/database');
+		const { saveConfirmedProfile } = await import('#lib/offline/database.js');
 		await saveConfirmedProfile(profile(7));
-		const { fetchMe, refreshToken } = await import('$lib/api/auth');
+		const { fetchMe, refreshToken } = await import('#lib/api/auth.js');
 		vi.mocked(fetchMe).mockRejectedValue(new Error('Unauthorized'));
 		vi.mocked(refreshToken).mockRejectedValue(new Error('Refresh rejected'));
 
-		const { getAuthState, initAuth } = await import('$lib/stores/auth.svelte');
+		const { getAuthState, initAuth } = await import('#lib/stores/auth.svelte.js');
 		await initAuth();
 
 		expect(getAuthState().user).toBeNull();
@@ -219,25 +219,25 @@ describe('offline authentication context', () => {
 	});
 
 	it('clears private offline data even when remote logout fails', async () => {
-		const { fetchMe, logout } = await import('$lib/api/auth');
+		const { fetchMe, logout } = await import('#lib/api/auth.js');
 		vi.mocked(fetchMe).mockResolvedValue(profile(7));
 		vi.mocked(logout).mockRejectedValue(new TypeError('Network unavailable'));
-		const { initAuth, performLogout } = await import('$lib/stores/auth.svelte');
+		const { initAuth, performLogout } = await import('#lib/stores/auth.svelte.js');
 		await initAuth();
 
 		await expect(performLogout()).rejects.toThrow('Network unavailable');
-		const { getCachedProfile } = await import('$lib/offline/database');
+		const { getCachedProfile } = await import('#lib/offline/database.js');
 		expect(await getCachedProfile()).toBeNull();
 	});
 
 	it('refreshes the snapshot even when sending pending changes fails', async () => {
-		const { fetchMe } = await import('$lib/api/auth');
+		const { fetchMe } = await import('#lib/api/auth.js');
 		const { refreshOfflineSnapshot, syncPendingCollectionChanges } =
-			await import('$lib/api/collection');
+			await import('#lib/api/collection.js');
 		vi.mocked(fetchMe).mockResolvedValue(profile(7));
 		vi.mocked(syncPendingCollectionChanges).mockRejectedValue(new TypeError('Network unavailable'));
 		vi.mocked(refreshOfflineSnapshot).mockResolvedValue(undefined);
-		const { initAuth } = await import('$lib/stores/auth.svelte');
+		const { initAuth } = await import('#lib/stores/auth.svelte.js');
 
 		await initAuth();
 

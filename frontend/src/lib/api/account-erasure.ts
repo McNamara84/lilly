@@ -1,4 +1,4 @@
-import type { LoginResponse, OAuthProvider } from '$lib/api/auth';
+import type { LoginResponse, OAuthProvider } from '#lib/api/auth.js';
 
 const API_BASE = '/api/v1';
 

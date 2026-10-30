@@ -14,7 +14,7 @@ reqwest = { version = "0.13.5", features = ["json"] }
 async-trait = "0.1.92"
 chrono = { version = "0.4.45", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 tracing = "0.1.44"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 anyhow = "1.0.104"

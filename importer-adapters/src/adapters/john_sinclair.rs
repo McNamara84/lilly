@@ -743,7 +743,7 @@ mod tests {
             parse_people("Team Bastei mit KI"),
             vec!["Team Bastei mit KI"]
         );
-        assert!(parse_people("").is_empty());
+        assert_eq!(parse_people(""), [] as [std::string::String; 0]);
     }
 
     #[test]

@@ -728,7 +728,7 @@ mod tests {
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["page"], 1);
         assert_eq!(json["total"], 0);
-        assert!(json["data"].as_array().unwrap().is_empty());
+        assert_eq!(json["data"], serde_json::json!([]));
     }
 
     #[test]

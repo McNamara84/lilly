@@ -1,22 +1,22 @@
 <script lang="ts">
-	import { getCachedProfile } from '$lib/offline/database';
+	import { getCachedProfile } from '#lib/offline/database.js';
 	import {
 		acceptConflictServerVersion,
 		listConflicts,
 		reapplyConflictLocalVersion
-	} from '$lib/offline/collection';
-	import type { StoredConflict } from '$lib/offline/types';
+	} from '#lib/offline/collection.js';
+	import type { StoredConflict } from '#lib/offline/types.js';
 	import {
 		formatOfflineStatusLabel,
 		getOfflineStatus,
 		refreshOfflineStatus,
 		synchronizeNow
-	} from '$lib/offline/status.svelte';
+	} from '#lib/offline/status.svelte.js';
 	import {
 		activateWaitingServiceWorker,
 		getPwaState,
 		promptInstall
-	} from '$lib/offline/pwa.svelte';
+	} from '#lib/offline/pwa.svelte.js';
 
 	const status = getOfflineStatus();
 	const pwa = getPwaState();

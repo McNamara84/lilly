@@ -22,26 +22,26 @@ const mocks = vi.hoisted(() => ({
 	activateWaitingServiceWorker: vi.fn()
 }));
 
-vi.mock('$lib/offline/database', () => ({ getCachedProfile: mocks.getCachedProfile }));
-vi.mock('$lib/offline/collection', () => ({
+vi.mock('#lib/offline/database.js', () => ({ getCachedProfile: mocks.getCachedProfile }));
+vi.mock('#lib/offline/collection.js', () => ({
 	listConflicts: mocks.listConflicts,
 	acceptConflictServerVersion: mocks.acceptConflictServerVersion,
 	reapplyConflictLocalVersion: mocks.reapplyConflictLocalVersion
 }));
-vi.mock('$lib/offline/status.svelte', () => ({
+vi.mock('#lib/offline/status.svelte.js', () => ({
 	getOfflineStatus: () => mocks.status,
 	formatOfflineStatusLabel: () =>
 		mocks.status.conflictCount > 0 ? `${mocks.status.conflictCount} Konflikt(e)` : 'Synchronisiert',
 	refreshOfflineStatus: mocks.refreshOfflineStatus,
 	synchronizeNow: mocks.synchronizeNow
 }));
-vi.mock('$lib/offline/pwa.svelte', () => ({
+vi.mock('#lib/offline/pwa.svelte.js', () => ({
 	getPwaState: () => mocks.pwa,
 	promptInstall: mocks.promptInstall,
 	activateWaitingServiceWorker: mocks.activateWaitingServiceWorker
 }));
 
-import OfflineStatus from '$lib/components/offline/OfflineStatus.svelte';
+import OfflineStatus from '#lib/components/offline/OfflineStatus.svelte';
 
 const serverEntry = {
 	id: 30,

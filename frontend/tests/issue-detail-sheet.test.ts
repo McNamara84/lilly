@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import IssueDetailSheet from '../src/lib/components/collection/IssueDetailSheet.svelte';
-import type { Issue } from '$lib/api/series';
-import type { CollectionEntry } from '$lib/api/collection';
+import type { Issue } from '#lib/api/series.js';
+import type { CollectionEntry } from '#lib/api/collection.js';
 
 const sampleIssue: Issue = {
 	id: 42,

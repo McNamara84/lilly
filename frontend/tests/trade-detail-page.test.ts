@@ -1,25 +1,11 @@
+import { fromStore, writable } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import TradeDetailPage from '../src/routes/trades/[id]/+page.svelte';
 
-function createMockStore<T>(initial: T) {
-	let value = initial;
-	const subscribers = new Set<(next: T) => void>();
-	return {
-		subscribe(subscriber: (next: T) => void) {
-			subscribers.add(subscriber);
-			subscriber(value);
-			return () => subscribers.delete(subscriber);
-		},
-		set(next: T) {
-			value = next;
-			subscribers.forEach((subscriber) => subscriber(next));
-		}
-	};
-}
-
-const mockPage = createMockStore({ params: { id: '8' } });
+const mockPage = writable({ params: { id: '8' } });
+const pageState = fromStore(mockPage);
 const mocks = vi.hoisted(() => ({
 	getAuthState: vi.fn(),
 	fetchTrade: vi.fn(),
@@ -32,19 +18,23 @@ const mocks = vi.hoisted(() => ({
 	goto: vi.fn()
 }));
 
-vi.mock('$app/stores', () => ({
-	page: { subscribe: (subscriber: (value: unknown) => void) => mockPage.subscribe(subscriber) }
+vi.mock('$app/state', () => ({
+	get page() {
+		return pageState.current;
+	}
 }));
 vi.mock('$app/navigation', () => ({ goto: (...args: unknown[]) => mocks.goto(...args) }));
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
-vi.mock('$lib/stores/auth.svelte', () => ({ getAuthState: () => mocks.getAuthState() }));
-vi.mock('$lib/api/trades', () => ({
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
+vi.mock('#lib/stores/auth.svelte.js', () => ({ getAuthState: () => mocks.getAuthState() }));
+vi.mock('#lib/api/trades.js', () => ({
 	fetchTrade: (...args: unknown[]) => mocks.fetchTrade(...args),
 	acceptTrade: (...args: unknown[]) => mocks.acceptTrade(...args),
 	cancelTrade: (...args: unknown[]) => mocks.cancelTrade(...args),
 	completeTrade: (...args: unknown[]) => mocks.completeTrade(...args)
 }));
-vi.mock('$lib/api/messages', () => ({
+vi.mock('#lib/api/messages.js', () => ({
 	fetchMessages: (...args: unknown[]) => mocks.fetchMessages(...args),
 	markThreadRead: (...args: unknown[]) => mocks.markThreadRead(...args),
 	sendMessage: (...args: unknown[]) => mocks.sendMessage(...args)

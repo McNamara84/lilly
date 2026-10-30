@@ -7,7 +7,7 @@
 		type Adapter,
 		type ImportJob,
 		type ImportScheduleStatus
-	} from '$lib/api/admin';
+	} from '#lib/api/admin.js';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 
@@ -55,7 +55,7 @@
 		error = null;
 		try {
 			const job = await startImport(selectedAdapter);
-			await goto(resolve(`/admin/import/${job.id}`));
+			await goto(resolve(`admin/import/${job.id}`));
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Import failed';
 			importing = false;
@@ -218,7 +218,7 @@
 								</td>
 								<td class="py-3 px-2 text-right">
 									<a
-										href={resolve(`/admin/import/${job.id}`)}
+										href={resolve(`admin/import/${job.id}`)}
 										class="text-xs px-3 py-1.5 rounded-lg transition-colors"
 										style="color: var(--color-brand-500);"
 										data-testid="view-details-link"
