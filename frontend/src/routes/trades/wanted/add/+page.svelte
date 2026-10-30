@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getAuthState } from '$lib/stores/auth.svelte';
-	import { fetchSeries, type Series } from '$lib/api/series';
-	import { addWantedBulk, fetchWantedCandidates, type WantedCandidate } from '$lib/api/trades';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
+	import { fetchSeries, type Series } from '#lib/api/series.js';
+	import { addWantedBulk, fetchWantedCandidates, type WantedCandidate } from '#lib/api/trades.js';
 	import { onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 
@@ -29,7 +29,7 @@
 
 	$effect(() => {
 		if (!auth.isLoading && !auth.isAuthenticated) {
-			void goto(resolve('/login'));
+			void goto(resolve('login'));
 		} else if (auth.isAuthenticated && !loaded) {
 			loaded = true;
 			void loadSeries();
@@ -154,7 +154,7 @@
 <div class="min-h-[calc(100vh-3.5rem)] px-4 py-8 sm:px-6 lg:px-8">
 	<header class="mb-6">
 		<a
-			href={resolve('/trades/wanted')}
+			href={resolve('trades/wanted')}
 			class="text-sm underline"
 			style="color: var(--text-secondary);"
 		>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CoverCard from './CoverCard.svelte';
-	import type { CollectionEntry } from '$lib/api/collection';
+	import type { CollectionEntry } from '#lib/api/collection.js';
 
 	interface Props {
 		items: CollectionEntry[];

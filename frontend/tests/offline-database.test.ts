@@ -12,8 +12,8 @@ import {
 	resetOfflineDatabaseForTests,
 	saveConfirmedProfile,
 	enqueueMutation
-} from '$lib/offline/database';
-import type { CollectionMutation } from '$lib/offline/types';
+} from '#lib/offline/database.js';
+import type { CollectionMutation } from '#lib/offline/types.js';
 import { entry, issue, profile, series, snapshot } from './fixtures/offline';
 
 describe('offline database', () => {

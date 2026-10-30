@@ -8,7 +8,7 @@ x-logging: &default-logging
 
 services:
   db:
-    image: mariadb:12.3.3
+    image: mariadb:12.3.3@sha256:d46e102fa8b9b72bfcdeb56f9dd538742092119dc8b11f31fe662605cd234cd9
     restart: unless-stopped
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
@@ -109,7 +109,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "3000"
-      ORIGIN: ${APP_BASE_URL:?APP_BASE_URL is required}
+      # Caddy preserves Host and sanitizes forwarded headers from Traefik.
+      PROTOCOL_HEADER: x-forwarded-proto
       IMPRINT_OPERATOR_NAME: ${IMPRINT_OPERATOR_NAME:-}
       IMPRINT_ADDRESS: ${IMPRINT_ADDRESS:-}
       IMPRINT_EMAIL: ${IMPRINT_EMAIL:-}
@@ -137,7 +138,7 @@ services:
     logging: *default-logging
 
   caddy:
-    image: caddy:2.11.4-alpine
+    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
     restart: unless-stopped
     ports:
       - "${LILLY_BIND_ADDRESS:-127.0.0.1}:${LILLY_HOST_PORT:-8091}:80"

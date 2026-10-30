@@ -2,15 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import SeriesPage from '../src/routes/series/+page.svelte';
 
-vi.mock('$lib/api/series', () => ({
+vi.mock('#lib/api/series.js', () => ({
 	fetchSeries: vi.fn()
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: vi.fn((path: string) => path)
+	resolve: vi.fn((path: string) => (path.startsWith('/') ? path : `/${path}`))
 }));
 
-import { fetchSeries } from '$lib/api/series';
+import { fetchSeries } from '#lib/api/series.js';
 
 const mockSeries = [
 	{

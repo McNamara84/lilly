@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { fetchPublicCollection, type PublicCollectionEntry } from '$lib/api/profile';
-	import CollectionNote from '$lib/components/collection/CollectionNote.svelte';
+	import { fetchPublicCollection, type PublicCollectionEntry } from '#lib/api/profile.js';
+	import CollectionNote from '#lib/components/collection/CollectionNote.svelte';
 
 	let entries = $state<PublicCollectionEntry[]>([]);
 	let loading = $state(true);

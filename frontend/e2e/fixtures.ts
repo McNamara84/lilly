@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { test as base, expect, type APIRequestContext, type Playwright } from '@playwright/test';
+import { test as base, expect, type APIRequestContext } from '@playwright/test';
+import type { PlaywrightWorkerArgs } from '@playwright/test';
 
 type TestFixtures = {
 	anonymousRequest: APIRequestContext;
@@ -18,7 +19,7 @@ function projectBaseURL(baseURL: unknown): string {
 }
 
 async function authenticateWorker(
-	playwright: Playwright,
+	playwright: PlaywrightWorkerArgs['playwright'],
 	baseURL: string,
 	parallelIndex: number,
 	storageStatePath: string

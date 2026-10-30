@@ -1,6 +1,6 @@
-import type { CollectionEntry } from '$lib/api/collection';
-import type { MeResponse } from '$lib/api/auth';
-import type { Issue, Series } from '$lib/api/series';
+import type { CollectionEntry } from '#lib/api/collection.js';
+import type { MeResponse } from '#lib/api/auth.js';
+import type { Issue, Series } from '#lib/api/series.js';
 import type {
 	CollectionMutation,
 	OfflineMetadata,

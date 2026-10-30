@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getAuthState } from '$lib/stores/auth.svelte';
-	import { deleteWantedEntry, fetchWantedEntries, type WantedEntry } from '$lib/api/trades';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
+	import { deleteWantedEntry, fetchWantedEntries, type WantedEntry } from '#lib/api/trades.js';
 
 	const auth = getAuthState();
 	let entries = $state<WantedEntry[]>([]);
@@ -11,7 +11,7 @@
 	let loaded = false;
 
 	$effect(() => {
-		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('/login'));
+		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('login'));
 		else if (auth.isAuthenticated && !loaded) {
 			loaded = true;
 			void load();
@@ -42,11 +42,11 @@
 <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6">
 	<header class="mb-6 flex flex-wrap items-end justify-between gap-3">
 		<div>
-			<a href={resolve('/trades')} class="text-sm underline">← Zurück zum Tausch</a>
+			<a href={resolve('trades')} class="text-sm underline">← Zurück zum Tausch</a>
 			<h1 class="mt-3 text-2xl font-bold">Wunschliste</h1>
 		</div>
 		<a
-			href={resolve('/trades/wanted/add')}
+			href={resolve('trades/wanted/add')}
 			class="rounded-lg px-4 py-2 text-sm font-semibold"
 			style="background: var(--color-brand-500); color: #000;"
 		>

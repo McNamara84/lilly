@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { CollectionEntry, CollectionStatus } from '$lib/api/collection';
-	import type { Issue } from '$lib/api/series';
+	import type { CollectionEntry, CollectionStatus } from '#lib/api/collection.js';
+	import type { Issue } from '#lib/api/series.js';
 	import {
 		buildSeriesGridItems,
 		COLLECTION_STATUS_PRESENTATION
-	} from '$lib/collection/series-grid';
+	} from '#lib/collection/series-grid.js';
 	import CollectionStatusLegend from './CollectionStatusLegend.svelte';
 
 	interface Props {
@@ -39,7 +39,7 @@
 				type="button"
 				class="group relative aspect-square min-w-0 rounded-lg font-bold transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2"
 				style={cellStyle(item.status)}
-				aria-label={`Heft #${item.issue.issue_number}: ${item.issue.title}. Status: ${presentation.label}. Details öffnen.`}
+				aria-label={`Heft #${item.issue.issue_number} ${presentation.abbreviation}: ${item.issue.title}. Status: ${presentation.label}. Details öffnen.`}
 				title={`${item.issue.title} — ${presentation.label}`}
 				onclick={(event) => onselect(item.issue, item.entry, event.currentTarget)}
 				data-testid="series-status-cell"

@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { getAuthState } from '$lib/stores/auth.svelte';
+import { getAuthState } from '#lib/stores/auth.svelte.js';
 
 export function load() {
 	const auth = getAuthState();

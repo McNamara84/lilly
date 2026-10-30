@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { fetchAllSeries, deactivateSeries, type SeriesAdmin } from '$lib/api/admin';
+	import { fetchAllSeries, deactivateSeries, type SeriesAdmin } from '#lib/api/admin.js';
 
 	let seriesList = $state<SeriesAdmin[]>([]);
 	let loading = $state(true);
@@ -113,14 +113,14 @@
 								>
 							{:else if series.latest_import_job_id}
 								<a
-									href={resolve(`/admin/import/${series.latest_import_job_id}`)}
+									href={resolve(`admin/import/${series.latest_import_job_id}`)}
 									class="text-xs px-3 py-1.5 rounded-lg transition-colors"
 									style="background-color: var(--surface-raised); color: var(--color-brand-500);"
 									data-testid="review-import-link">Import prüfen</a
 								>
 							{:else}
 								<a
-									href={resolve('/admin/import')}
+									href={resolve('admin/import')}
 									class="text-xs px-3 py-1.5 rounded-lg transition-colors"
 									style="background-color: var(--surface-raised); color: var(--color-brand-500);"
 									data-testid="review-import-link">Import starten</a

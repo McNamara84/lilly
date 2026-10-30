@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const syncPendingCollectionChanges = vi.hoisted(() => vi.fn());
 
-vi.mock('$lib/api/collection', () => ({ syncPendingCollectionChanges }));
+vi.mock('#lib/api/collection.js', () => ({ syncPendingCollectionChanges }));
 
 beforeEach(() => {
 	syncPendingCollectionChanges.mockReset();
@@ -16,12 +16,12 @@ afterEach(() => {
 
 async function loadStatusWithNavigatorOnline(online: boolean) {
 	vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(online);
-	return import('$lib/offline/status.svelte');
+	return import('#lib/offline/status.svelte.js');
 }
 
 describe('offline connectivity status', () => {
 	it('keeps offline connectivity visible together with queued changes or conflicts', async () => {
-		const { formatOfflineStatusLabel } = await import('$lib/offline/status.svelte');
+		const { formatOfflineStatusLabel } = await import('#lib/offline/status.svelte.js');
 		expect(
 			formatOfflineStatusLabel({
 				online: false,
@@ -53,7 +53,7 @@ describe('offline connectivity status', () => {
 
 	it('prioritizes active online states and otherwise reports synchronization', async () => {
 		const { formatOfflineStatusLabel, shouldProbeConnectivity } =
-			await import('$lib/offline/status.svelte');
+			await import('#lib/offline/status.svelte.js');
 		const base = {
 			online: true,
 			syncing: false,
@@ -109,7 +109,7 @@ describe('offline connectivity status', () => {
 	it('synchronizes queued changes when a previously offline backend becomes reachable', async () => {
 		const onlineSpy = vi.spyOn(window.navigator, 'onLine', 'get');
 		onlineSpy.mockReturnValue(false);
-		const statusModule = await import('$lib/offline/status.svelte');
+		const statusModule = await import('#lib/offline/status.svelte.js');
 		await statusModule.refreshConnectivity();
 
 		onlineSpy.mockReturnValue(true);

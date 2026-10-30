@@ -8,14 +8,14 @@ const mocks = vi.hoisted(() => ({
 	listConflicts: vi.fn()
 }));
 
-vi.mock('$lib/api/collection', () => ({
+vi.mock('#lib/api/collection.js', () => ({
 	syncPendingCollectionChanges: mocks.syncPendingCollectionChanges
 }));
-vi.mock('$lib/offline/database', () => ({
+vi.mock('#lib/offline/database.js', () => ({
 	getCachedProfile: mocks.getCachedProfile,
 	getSnapshotTimestamp: mocks.getSnapshotTimestamp
 }));
-vi.mock('$lib/offline/collection', () => ({
+vi.mock('#lib/offline/collection.js', () => ({
 	listMutations: mocks.listMutations,
 	listConflicts: mocks.listConflicts
 }));
@@ -37,7 +37,7 @@ describe('offline status lifecycle', () => {
 	});
 
 	it('refreshes user-scoped queue, conflict and snapshot metadata', async () => {
-		const module = await import('$lib/offline/status.svelte');
+		const module = await import('#lib/offline/status.svelte.js');
 
 		await module.refreshOfflineStatus();
 
@@ -52,7 +52,7 @@ describe('offline status lifecycle', () => {
 	});
 
 	it('clears private status when no cached profile can be read', async () => {
-		const module = await import('$lib/offline/status.svelte');
+		const module = await import('#lib/offline/status.svelte.js');
 		await module.refreshOfflineStatus();
 		mocks.getCachedProfile.mockRejectedValue(new Error('IndexedDB unavailable'));
 
@@ -70,7 +70,7 @@ describe('offline status lifecycle', () => {
 		mocks.syncPendingCollectionChanges.mockImplementation(
 			() => new Promise<void>((resolve) => (finish = resolve))
 		);
-		const module = await import('$lib/offline/status.svelte');
+		const module = await import('#lib/offline/status.svelte.js');
 
 		const first = module.synchronizeNow();
 		expect(module.getOfflineStatus().syncing).toBe(true);
@@ -87,7 +87,7 @@ describe('offline status lifecycle', () => {
 	});
 
 	it('reports typed and untyped synchronization failures', async () => {
-		const module = await import('$lib/offline/status.svelte');
+		const module = await import('#lib/offline/status.svelte.js');
 		mocks.syncPendingCollectionChanges.mockRejectedValueOnce(new Error('Server nicht erreichbar'));
 		await module.synchronizeNow();
 		expect(module.getOfflineStatus().syncError).toBe('Server nicht erreichbar');
@@ -99,7 +99,7 @@ describe('offline status lifecycle', () => {
 
 	it('does not synchronize while connectivity is offline', async () => {
 		vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
-		const module = await import('$lib/offline/status.svelte');
+		const module = await import('#lib/offline/status.svelte.js');
 		await module.refreshConnectivity();
 
 		await module.synchronizeNow();
@@ -132,7 +132,7 @@ describe('offline status lifecycle', () => {
 			}
 		}
 		vi.stubGlobal('BroadcastChannel', BroadcastChannelMock);
-		const module = await import('$lib/offline/status.svelte');
+		const module = await import('#lib/offline/status.svelte.js');
 
 		module.initializeOfflineStatus();
 		module.initializeOfflineStatus();

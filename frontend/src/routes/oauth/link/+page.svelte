@@ -6,8 +6,8 @@
 		confirmOAuthLink,
 		fetchPendingOAuthLink,
 		type PendingOAuthLink
-	} from '$lib/api/auth';
-	import { getAuthState } from '$lib/stores/auth.svelte';
+	} from '#lib/api/auth.js';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
 
 	const auth = getAuthState();
 	let pending = $state<PendingOAuthLink | null>(null);
@@ -42,7 +42,7 @@
 		error = '';
 		try {
 			await confirmOAuthLink(confirmationToken);
-			await goto(resolve('/profile'));
+			await goto(resolve('profile'));
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Verknüpfung ist fehlgeschlagen.';
 		} finally {
@@ -93,7 +93,7 @@
 				</p>
 				<!-- eslint-disable svelte/no-navigation-without-resolve -- query params appended to resolved route -->
 				<a
-					href={`${resolve('/login')}?return_to=%2Foauth%2Flink`}
+					href={`${resolve('login')}?return_to=%2Foauth%2Flink`}
 					class="inline-flex rounded-lg px-4 py-2 font-semibold text-white"
 					style="background: var(--color-brand-700);"
 					data-testid="oauth-link-login"

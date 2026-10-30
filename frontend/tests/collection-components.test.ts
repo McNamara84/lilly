@@ -342,6 +342,22 @@ describe('CoverCard', () => {
 		expect(card.getAttribute('aria-label')).toContain('Exemplar 1');
 	});
 
+	it('keeps visible badges, title and edition together in the accessible name', () => {
+		render(CoverCard, {
+			props: {
+				entry: makeEntry({
+					status: 'duplicate',
+					sync_state: 'pending',
+					edition_label: '1. Auflage'
+				})
+			}
+		});
+
+		expect(screen.getByTestId('cover-card')).toHaveAccessibleName(
+			'#42 #42 Z2 Doppelt Ausstehend Dunkle Zukunft 1. Auflage, Exemplar 1 Status: Doppelt'
+		);
+	});
+
 	it('gives otherwise identical physical copies distinct accessible names', () => {
 		const entries = [
 			makeEntry({ id: 1, edition_label: '1. Auflage', copy_number: 1 }),

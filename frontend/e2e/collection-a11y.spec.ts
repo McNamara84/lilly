@@ -157,6 +157,8 @@ test.describe('Add to Collection Page Accessibility', () => {
 				await page.getByTestId(`status-${originalStatus}`).click();
 				await page.getByTestId('save-button').click();
 			}
+			await expect(page.getByTestId('issue-detail-sheet')).toBeHidden();
+			await expect(firstCell).toHaveAttribute('data-status', originalStatus ?? 'missing');
 		}
 	});
 });

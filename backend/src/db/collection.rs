@@ -940,7 +940,7 @@ mod tests {
         };
 
         let (where_clause, _) = build_filter_clauses(&params);
-        assert!(where_clause.is_empty());
+        assert_eq!(where_clause, "");
     }
 
     #[test]

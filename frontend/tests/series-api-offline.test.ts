@@ -1,11 +1,11 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchAllSeriesIssues, fetchIssue, fetchSeries } from '$lib/api/series';
+import { fetchAllSeriesIssues, fetchIssue, fetchSeries } from '#lib/api/series.js';
 import {
 	replaceOfflineSnapshot,
 	resetOfflineDatabaseForTests,
 	saveConfirmedProfile
-} from '$lib/offline/database';
+} from '#lib/offline/database.js';
 import { issue, profile, series, snapshot } from './fixtures/offline';
 
 const fetchMock = vi.fn();

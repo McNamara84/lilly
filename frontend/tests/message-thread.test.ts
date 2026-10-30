@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 	sendMessage: vi.fn()
 }));
 
-vi.mock('$lib/api/messages', () => ({
+vi.mock('#lib/api/messages.js', () => ({
 	fetchMessages: (...args: unknown[]) => mocks.fetchMessages(...args),
 	markThreadRead: (...args: unknown[]) => mocks.markThreadRead(...args),
 	sendMessage: (...args: unknown[]) => mocks.sendMessage(...args)

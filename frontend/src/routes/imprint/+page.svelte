@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { ImprintConfig } from '$lib/imprint';
+	import type { ImprintConfig } from '#lib/imprint.js';
 
 	let { data }: { data: { imprint: ImprintConfig } } = $props();
 	const imprint = $derived(data.imprint);
@@ -61,7 +61,8 @@
 
 		<p>
 			Informationen zur Verarbeitung personenbezogener Daten finden Sie in der
-			<a class="underline" href={resolve('/privacy')}>Datenschutzerklärung</a>.
+			<a class="underline" href={resolve('privacy')}>Datenschutzerklärung</a>
+			.
 		</p>
 
 		{#each updatedLines as line (line)}

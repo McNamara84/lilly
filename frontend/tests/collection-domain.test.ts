@@ -4,24 +4,24 @@ import {
 	CONDITION_GRADES,
 	getConditionDefinition,
 	isConditionGrade
-} from '$lib/collection/conditions';
+} from '#lib/collection/conditions.js';
 import {
 	buildSeriesGridItems,
 	COLLECTION_STATUS_PRESENTATION,
 	effectiveCollectionEntry
-} from '$lib/collection/series-grid';
-import type { CollectionEntry } from '$lib/api/collection';
-import type { Issue } from '$lib/api/series';
+} from '#lib/collection/series-grid.js';
+import type { CollectionEntry } from '#lib/api/collection.js';
+import type { Issue } from '#lib/api/series.js';
 import {
 	MAX_COLLECTION_NOTE_LENGTH,
 	countCollectionNoteCharacters,
 	limitCollectionNote
-} from '$lib/collection/notes';
+} from '#lib/collection/notes.js';
 import {
 	MAX_EDITION_LABEL_LENGTH,
 	countEditionLabelCharacters,
 	limitEditionLabel
-} from '$lib/collection/editions';
+} from '#lib/collection/editions.js';
 
 function issue(id: number, issueNumber: number): Issue {
 	return {

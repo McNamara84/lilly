@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getAuthState } from '$lib/stores/auth.svelte';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
 	import {
 		acceptTrade,
 		cancelTrade,
@@ -10,18 +10,18 @@
 		fetchTrade,
 		type Trade,
 		type TradeItem
-	} from '$lib/api/trades';
-	import MessageThread from '$lib/components/messages/MessageThread.svelte';
+	} from '#lib/api/trades.js';
+	import MessageThread from '#lib/components/messages/MessageThread.svelte';
 
 	const auth = getAuthState();
-	const tradeId = $derived(Number($page.params.id));
+	const tradeId = $derived(Number(page.params.id));
 	let trade = $state<Trade | null>(null);
 	let loading = $state(true);
 	let actionPending = $state(false);
 	let error = $state<string | null>(null);
 
 	$effect(() => {
-		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('/login'));
+		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('login'));
 		else if (auth.isAuthenticated) void load();
 	});
 
@@ -95,7 +95,7 @@
 
 <svelte:head><title>Tausch-Details – LILLY</title></svelte:head>
 <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-	<a href={resolve('/trades')} class="text-sm underline">← Zurück zum Tausch</a>
+	<a href={resolve('trades')} class="text-sm underline">← Zurück zum Tausch</a>
 	{#if loading}
 		<p class="mt-6">Tausch wird geladen …</p>
 	{:else if error && !trade}

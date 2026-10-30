@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import LoginPage from '../src/routes/login/+page.svelte';
 
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	login: vi.fn(),
 	resendVerification: vi.fn()
 }));
@@ -12,10 +12,10 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	initAuth: vi.fn().mockResolvedValue(undefined),
 	deactivateAccountLocally: vi.fn().mockResolvedValue(undefined)
 }));

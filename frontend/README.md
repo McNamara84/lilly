@@ -1,13 +1,17 @@
 # LILLY Frontend
 
-The frontend for the LILLY project, built with **Svelte 5 / SvelteKit**, **Skeleton UI**, and **Tailwind CSS v4**.
+The frontend for the LILLY project, built with **Svelte 5 / SvelteKit 3**, **Skeleton UI**, and **Tailwind CSS v4**.
 
 For project documentation, setup instructions, and architecture details, see the [root README](../README.md).
 
 ## Development
 
+Use Node.js **26.13.0 LTS** and npm **12.2.1**. SvelteKit configuration lives in
+`vite.config.ts`; internal imports use the `#lib` package alias. TypeScript stays on
+6.0.3 until SvelteKit, svelte-check, and typescript-eslint support TypeScript 7 together.
+
 ```bash
-npm install
+npm ci
 npm run dev          # Start dev server on http://localhost:5173
 ```
 

@@ -391,7 +391,10 @@ mod tests {
     #[test]
     fn test_registry_new_is_empty() {
         let registry = AdapterRegistry::new();
-        assert!(registry.list().is_empty());
+        assert_eq!(
+            registry.list(),
+            [] as [(&str, &str, &str, SourceDescriptor); 0]
+        );
     }
 
     #[test]
@@ -446,7 +449,10 @@ mod tests {
     #[test]
     fn test_registry_default() {
         let registry = AdapterRegistry::default();
-        assert!(registry.list().is_empty());
+        assert_eq!(
+            registry.list(),
+            [] as [(&str, &str, &str, SourceDescriptor); 0]
+        );
     }
 
     #[tokio::test]

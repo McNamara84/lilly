@@ -5,7 +5,7 @@ import AdminLayout from '../src/routes/admin/+layout.svelte';
 
 const mockGetAuthState = vi.fn();
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mockGetAuthState()
 }));
 
@@ -14,7 +14,7 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
 import { goto } from '$app/navigation';

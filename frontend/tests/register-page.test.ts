@@ -8,7 +8,7 @@ const pageState = vi.hoisted(() => ({
 }));
 
 // Mock the API module
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	register: vi.fn(),
 	fetchAuthOptions: vi.fn(),
 	startOAuth: vi.fn()
@@ -26,7 +26,7 @@ describe('Register Page', () => {
 		vi.clearAllMocks();
 		pageState.url = new URL('http://localhost/register');
 		window.history.replaceState({}, '', '/register');
-		const { fetchAuthOptions } = await import('$lib/api/auth');
+		const { fetchAuthOptions } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: true, github: true }
@@ -56,7 +56,7 @@ describe('Register Page', () => {
 	});
 
 	it('requires consent and sends its version when starting OAuth registration', async () => {
-		const { startOAuth } = await import('$lib/api/auth');
+		const { startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(startOAuth).mockReturnValue(new Promise(() => {}));
 		render(RegisterPage);
 		const google = screen.getByTestId('oauth-google');
@@ -77,7 +77,7 @@ describe('Register Page', () => {
 	});
 
 	it('starts a configured GitHub registration', async () => {
-		const { startOAuth } = await import('$lib/api/auth');
+		const { startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(startOAuth).mockReturnValue(new Promise(() => {}));
 		render(RegisterPage);
 		await screen.findByRole('link', { name: /Version test-v1/i });
@@ -94,7 +94,7 @@ describe('Register Page', () => {
 	});
 
 	it('reloads policy options when OAuth reports a version conflict', async () => {
-		const { fetchAuthOptions, startOAuth } = await import('$lib/api/auth');
+		const { fetchAuthOptions, startOAuth } = await import('#lib/api/auth.js');
 		const staleError = new Error('Policy changed') as Error & { code?: string };
 		staleError.code = 'PRIVACY_POLICY_CHANGED';
 		vi.mocked(startOAuth).mockRejectedValue(staleError);
@@ -116,7 +116,7 @@ describe('Register Page', () => {
 	});
 
 	it('navigates to the provider authorization URL after a successful OAuth start', async () => {
-		const { startOAuth } = await import('$lib/api/auth');
+		const { startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(startOAuth).mockResolvedValue('#github-authorization');
 		render(RegisterPage);
 		await screen.findByRole('link', { name: /Version test-v1/i });
@@ -129,7 +129,7 @@ describe('Register Page', () => {
 	});
 
 	it('uses a safe fallback for untyped OAuth startup errors', async () => {
-		const { startOAuth } = await import('$lib/api/auth');
+		const { startOAuth } = await import('#lib/api/auth.js');
 		vi.mocked(startOAuth).mockRejectedValue('untyped failure');
 		render(RegisterPage);
 		await screen.findByRole('link', { name: /Version test-v1/i });
@@ -160,7 +160,7 @@ describe('Register Page', () => {
 	});
 
 	it('reports typed and untyped failures while loading registration options', async () => {
-		const { fetchAuthOptions } = await import('$lib/api/auth');
+		const { fetchAuthOptions } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockRejectedValueOnce(new Error('Optionen nicht verfügbar'));
 		const typedFailure = render(RegisterPage);
 		expect(await screen.findByRole('alert')).toHaveTextContent('Optionen nicht verfügbar');
@@ -269,7 +269,7 @@ describe('Register Page', () => {
 	});
 
 	it('calls register API on valid form submission', async () => {
-		const { register } = await import('$lib/api/auth');
+		const { register } = await import('#lib/api/auth.js');
 		const mockRegister = vi.mocked(register);
 		mockRegister.mockResolvedValue({ message: 'Registration successful.' });
 
@@ -294,7 +294,7 @@ describe('Register Page', () => {
 	});
 
 	it('shows error message on failed registration', async () => {
-		const { register } = await import('$lib/api/auth');
+		const { register } = await import('#lib/api/auth.js');
 		const mockRegister = vi.mocked(register);
 		mockRegister.mockRejectedValue(
 			new Error('Password is too weak. Please choose a stronger password.')
@@ -315,7 +315,7 @@ describe('Register Page', () => {
 	});
 
 	it('renders field-specific errors returned by the backend', async () => {
-		const { register } = await import('$lib/api/auth');
+		const { register } = await import('#lib/api/auth.js');
 		const validationError = new Error('Validation failed') as Error & {
 			fields?: Record<string, string>;
 		};
@@ -346,7 +346,7 @@ describe('Register Page', () => {
 	});
 
 	it('uses a safe fallback for an untyped registration failure', async () => {
-		const { register } = await import('$lib/api/auth');
+		const { register } = await import('#lib/api/auth.js');
 		vi.mocked(register).mockRejectedValue('untyped failure');
 		render(RegisterPage);
 		const user = userEvent.setup();
@@ -364,7 +364,7 @@ describe('Register Page', () => {
 	});
 
 	it('resets consent and reloads policy options after a version conflict', async () => {
-		const { register, fetchAuthOptions } = await import('$lib/api/auth');
+		const { register, fetchAuthOptions } = await import('#lib/api/auth.js');
 		const staleError = new Error('Policy changed') as Error & { code?: string };
 		staleError.code = 'PRIVACY_POLICY_CHANGED';
 		vi.mocked(register).mockRejectedValue(staleError);
@@ -389,7 +389,7 @@ describe('Register Page', () => {
 	});
 
 	it('redirects to login on successful registration', async () => {
-		const { register } = await import('$lib/api/auth');
+		const { register } = await import('#lib/api/auth.js');
 		const { goto } = await import('$app/navigation');
 		const mockRegister = vi.mocked(register);
 		const mockGoto = vi.mocked(goto);

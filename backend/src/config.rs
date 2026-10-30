@@ -492,7 +492,7 @@ mod tests {
             config.import_scheduled_adapters,
             vec!["maddrax", "john-sinclair"]
         );
-        assert!(config.trusted_proxy_cidrs.is_empty());
+        assert_eq!(config.trusted_proxy_cidrs, [] as [ipnet::IpNet; 0]);
         assert_eq!(config.rate_limits, RateLimitConfig::default());
     }
 

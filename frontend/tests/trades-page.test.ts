@@ -20,11 +20,11 @@ const mocks = vi.hoisted(() => ({
 	goto: vi.fn()
 }));
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mocks.getAuthState()
 }));
 
-vi.mock('$lib/api/trades', () => ({
+vi.mock('#lib/api/trades.js', () => ({
 	fetchMatches: (...args: unknown[]) => mocks.fetchMatches(...args),
 	fetchOpenTrades: (...args: unknown[]) => mocks.fetchOpenTrades(...args),
 	fetchClosedTrades: (...args: unknown[]) => mocks.fetchClosedTrades(...args),
@@ -34,12 +34,14 @@ vi.mock('$lib/api/trades', () => ({
 	deleteWantedEntry: (...args: unknown[]) => mocks.deleteWantedEntry(...args)
 }));
 
-vi.mock('$lib/api/collection', () => ({
+vi.mock('#lib/api/collection.js', () => ({
 	updateCollectionEntry: (...args: unknown[]) => mocks.updateCollectionEntry(...args)
 }));
 
 vi.mock('$app/navigation', () => ({ goto: (...args: unknown[]) => mocks.goto(...args) }));
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
 
 const partner = {
 	id: 2,

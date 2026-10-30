@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { untrack } from 'svelte';
-	import { getAuthState } from '$lib/stores/auth.svelte';
-	import { fetchIssue, type Issue } from '$lib/api/series';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
+	import { fetchIssue, type Issue } from '#lib/api/series.js';
 	import {
 		fetchCollectionEntriesByIssue,
 		addToCollection,
@@ -10,20 +10,20 @@
 		deleteCollectionEntry,
 		type CollectionEntry,
 		type PersistedCollectionStatus
-	} from '$lib/api/collection';
-	import type { ConditionGrade } from '$lib/collection/conditions';
+	} from '#lib/api/collection.js';
+	import type { ConditionGrade } from '#lib/collection/conditions.js';
 	import {
 		MAX_COLLECTION_NOTE_LENGTH,
 		countCollectionNoteCharacters,
 		limitCollectionNote
-	} from '$lib/collection/notes';
-	import ConditionChips from '$lib/components/collection/ConditionChips.svelte';
-	import PhotoUploader from '$lib/components/media/PhotoUploader.svelte';
+	} from '#lib/collection/notes.js';
+	import ConditionChips from '#lib/components/collection/ConditionChips.svelte';
+	import PhotoUploader from '#lib/components/media/PhotoUploader.svelte';
 	import {
 		MAX_EDITION_LABEL_LENGTH,
 		countEditionLabelCharacters,
 		limitEditionLabel
-	} from '$lib/collection/editions';
+	} from '#lib/collection/editions.js';
 
 	const auth = getAuthState();
 
@@ -41,7 +41,7 @@
 	let editionLabel = $state('');
 	const ENTRY_STATUSES = ['owned', 'duplicate', 'wanted'] as const;
 
-	const issueId = $derived(Number($page.params.id));
+	const issueId = $derived(Number(page.params.id));
 	const isInCollection = $derived(entry !== null && entry.id > 0);
 	const needsCondition = $derived(status !== 'wanted' || entry?.condition_grade != null);
 	const noteLength = $derived(countCollectionNoteCharacters(notes));
@@ -294,16 +294,15 @@
 									: `background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-secondary);`}
 								role="radio"
 								aria-checked={isActive}
-								onclick={() => (status = s)}
+								onclick={() => (status = s)}>{label}</button
 							>
-								{label}
-							</button>
 						{/each}
 					</div>
 
 					<!-- Condition -->
 					{#if needsCondition}
 						<p class="text-xs mb-2" style="color: var(--text-tertiary);">Zustand</p>
+
 						<ConditionChips value={conditionGrade} onchange={(g) => (conditionGrade = g)} />
 					{:else}
 						<p
@@ -353,6 +352,7 @@
 						class="w-full rounded-lg p-2 text-sm resize-none"
 						style="background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-primary);"
 						placeholder="Optionale Notizen..."></textarea>
+
 					<p id="detail-notes-hint" class="mt-1 text-[10px]" style="color: var(--text-tertiary);">
 						Leeren und speichern entfernt die Notiz. {noteLength}/{MAX_COLLECTION_NOTE_LENGTH}
 					</p>

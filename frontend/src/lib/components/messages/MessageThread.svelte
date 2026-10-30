@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { fetchMessages, markThreadRead, sendMessage, type TradeMessage } from '$lib/api/messages';
+	import {
+		fetchMessages,
+		markThreadRead,
+		sendMessage,
+		type TradeMessage
+	} from '#lib/api/messages.js';
 
 	let { threadId }: { threadId: number } = $props();
 

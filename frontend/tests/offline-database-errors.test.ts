@@ -8,7 +8,7 @@ describe('offline database initialization failures', () => {
 
 	it('reports an unavailable IndexedDB implementation', async () => {
 		vi.stubGlobal('indexedDB', undefined);
-		const database = await import('$lib/offline/database');
+		const database = await import('#lib/offline/database.js');
 
 		await expect(database.getCachedProfile()).rejects.toThrow('IndexedDB is not available');
 	});
@@ -23,7 +23,7 @@ describe('offline database initialization failures', () => {
 			return request;
 		});
 		vi.stubGlobal('indexedDB', { open });
-		const database = await import('$lib/offline/database');
+		const database = await import('#lib/offline/database.js');
 
 		await expect(database.getCachedProfile()).rejects.toThrow('Database unavailable');
 		await expect(database.getCachedProfile()).rejects.toThrow('Database unavailable');

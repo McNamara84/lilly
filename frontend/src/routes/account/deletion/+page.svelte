@@ -5,8 +5,8 @@
 		cancelAccountDeletion,
 		fetchAccountDeletionStatus,
 		type AccountDeletionStatus
-	} from '$lib/api/account-erasure';
-	import { initAuth } from '$lib/stores/auth.svelte';
+	} from '#lib/api/account-erasure.js';
+	import { initAuth } from '#lib/stores/auth.svelte.js';
 
 	let status = $state<AccountDeletionStatus | null>(null);
 	let loading = $state(true);
@@ -34,10 +34,11 @@
 		try {
 			await cancelAccountDeletion();
 			await initAuth();
-			await goto(resolve('/profile?deletion_cancelled=true'));
+			await goto(resolve('profile?deletion_cancelled=true'));
 		} catch (cause) {
 			error =
 				cause instanceof Error ? cause.message : 'Die Löschung konnte nicht widerrufen werden.';
+
 			cancelling = false;
 		}
 	}
@@ -81,7 +82,8 @@
 				Der eingeschränkte Wiederherstellungszugang fehlt oder ist abgelaufen. Melde dich erneut an,
 				solange die Widerrufsfrist noch läuft.
 			</p>
-			<a class="mt-5 inline-block underline" href={resolve('/login')}>Zur Anmeldung</a>
+
+			<a class="mt-5 inline-block underline" href={resolve('login')}>Zur Anmeldung</a>
 		{/if}
 
 		<div class="mt-4 min-h-6" aria-live="polite">

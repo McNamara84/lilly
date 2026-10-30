@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { getOfflineStatus } from '$lib/offline/status.svelte';
+	import { getOfflineStatus } from '#lib/offline/status.svelte.js';
 
 	let { feature, children }: { feature: string; children: Snippet } = $props();
 	const status = getOfflineStatus();
@@ -18,11 +18,7 @@
 			{feature} benötigt eine Internetverbindung. Sobald du wieder online bist, geht es hier automatisch
 			weiter.
 		</p>
-		<a
-			class="underline text-sm"
-			href={resolve('/collection')}
-			data-testid="offline-collection-link"
-		>
+		<a class="underline text-sm" href={resolve('collection')} data-testid="offline-collection-link">
 			Zur Sammlung (offline verfügbar)
 		</a>
 	</div>

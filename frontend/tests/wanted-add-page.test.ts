@@ -10,21 +10,23 @@ const mocks = vi.hoisted(() => ({
 	addWantedBulk: vi.fn()
 }));
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mocks.getAuthState()
 }));
 
-vi.mock('$lib/api/series', () => ({
+vi.mock('#lib/api/series.js', () => ({
 	fetchSeries: (...args: unknown[]) => mocks.fetchSeries(...args)
 }));
 
-vi.mock('$lib/api/trades', () => ({
+vi.mock('#lib/api/trades.js', () => ({
 	fetchWantedCandidates: (...args: unknown[]) => mocks.fetchWantedCandidates(...args),
 	addWantedBulk: (...args: unknown[]) => mocks.addWantedBulk(...args)
 }));
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
 
 const series = {
 	id: 1,

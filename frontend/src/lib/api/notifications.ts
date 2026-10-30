@@ -1,4 +1,4 @@
-import type { PaginatedResponse } from '$lib/api/trades';
+import type { PaginatedResponse } from '#lib/api/trades.js';
 
 const API_BASE = '/api/v1';
 

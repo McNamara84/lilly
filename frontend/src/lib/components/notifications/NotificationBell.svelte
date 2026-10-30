@@ -8,7 +8,7 @@
 		markAllNotificationsRead,
 		markNotificationRead,
 		type AppNotification
-	} from '$lib/api/notifications';
+	} from '#lib/api/notifications.js';
 
 	let count = $state(0);
 	let notifications = $state<AppNotification[]>([]);
@@ -81,7 +81,7 @@
 		} else if (notification.trade_id) {
 			await goto(resolve('/trades/[id]', { id: String(notification.trade_id) }));
 		} else {
-			await goto(resolve('/trades'));
+			await goto(resolve('trades'));
 		}
 	}
 

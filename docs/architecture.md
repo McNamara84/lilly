@@ -60,7 +60,7 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 
 **Svelte 5 / SvelteKit als Frontend**
 
-Svelte 5 kompiliert Komponenten zur Build-Zeit zu optimiertem JavaScript, wodurch kein Framework-Runtime-Overhead im Browser entsteht. Das neue Runes-System bietet fein-granulare Reaktivität. SvelteKit liefert Routing, SSR, die `$service-worker`-Buildlisten und die Build-Pipeline aus einer Hand. LILLY verwendet den eigenen SvelteKit-Service-Worker ohne zusätzliches PWA-Plugin. Skeleton UI bietet als Svelte-native Komponentenbibliothek hochwertige, barrierefreie UI-Komponenten auf Tailwind-Basis.
+Svelte 5 kompiliert Komponenten zur Build-Zeit zu optimiertem JavaScript, wodurch kein Framework-Runtime-Overhead im Browser entsteht. Das neue Runes-System bietet fein-granulare Reaktivität. SvelteKit liefert Routing, SSR, die `$app/manifest`-Buildlisten und die Build-Pipeline aus einer Hand. LILLY verwendet den eigenen SvelteKit-Service-Worker ohne zusätzliches PWA-Plugin. Skeleton UI bietet als Svelte-native Komponentenbibliothek hochwertige, barrierefreie UI-Komponenten auf Tailwind-Basis.
 
 **Rust mit Axum als Backend**
 
@@ -109,9 +109,9 @@ Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 
 | Container  | Image                                       | Port (intern)    | Aufgabe                                                                           |
 | ---------- | ------------------------------------------- | ---------------- | --------------------------------------------------------------------------------- |
-| `caddy`    | `caddy:2.11.4-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
-| `frontend` | `node:26.9.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
-| `backend`  | `rust:1.98.1-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
+| `caddy`    | `caddy:2.11.7-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
+| `frontend` | `node:26.13.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
+| `backend`  | `rust:1.99.1-slim-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
 | `db`       | `mariadb:12.3.3`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                                           |
 | `importer` | Rust CLI (eigener Build)                    | –                | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB                    |
 
@@ -694,7 +694,7 @@ lilly/
   gebundene Browserkennung.
 - **Sicherheits-Header:** Die API setzt `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer` und eine restriktive CSP (`default-src 'none'`). Das Frontend
-  liefert über `kit.csp` in `svelte.config.js` eine Content-Security-Policy (`default-src 'self'`,
+  liefert über die `csp`-Option des SvelteKit-Plugins in `vite.config.ts` eine Content-Security-Policy (`default-src 'self'`,
   Skripte nur mit Nonce/Hash, `object-src 'none'`, `frame-ancestors 'self'`, `base-uri 'self'`,
   `form-action 'self'`; `style-src` erlaubt Inline-Style-Attribute, da die Oberfläche sie
   verwendet) sowie über `hooks.server.ts` `X-Content-Type-Options`, `X-Frame-Options`,

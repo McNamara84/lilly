@@ -1,12 +1,12 @@
 <script lang="ts">
 	import '../app.css';
-	import { initAuth, getAuthState, performLogout } from '$lib/stores/auth.svelte';
+	import { initAuth, getAuthState, performLogout } from '#lib/stores/auth.svelte.js';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import NotificationBell from '$lib/components/notifications/NotificationBell.svelte';
-	import OfflineStatus from '$lib/components/offline/OfflineStatus.svelte';
-	import { getOfflineStatus, initializeOfflineStatus } from '$lib/offline/status.svelte';
-	import { initializePwaLifecycle } from '$lib/offline/pwa.svelte';
+	import NotificationBell from '#lib/components/notifications/NotificationBell.svelte';
+	import OfflineStatus from '#lib/components/offline/OfflineStatus.svelte';
+	import { getOfflineStatus, initializeOfflineStatus } from '#lib/offline/status.svelte.js';
+	import { initializePwaLifecycle } from '#lib/offline/pwa.svelte.js';
 
 	let { children } = $props();
 
@@ -37,7 +37,7 @@
 
 	async function handleLogout() {
 		await performLogout();
-		await goto(resolve('/login'));
+		await goto(resolve('login'));
 	}
 </script>
 
@@ -62,7 +62,7 @@
 		<div class="flex items-center gap-3">
 			{#if auth.isAuthenticated && auth.user}
 				<a
-					href={resolve('/collection')}
+					href={resolve('collection')}
 					class="text-sm px-2 py-1 rounded"
 					style="color: var(--text-secondary);"
 					data-testid="collection-link"
@@ -70,7 +70,7 @@
 					Sammlung
 				</a>
 				<a
-					href={resolve('/profile')}
+					href={resolve('profile')}
 					class="text-sm px-2 py-1 rounded"
 					style="color: var(--text-secondary);"
 					data-testid="profile-link"
@@ -78,7 +78,7 @@
 					Profil
 				</a>
 				<a
-					href={resolve('/trades')}
+					href={resolve('trades')}
 					class="text-sm px-2 py-1 rounded"
 					style="color: var(--text-secondary);"
 					aria-disabled={!offline.online}
@@ -89,7 +89,7 @@
 					Tausch
 				</a>
 				<a
-					href={resolve('/messages')}
+					href={resolve('messages')}
 					class="hidden rounded px-2 py-1 text-sm sm:inline"
 					style="color: var(--text-secondary);"
 					aria-disabled={!offline.online}
@@ -101,7 +101,7 @@
 				</a>
 				{#if auth.isAdmin}
 					<a
-						href={resolve('/admin')}
+						href={resolve('admin')}
 						class="text-sm px-2 py-1 rounded"
 						style="color: var(--text-secondary);"
 						data-testid="admin-link"
@@ -138,9 +138,9 @@
 						stroke-linejoin="round"
 						aria-hidden="true"
 					>
-						<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-						<polyline points="16 17 21 12 16 7" />
-						<line x1="21" y1="12" x2="9" y2="12" />
+						<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+						<polyline points="16 17 21 12 16 7"></polyline>
+						<line x1="21" y1="12" x2="9" y2="12"></line>
 					</svg>
 				</button>
 			{/if}
@@ -162,12 +162,17 @@
 						stroke-linecap="round"
 						stroke-linejoin="round"
 						aria-hidden="true"
-						><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path
-							d="m4.93 4.93 1.41 1.41"
-						/><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path
-							d="m6.34 17.66-1.41 1.41"
-						/><path d="m19.07 4.93-1.41 1.41" /></svg
 					>
+						<circle cx="12" cy="12" r="4"></circle>
+						<path d="M12 2v2"></path>
+						<path d="M12 20v2"></path>
+						<path d="m4.93 4.93 1.41 1.41"></path>
+						<path d="m17.66 17.66 1.41 1.41"></path>
+						<path d="M2 12h2"></path>
+						<path d="M20 12h2"></path>
+						<path d="m6.34 17.66-1.41 1.41"></path>
+						<path d="m19.07 4.93-1.41 1.41"></path>
+					</svg>
 				{:else}
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
@@ -178,7 +183,7 @@
 						stroke="currentColor"
 						stroke-width="2"
 						stroke-linecap="round"
-						stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></svg
+						stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg
 					>
 				{/if}
 			</button>
@@ -194,12 +199,11 @@
 		data-testid="site-footer"
 	>
 		<nav aria-label="Rechtliches" class="flex items-center justify-center gap-4">
-			<a href={resolve('/imprint')} class="underline" data-testid="footer-imprint-link">
-				Impressum
-			</a>
-			<a href={resolve('/privacy')} class="underline" data-testid="footer-privacy-link">
-				Datenschutz
-			</a>
+			<a href={resolve('imprint')} class="underline" data-testid="footer-imprint-link">Impressum</a>
+
+			<a href={resolve('privacy')} class="underline" data-testid="footer-privacy-link"
+				>Datenschutz</a
+			>
 		</nav>
 	</footer>
 	<OfflineStatus />

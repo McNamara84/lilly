@@ -1,4 +1,4 @@
-import { syncPendingCollectionChanges } from '$lib/api/collection';
+import { syncPendingCollectionChanges } from '#lib/api/collection.js';
 import { getCachedProfile, getSnapshotTimestamp } from './database';
 import { listConflicts, listMutations } from './collection';
 

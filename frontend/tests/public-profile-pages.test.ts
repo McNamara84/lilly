@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('$app/state', () => ({ page: mocks.page }));
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
-vi.mock('$lib/api/profile', () => ({
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
+vi.mock('#lib/api/profile.js', () => ({
 	fetchPublicProfile: (...args: unknown[]) => mocks.fetchPublicProfile(...args),
 	fetchPublicCollection: (...args: unknown[]) => mocks.fetchPublicCollection(...args),
 	fetchPublicCollectionStats: (...args: unknown[]) => mocks.fetchPublicCollectionStats(...args)

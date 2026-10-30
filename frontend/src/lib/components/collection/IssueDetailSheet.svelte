@@ -1,19 +1,19 @@
 <script lang="ts">
-	import type { CollectionEntry, PersistedCollectionStatus } from '$lib/api/collection';
-	import type { ConditionGrade } from '$lib/collection/conditions';
+	import type { CollectionEntry, PersistedCollectionStatus } from '#lib/api/collection.js';
+	import type { ConditionGrade } from '#lib/collection/conditions.js';
 	import {
 		MAX_COLLECTION_NOTE_LENGTH,
 		countCollectionNoteCharacters,
 		limitCollectionNote
-	} from '$lib/collection/notes';
-	import type { Issue } from '$lib/api/series';
+	} from '#lib/collection/notes.js';
+	import type { Issue } from '#lib/api/series.js';
 	import {
 		MAX_EDITION_LABEL_LENGTH,
 		countEditionLabelCharacters,
 		limitEditionLabel
-	} from '$lib/collection/editions';
+	} from '#lib/collection/editions.js';
 	import ConditionChips from './ConditionChips.svelte';
-	import PhotoUploader from '$lib/components/media/PhotoUploader.svelte';
+	import PhotoUploader from '#lib/components/media/PhotoUploader.svelte';
 
 	interface Props {
 		issue: Issue | null;

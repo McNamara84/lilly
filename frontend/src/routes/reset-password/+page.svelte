@@ -1,12 +1,18 @@
 <script lang="ts">
-	import PasswordStrengthMeter from '$lib/components/auth/PasswordStrengthMeter.svelte';
-	import { confirmPasswordReset } from '$lib/api/auth';
-	import { checkPasswordStrength, MIN_SCORE } from '$lib/utils/password-strength';
-	import { goto, replaceState } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import PasswordStrengthMeter from '#lib/components/auth/PasswordStrengthMeter.svelte';
+	import { confirmPasswordReset } from '#lib/api/auth.js';
+	import { checkPasswordStrength, MIN_SCORE } from '#lib/utils/password-strength.js';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 
 	let password = $state('');
+	// Prevent native submission before the client-side reset handler is attached.
+	let ready = $state(false);
+	onMount(() => {
+		ready = true;
+	});
 	let passwordConfirmation = $state('');
 	let passwordTouched = $state(false);
 	let confirmationTouched = $state(false);
@@ -43,6 +49,7 @@
 					? 'Passwörter stimmen nicht überein'
 					: '')
 	);
+
 	let formValid = $derived(
 		tokenAvailable &&
 			password.length >= 8 &&
@@ -60,14 +67,11 @@
 		errorMessage = '';
 		serverFieldErrors = {};
 		try {
-			await confirmPasswordReset({
-				token,
-				password,
-				password_confirmation: passwordConfirmation
-			});
-			replaceState(resolve('/reset-password'), {});
+			await confirmPasswordReset({ token, password, password_confirmation: passwordConfirmation });
+			await goto(resolve('reset-password'), { shallow: true, replace: true });
+
 			// eslint-disable-next-line svelte/no-navigation-without-resolve -- query appended to resolved path
-			await goto(`${resolve('/login')}?reset=true`);
+			await goto(`${resolve('login')}?reset=true`);
 		} catch (cause) {
 			const error = cause as Error & {
 				code?: string;
@@ -110,7 +114,7 @@
 				Dieser Reset-Link ist unvollständig oder ungültig. Fordere bitte einen neuen Link an.
 			</div>
 			<a
-				href={resolve('/forgot-password')}
+				href={resolve('forgot-password')}
 				class="font-medium text-sm"
 				style="color: var(--color-brand-500);">Neuen Reset-Link anfordern</a
 			>
@@ -137,6 +141,7 @@
 					<input
 						id="new-password"
 						data-testid="new-password-input"
+						disabled={!ready}
 						type="password"
 						bind:value={password}
 						oninput={() => (serverFieldErrors = { ...serverFieldErrors, password: '' })}
@@ -163,6 +168,7 @@
 					<input
 						id="new-password-confirmation"
 						data-testid="new-password-confirmation-input"
+						disabled={!ready}
 						type="password"
 						bind:value={passwordConfirmation}
 						oninput={() =>
@@ -182,7 +188,7 @@
 				</div>
 				<button
 					type="submit"
-					disabled={isLoading}
+					disabled={!ready || isLoading}
 					class="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
 					style="background-color: var(--color-brand-700);"
 					data-testid="reset-confirm-submit"

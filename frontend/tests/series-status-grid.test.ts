@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
-import SeriesStatusGrid from '$lib/components/collection/SeriesStatusGrid.svelte';
-import CollectionNote from '$lib/components/collection/CollectionNote.svelte';
-import type { CollectionEntry } from '$lib/api/collection';
-import type { Issue } from '$lib/api/series';
+import SeriesStatusGrid from '#lib/components/collection/SeriesStatusGrid.svelte';
+import CollectionNote from '#lib/components/collection/CollectionNote.svelte';
+import type { CollectionEntry } from '#lib/api/collection.js';
+import type { Issue } from '#lib/api/series.js';
 
 function issue(id: number, issueNumber: number, title = `Heft ${issueNumber}`): Issue {
 	return {
@@ -73,7 +73,7 @@ describe('SeriesStatusGrid', () => {
 
 		expect(
 			screen.getByRole('button', {
-				name: 'Heft #42: Dunkle Zukunft. Status: Fehlend. Details öffnen.'
+				name: 'Heft #42 F: Dunkle Zukunft. Status: Fehlend. Details öffnen.'
 			})
 		).toBeInTheDocument();
 	});

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CollectionEntry } from '$lib/api/collection';
+	import type { CollectionEntry } from '#lib/api/collection.js';
 
 	interface Props {
 		entry: CollectionEntry;
@@ -17,6 +17,35 @@
 	);
 
 	const isMissing = $derived(entry.status === 'missing');
+	const statusLabel = $derived(
+		isMissing
+			? 'fehlend'
+			: entry.status === 'owned'
+				? 'Vorhanden'
+				: entry.status === 'duplicate'
+					? 'Doppelt'
+					: 'Gesucht'
+	);
+	// Keep visible labels in DOM order so voice control can match the complete card text.
+	const accessibleName = $derived(
+		[
+			!entry.cover_url && !entry.cover_local_path ? `#${entry.issue_number}` : null,
+			`#${entry.issue_number}`,
+			!isMissing ? entry.condition_grade : null,
+			entry.status === 'duplicate' ? 'Doppelt' : null,
+			entry.sync_state === 'pending'
+				? 'Ausstehend'
+				: entry.sync_state === 'conflict'
+					? 'Konflikt'
+					: null,
+			entry.title,
+			entry.edition_label ? `${entry.edition_label}, Exemplar ${entry.copy_number ?? '–'}` : null,
+			`Status: ${statusLabel}`,
+			!entry.edition_label ? `Exemplar ${entry.copy_number ?? '–'}` : null
+		]
+			.filter(Boolean)
+			.join(' ')
+	);
 </script>
 
 <!-- The role and tabindex are both conditional on the interactive prop. -->
@@ -36,9 +65,7 @@
 				}
 			}
 		: undefined}
-	aria-label="{entry.title} — #{entry.issue_number}{entry.status === 'missing'
-		? ', fehlend'
-		: `, ${entry.status === 'owned' ? 'Vorhanden' : entry.status === 'duplicate' ? 'Doppelt' : entry.status === 'wanted' ? 'Gesucht' : entry.status}${entry.condition_grade ? `, ${entry.condition_grade}` : ''}${entry.edition_label ? `, ${entry.edition_label}` : ''}, Exemplar ${entry.copy_number ?? '–'}`}"
+	aria-label={accessibleName}
 	data-testid="cover-card"
 >
 	<!-- Cover image -->

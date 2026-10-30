@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getOfflineStatus } from '$lib/offline/status.svelte';
+	import { getOfflineStatus } from '#lib/offline/status.svelte.js';
 
 	let { feature }: { feature: string } = $props();
 	const status = getOfflineStatus();

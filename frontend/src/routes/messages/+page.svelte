@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getAuthState } from '$lib/stores/auth.svelte';
-	import { fetchMessageThreads, type MessageThreadSummary } from '$lib/api/messages';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
+	import { fetchMessageThreads, type MessageThreadSummary } from '#lib/api/messages.js';
 
 	const auth = getAuthState();
 	let threads = $state<MessageThreadSummary[]>([]);
@@ -11,7 +11,7 @@
 	let loaded = false;
 
 	$effect(() => {
-		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('/login'));
+		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('login'));
 		else if (auth.isAuthenticated && !loaded) {
 			loaded = true;
 			void load();
@@ -44,7 +44,7 @@
 		<div class="mt-6 space-y-3" data-testid="message-thread-list">
 			{#each threads as thread (thread.id)}
 				<a
-					href={resolve(`/messages/${thread.id}`)}
+					href={resolve(`messages/${thread.id}`)}
 					class="glass-elevated flex items-center gap-4 rounded-xl p-4"
 				>
 					<div class="min-w-0 flex-1">

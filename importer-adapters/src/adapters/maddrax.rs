@@ -707,7 +707,7 @@ mod tests {
         );
 
         assert_eq!(issue.title, "Trans-Meeraka-Express");
-        assert!(issue.authors.is_empty());
+        assert_eq!(issue.authors, [] as [std::string::String; 0]);
         assert_eq!(
             issue.published_at,
             chrono::NaiveDate::from_ymd_opt(2026, 9, 5)

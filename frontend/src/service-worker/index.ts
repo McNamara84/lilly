@@ -1,16 +1,20 @@
 /// <reference lib="webworker" />
 
-import { build, files, version } from '$service-worker';
-import { isCacheableNavigationPath, isPrivateCachePath } from '$lib/offline/cache-policy';
+import { version } from '$app/env';
+import { assets, immutable } from '$app/manifest';
+import { asset } from '$app/paths';
+import { isCacheableNavigationPath, isPrivateCachePath } from '#lib/offline/cache-policy.js';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const APP_CACHE = `lilly-app-${version}`;
 const COVER_CACHE = `lilly-covers-${version}`;
 const ALLOWED_CACHES = new Set([APP_CACHE, COVER_CACHE]);
-const PRECACHE_ASSETS = [...new Set(files)].filter(
+const PRECACHE_ASSETS = [...new Set(assets.map(({ path }) => asset(path)))].filter(
 	(path) => !path.startsWith('/api/') && !path.startsWith('/media/')
 );
-const BUILD_ASSETS = new Set(build);
+const BUILD_ASSETS = new Set(
+	immutable.map(({ path }) => new URL(path, worker.location.href).pathname)
+);
 
 async function networkFirstNavigation(request: Request): Promise<Response> {
 	const cache = await caches.open(APP_CACHE);

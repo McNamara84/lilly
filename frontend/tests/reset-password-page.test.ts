@@ -7,13 +7,12 @@ const pageState = vi.hoisted(() => ({
 	url: new URL(`http://localhost/reset-password?token=${'a'.repeat(43)}`)
 }));
 
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	confirmPasswordReset: vi.fn()
 }));
 
 vi.mock('$app/navigation', () => ({
-	goto: vi.fn(),
-	replaceState: vi.fn()
+	goto: vi.fn()
 }));
 
 vi.mock('$app/state', () => ({
@@ -72,8 +71,8 @@ describe('Reset Password Page', () => {
 	});
 
 	it('submits a valid password and removes the token from browser history', async () => {
-		const { confirmPasswordReset } = await import('$lib/api/auth');
-		const { goto, replaceState } = await import('$app/navigation');
+		const { confirmPasswordReset } = await import('#lib/api/auth.js');
+		const { goto } = await import('$app/navigation');
 		vi.mocked(confirmPasswordReset).mockResolvedValue({ message: 'success' });
 		render(ResetPasswordPage);
 		const user = userEvent.setup();
@@ -89,15 +88,16 @@ describe('Reset Password Page', () => {
 			password_confirmation: strongPassword
 		});
 		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/login?reset=true'));
-		expect(replaceState).toHaveBeenCalledWith('/reset-password', {});
+		expect(goto).toHaveBeenNthCalledWith(1, '/reset-password', { shallow: true, replace: true });
 	});
 
 	it('maps invalid token, field and rate-limit errors', async () => {
-		const { confirmPasswordReset } = await import('$lib/api/auth');
+		const { confirmPasswordReset } = await import('#lib/api/auth.js');
 		const user = userEvent.setup();
 		const strongPassword = 'correct horse battery staple 2049!';
 		let view = render(ResetPasswordPage);
-		await user.type(screen.getByLabelText('Neues Passwort'), strongPassword);
+		await user.click(screen.getByLabelText('Neues Passwort'));
+		await user.paste(strongPassword);
 		await user.type(screen.getByLabelText(/Passwort bestätigen/i), strongPassword);
 
 		vi.mocked(confirmPasswordReset).mockRejectedValueOnce(
@@ -108,7 +108,8 @@ describe('Reset Password Page', () => {
 
 		view.unmount();
 		view = render(ResetPasswordPage);
-		await user.type(screen.getByLabelText('Neues Passwort'), strongPassword);
+		await user.click(screen.getByLabelText('Neues Passwort'));
+		await user.paste(strongPassword);
 		await user.type(screen.getByLabelText(/Passwort bestätigen/i), strongPassword);
 		vi.mocked(confirmPasswordReset).mockRejectedValueOnce(
 			Object.assign(new Error('fields'), { fields: { password: 'Server password error' } })
@@ -118,7 +119,8 @@ describe('Reset Password Page', () => {
 
 		view.unmount();
 		view = render(ResetPasswordPage);
-		await user.type(screen.getByLabelText('Neues Passwort'), strongPassword);
+		await user.click(screen.getByLabelText('Neues Passwort'));
+		await user.paste(strongPassword);
 		await user.type(screen.getByLabelText(/Passwort bestätigen/i), strongPassword);
 		vi.mocked(confirmPasswordReset).mockRejectedValueOnce(
 			Object.assign(new Error('limited'), { retry_after_seconds: 33 })

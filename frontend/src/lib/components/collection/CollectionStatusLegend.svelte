@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { COLLECTION_STATUS_PRESENTATION } from '$lib/collection/series-grid';
-	import type { CollectionStatus } from '$lib/api/collection';
+	import { COLLECTION_STATUS_PRESENTATION } from '#lib/collection/series-grid.js';
+	import type { CollectionStatus } from '#lib/api/collection.js';
 
 	const STATUSES: CollectionStatus[] = ['owned', 'duplicate', 'wanted', 'missing'];
 </script>

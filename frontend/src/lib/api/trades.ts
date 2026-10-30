@@ -1,4 +1,4 @@
-import type { ConditionGrade } from '$lib/collection/conditions';
+import type { ConditionGrade } from '#lib/collection/conditions.js';
 
 const API_BASE = '/api/v1';
 

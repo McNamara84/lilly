@@ -1,18 +1,18 @@
-import type { ConditionGrade } from '$lib/collection/conditions';
+import type { ConditionGrade } from '#lib/collection/conditions.js';
 import {
 	getCachedProfile,
 	listStoredCollectionEntries,
 	mergeCollectionEntries,
 	replaceOfflineSnapshot
-} from '$lib/offline/database';
+} from '#lib/offline/database.js';
 import {
 	queueCollectionCreate,
 	queueCollectionUpdate,
 	readLocalCollection,
 	synchronizeCollection
-} from '$lib/offline/collection';
-import { isNetworkFailure } from '$lib/offline/network';
-import type { CollectionSyncResponse, OfflineSnapshot } from '$lib/offline/types';
+} from '#lib/offline/collection.js';
+import { isNetworkFailure } from '#lib/offline/network.js';
+import type { CollectionSyncResponse, OfflineSnapshot } from '#lib/offline/types.js';
 
 const API_BASE = '/api/v1';
 

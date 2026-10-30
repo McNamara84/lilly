@@ -8,7 +8,7 @@ import {
 	updateProfile,
 	uploadAvatar,
 	updateVisibility
-} from '$lib/api/profile';
+} from '#lib/api/profile.js';
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;

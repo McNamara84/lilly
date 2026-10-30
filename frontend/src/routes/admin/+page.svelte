@@ -3,6 +3,6 @@
 	import { resolve } from '$app/paths';
 
 	$effect(() => {
-		goto(resolve('/admin/series'), { replaceState: true });
+		goto(resolve('admin/series'), { replace: true });
 	});
 </script>

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import PhotoUploader from '$lib/components/media/PhotoUploader.svelte';
+import PhotoUploader from '#lib/components/media/PhotoUploader.svelte';
 
 const mocks = vi.hoisted(() => ({
 	fetchPhotoPolicy: vi.fn(),
@@ -16,8 +16,8 @@ const objectUrlMocks = vi.hoisted(() => ({
 	revoke: vi.fn()
 }));
 
-vi.mock('$lib/api/media', async (importOriginal) => {
-	const original = await importOriginal<typeof import('$lib/api/media')>();
+vi.mock('#lib/api/media.js', async (importOriginal) => {
+	const original = await importOriginal<typeof import('#lib/api/media.js')>();
 	return {
 		...original,
 		fetchPhotoPolicy: mocks.fetchPhotoPolicy,
@@ -343,7 +343,7 @@ describe('PhotoUploader', () => {
 
 	it('disables photo loading and uploads while offline', async () => {
 		const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
-		const { refreshConnectivity } = await import('$lib/offline/status.svelte');
+		const { refreshConnectivity } = await import('#lib/offline/status.svelte.js');
 		await refreshConnectivity();
 
 		render(PhotoUploader, { props: { entryId: 17 } });

@@ -1,3 +1,4 @@
+import { fromStore, writable } from 'svelte/store';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
@@ -5,13 +6,13 @@ import IssueDetailPage from '../src/routes/issues/[id]/+page.svelte';
 
 const mockGetAuthState = vi.fn();
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mockGetAuthState()
 }));
 
 const mockFetchIssue = vi.fn();
 
-vi.mock('$lib/api/series', () => ({
+vi.mock('#lib/api/series.js', () => ({
 	fetchIssue: (...args: unknown[]) => mockFetchIssue(...args)
 }));
 
@@ -20,7 +21,7 @@ const mockAddToCollection = vi.fn();
 const mockUpdateCollectionEntry = vi.fn();
 const mockDeleteCollectionEntry = vi.fn();
 
-vi.mock('$lib/api/collection', () => ({
+vi.mock('#lib/api/collection.js', () => ({
 	fetchCollectionEntriesByIssue: async (...args: unknown[]) => {
 		const result = await mockFetchCollectionEntryByIssue(...args);
 		return Array.isArray(result) ? result : result ? [result] : [];
@@ -30,26 +31,13 @@ vi.mock('$lib/api/collection', () => ({
 	deleteCollectionEntry: (...args: unknown[]) => mockDeleteCollectionEntry(...args)
 }));
 
-function createMockStore<T>(initial: T) {
-	let value = initial;
-	const subs = new Set<(v: T) => void>();
-	return {
-		subscribe(fn: (v: T) => void) {
-			subs.add(fn);
-			fn(value);
-			return () => subs.delete(fn);
-		},
-		set(v: T) {
-			value = v;
-			subs.forEach((fn) => fn(v));
-		}
-	};
-}
+const mockPage = writable({ params: { id: '42' } });
+const pageState = fromStore(mockPage);
 
-const mockPage = createMockStore({ params: { id: '42' } });
-
-vi.mock('$app/stores', () => ({
-	page: { subscribe: (fn: (value: unknown) => void) => mockPage.subscribe(fn) }
+vi.mock('$app/state', () => ({
+	get page() {
+		return pageState.current;
+	}
 }));
 
 vi.mock('$app/navigation', () => ({
@@ -57,7 +45,7 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
 const sampleIssue = {

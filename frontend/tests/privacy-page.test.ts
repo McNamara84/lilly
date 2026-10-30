@@ -3,17 +3,17 @@ import { render, screen } from '@testing-library/svelte';
 import PrivacyPage from '../src/routes/privacy/+page.svelte';
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
-vi.mock('$lib/api/auth', () => ({
+vi.mock('#lib/api/auth.js', () => ({
 	fetchAuthOptions: vi.fn()
 }));
 
 describe('Privacy Page', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
-		const { fetchAuthOptions } = await import('$lib/api/auth');
+		const { fetchAuthOptions } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockResolvedValue({
 			privacy_policy: { version: 'test-v1', url: '/privacy' },
 			oauth: { google: true, github: true }
@@ -29,7 +29,7 @@ describe('Privacy Page', () => {
 	});
 
 	it('falls back to a loading label when auth options cannot be fetched', async () => {
-		const { fetchAuthOptions } = await import('$lib/api/auth');
+		const { fetchAuthOptions } = await import('#lib/api/auth.js');
 		vi.mocked(fetchAuthOptions).mockRejectedValue(new Error('Network failure'));
 
 		render(PrivacyPage);

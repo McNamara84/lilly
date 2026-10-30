@@ -24,7 +24,7 @@ const mockGetAuthState = vi.fn();
 const mockInitAuth = vi.fn();
 const mockPerformLogout = vi.fn();
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	getAuthState: () => mockGetAuthState(),
 	initAuth: () => mockInitAuth(),
 	performLogout: () => mockPerformLogout()
@@ -35,7 +35,7 @@ vi.mock('$app/navigation', () => ({
 }));
 
 vi.mock('$app/paths', () => ({
-	resolve: (path: string) => path
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
 }));
 
 function renderLayout() {
@@ -191,7 +191,7 @@ describe('Layout', () => {
 
 	it('prevents navigation to online-only areas while offline', async () => {
 		const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
-		const { refreshConnectivity } = await import('$lib/offline/status.svelte');
+		const { refreshConnectivity } = await import('#lib/offline/status.svelte.js');
 		await refreshConnectivity();
 		mockGetAuthState.mockReturnValue({
 			isAuthenticated: true,

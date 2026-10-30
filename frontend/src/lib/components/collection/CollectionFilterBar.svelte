@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { CollectionQueryParams } from '$lib/api/collection';
+	import type { CollectionQueryParams } from '#lib/api/collection.js';
 	import {
 		CONDITION_GRADES,
 		countActiveCollectionFilters,
 		normalizeCollectionQuery
-	} from '$lib/utils/collection-query';
+	} from '#lib/utils/collection-query.js';
 
 	interface SeriesOption {
 		slug: string;

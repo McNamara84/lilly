@@ -10,15 +10,15 @@ import {
 	reapplyConflictLocalVersion,
 	acceptConflictServerVersion,
 	synchronizeCollection
-} from '$lib/offline/collection';
+} from '#lib/offline/collection.js';
 import {
 	deleteStoredCollectionEntry,
 	listStoredCollectionEntries,
 	putCollectionEntry,
 	replaceOfflineSnapshot,
 	resetOfflineDatabaseForTests
-} from '$lib/offline/database';
-import type { CollectionSyncResponse } from '$lib/offline/types';
+} from '#lib/offline/database.js';
+import type { CollectionSyncResponse } from '#lib/offline/types.js';
 import { entry, issue, snapshot } from './fixtures/offline';
 
 describe('offline collection queue', () => {
@@ -158,7 +158,8 @@ describe('offline collection queue', () => {
 		vi.resetModules();
 
 		try {
-			const { queueCollectionCreate: queueAfterReload } = await import('$lib/offline/collection');
+			const { queueCollectionCreate: queueAfterReload } =
+				await import('#lib/offline/collection.js');
 			const second = await queueAfterReload(1, {
 				issue_id: issue.id,
 				notes: 'second session'

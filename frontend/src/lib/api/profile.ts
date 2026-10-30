@@ -1,5 +1,5 @@
-import type { CollectionStats, PersistedCollectionStatus } from '$lib/api/collection';
-import type { ConditionGrade } from '$lib/collection/conditions';
+import type { CollectionStats, PersistedCollectionStatus } from '#lib/api/collection.js';
+import type { ConditionGrade } from '#lib/collection/conditions.js';
 
 const API_BASE = '/api/v1';
 

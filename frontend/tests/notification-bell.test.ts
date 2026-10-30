@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 	goto: vi.fn()
 }));
 
-vi.mock('$lib/api/notifications', () => ({
+vi.mock('#lib/api/notifications.js', () => ({
 	fetchNotifications: (...args: unknown[]) => mocks.fetchNotifications(...args),
 	fetchUnreadNotificationCount: (...args: unknown[]) => mocks.fetchUnreadNotificationCount(...args),
 	markAllNotificationsRead: (...args: unknown[]) => mocks.markAllNotificationsRead(...args),
@@ -20,7 +20,7 @@ vi.mock('$lib/api/notifications', () => ({
 vi.mock('$app/navigation', () => ({ goto: (...args: unknown[]) => mocks.goto(...args) }));
 vi.mock('$app/paths', () => ({
 	resolve: (route: string, params?: { id: string }) =>
-		params ? route.replace('[id]', params.id) : route
+		params ? route.replace('[id]', params.id) : route.startsWith('/') ? route : `/${route}`
 }));
 
 const messageNotification = {

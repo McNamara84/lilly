@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getAuthState } from '$lib/stores/auth.svelte';
-	import { updateCollectionEntry } from '$lib/api/collection';
-	import { fetchTradeOffers, type TradeOffer } from '$lib/api/trades';
+	import { getAuthState } from '#lib/stores/auth.svelte.js';
+	import { updateCollectionEntry } from '#lib/api/collection.js';
+	import { fetchTradeOffers, type TradeOffer } from '#lib/api/trades.js';
 
 	const auth = getAuthState();
 	let offers = $state<TradeOffer[]>([]);
@@ -12,7 +12,7 @@
 	let loaded = false;
 
 	$effect(() => {
-		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('/login'));
+		if (!auth.isLoading && !auth.isAuthenticated) void goto(resolve('login'));
 		else if (auth.isAuthenticated && !loaded) {
 			loaded = true;
 			void load();
@@ -43,7 +43,7 @@
 <svelte:head><title>Tauschbare Hefte – LILLY</title></svelte:head>
 <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6">
 	<header class="mb-6">
-		<a href={resolve('/trades')} class="text-sm underline">← Zurück zum Tausch</a>
+		<a href={resolve('trades')} class="text-sm underline">← Zurück zum Tausch</a>
 		<h1 class="mt-3 text-2xl font-bold">Tauschbare Hefte</h1>
 	</header>
 	{#if error}<p role="alert" style="color: var(--color-error);">{error}</p>{/if}

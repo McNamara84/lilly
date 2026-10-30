@@ -26,7 +26,7 @@ describe('PWA lifecycle', () => {
 	});
 
 	it('captures, invokes and clears the browser install prompt', async () => {
-		const module = await import('$lib/offline/pwa.svelte');
+		const module = await import('#lib/offline/pwa.svelte.js');
 		module.initializePwaLifecycle();
 		module.initializePwaLifecycle();
 
@@ -57,7 +57,7 @@ describe('PWA lifecycle', () => {
 			addEventListener: vi.fn()
 		};
 		setServiceWorker({ ready: Promise.resolve(registration), controller: {} });
-		const module = await import('$lib/offline/pwa.svelte');
+		const module = await import('#lib/offline/pwa.svelte.js');
 
 		module.initializePwaLifecycle();
 		await vi.waitFor(() => expect(module.getPwaState().updateAvailable).toBe(true));
@@ -77,7 +77,7 @@ describe('PWA lifecycle', () => {
 			addEventListener: vi.fn((_type: string, handler: () => void) => (updateFound = handler))
 		};
 		setServiceWorker({ ready: Promise.resolve(registration), controller: {} });
-		const module = await import('$lib/offline/pwa.svelte');
+		const module = await import('#lib/offline/pwa.svelte.js');
 
 		module.initializePwaLifecycle();
 		await vi.waitFor(() => expect(updateFound).toBeTypeOf('function'));
@@ -89,7 +89,7 @@ describe('PWA lifecycle', () => {
 	});
 
 	it('leaves workers alone when activation is unsupported or none is waiting', async () => {
-		const moduleWithoutWorker = await import('$lib/offline/pwa.svelte');
+		const moduleWithoutWorker = await import('#lib/offline/pwa.svelte.js');
 		await expect(moduleWithoutWorker.activateWaitingServiceWorker()).resolves.toBeUndefined();
 
 		vi.resetModules();
@@ -97,7 +97,7 @@ describe('PWA lifecycle', () => {
 			ready: Promise.resolve({ waiting: null }),
 			addEventListener: vi.fn()
 		});
-		const moduleWithoutUpdate = await import('$lib/offline/pwa.svelte');
+		const moduleWithoutUpdate = await import('#lib/offline/pwa.svelte.js');
 		await expect(moduleWithoutUpdate.activateWaitingServiceWorker()).resolves.toBeUndefined();
 	});
 
@@ -108,7 +108,7 @@ describe('PWA lifecycle', () => {
 			addEventListener: vi.fn((_type: string, handler: () => void) => handler())
 		};
 		setServiceWorker(serviceWorker);
-		const module = await import('$lib/offline/pwa.svelte');
+		const module = await import('#lib/offline/pwa.svelte.js');
 
 		await module.activateWaitingServiceWorker();
 

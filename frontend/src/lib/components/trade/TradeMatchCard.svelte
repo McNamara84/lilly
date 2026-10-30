@@ -5,7 +5,7 @@
 		type MatchIssue,
 		type Trade,
 		type TradeMatch
-	} from '$lib/api/trades';
+	} from '#lib/api/trades.js';
 
 	let {
 		match,
@@ -148,7 +148,7 @@
 	<footer class="mt-4 flex justify-end">
 		{#if match.open_trade_id}
 			<a
-				href={resolve(`/trades/${match.open_trade_id}`)}
+				href={resolve(`trades/${match.open_trade_id}`)}
 				class="rounded-lg px-4 py-2 text-sm font-semibold"
 				style="background: var(--glass);"
 			>

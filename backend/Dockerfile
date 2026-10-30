@@ -1,9 +1,9 @@
-FROM rust:1.98.1-trixie AS builder
+FROM rust:1.99.1-slim-trixie@sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 AS builder
 
 WORKDIR /app
 
 # Install required system dependencies
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace manifest and member manifests for dependency caching
 COPY Cargo.toml Cargo.lock ./
@@ -18,7 +18,7 @@ RUN mkdir -p backend/src importer-core/src importer-adapters/src importer/src &&
     echo "" > importer-core/src/lib.rs && \
     echo "" > importer-adapters/src/lib.rs && \
     echo "fn main() {}" > importer/src/main.rs
-RUN cargo build --release -p lilly-backend 2>/dev/null || true
+RUN cargo build --locked --release -p lilly-backend 2>/dev/null || true
 
 # Copy actual source code
 COPY backend/src/ backend/src/
@@ -34,11 +34,11 @@ RUN touch backend/src/main.rs importer-core/src/lib.rs importer-adapters/src/lib
 
 # Build with SQLX_OFFLINE since we don't have a DB at build time
 ENV SQLX_OFFLINE=true
-RUN cargo build --release -p lilly-backend
+RUN cargo build --locked --release -p lilly-backend
 
-FROM debian:trixie-slim AS runtime
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS runtime
 
-RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
 # Keep ownership stable for the persistent media volume and the host-mounted,
 # mode-0600 account-erasure ledger across image upgrades.

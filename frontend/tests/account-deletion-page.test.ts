@@ -8,12 +8,12 @@ const mockCancelDeletion = vi.fn();
 const mockInitAuth = vi.fn();
 const mockGoto = vi.fn();
 
-vi.mock('$lib/api/account-erasure', () => ({
+vi.mock('#lib/api/account-erasure.js', () => ({
 	fetchAccountDeletionStatus: (...args: unknown[]) => mockFetchStatus(...args),
 	cancelAccountDeletion: (...args: unknown[]) => mockCancelDeletion(...args)
 }));
 
-vi.mock('$lib/stores/auth.svelte', () => ({
+vi.mock('#lib/stores/auth.svelte.js', () => ({
 	initAuth: (...args: unknown[]) => mockInitAuth(...args)
 }));
 
@@ -21,7 +21,9 @@ vi.mock('$app/navigation', () => ({
 	goto: (...args: unknown[]) => mockGoto(...args)
 }));
 
-vi.mock('$app/paths', () => ({ resolve: (path: string) => path }));
+vi.mock('$app/paths', () => ({
+	resolve: (path: string) => (path.startsWith('/') ? path : `/${path}`)
+}));
 
 describe('Account deletion recovery page', () => {
 	beforeEach(() => {

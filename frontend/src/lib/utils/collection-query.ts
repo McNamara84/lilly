@@ -1,5 +1,5 @@
-import type { CollectionQueryParams } from '$lib/api/collection';
-import { CONDITION_GRADES } from '$lib/collection/conditions';
+import type { CollectionQueryParams } from '#lib/api/collection.js';
+import { CONDITION_GRADES } from '#lib/collection/conditions.js';
 
 export const COLLECTION_SORTS = [
 	'issue_number',
@@ -71,7 +71,9 @@ export function normalizeCollectionQuery(params: CollectionQueryParams): Collect
 	};
 }
 
-export function parseCollectionQuery(searchParams: URLSearchParams): CollectionQueryParams {
+export function parseCollectionQuery(
+	searchParams: Pick<URLSearchParams, 'get'>
+): CollectionQueryParams {
 	return normalizeCollectionQuery({
 		series_slug: searchParams.get('series_slug') ?? undefined,
 		status: searchParams.get('status') ?? undefined,

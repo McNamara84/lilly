@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn invalid_json_metadata_degrades_to_an_empty_list() {
-        assert!(parse_string_list("not-json").is_empty());
+        assert_eq!(parse_string_list("not-json"), [] as [String; 0]);
         assert_eq!(
             parse_string_list(r#"["Jane Doe"]"#),
             vec!["Jane Doe".to_string()]

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('$service-worker', () => ({
-	build: ['/_app/immutable/app.js'],
-	files: ['/manifest.webmanifest', '/api/private', '/media/private', '/manifest.webmanifest'],
-	version: 'test'
+vi.mock('$app/env', () => ({ version: 'test' }));
+vi.mock('$app/manifest', () => ({
+	immutable: [{ path: '_app/immutable/app.js' }],
+	assets: ['manifest.webmanifest', 'api/private', 'media/private', 'manifest.webmanifest'].map(
+		(path) => ({ path })
+	)
 }));
+vi.mock('$app/paths', () => ({ asset: (path: string) => `/${path}` }));
 
 type WorkerHandler = (event: unknown) => void;
 
@@ -29,7 +32,7 @@ describe('service worker', () => {
 	let coverCache: ReturnType<typeof createCache>;
 	let fetchMock: ReturnType<typeof vi.fn>;
 	let worker: {
-		location: { origin: string };
+		location: { origin: string; href: string };
 		clients: { claim: ReturnType<typeof vi.fn> };
 		skipWaiting: ReturnType<typeof vi.fn>;
 		addEventListener: ReturnType<typeof vi.fn>;
@@ -47,7 +50,7 @@ describe('service worker', () => {
 		coverCache = createCache();
 		fetchMock = vi.fn();
 		worker = {
-			location: { origin: 'https://lilly.test' },
+			location: { origin: 'https://lilly.test', href: 'https://lilly.test/service-worker.js' },
 			clients: { claim: vi.fn(async () => undefined) },
 			skipWaiting: vi.fn(async () => undefined),
 			addEventListener: vi.fn((type: string, handler: WorkerHandler) => handlers.set(type, handler))
@@ -61,7 +64,7 @@ describe('service worker', () => {
 		vi.stubGlobal('self', worker);
 		vi.stubGlobal('caches', cacheStorage);
 		vi.stubGlobal('fetch', fetchMock);
-		await import('../src/service-worker');
+		await import('../src/service-worker/index');
 	});
 
 	function dispatchExtendable(type: 'install' | 'activate') {

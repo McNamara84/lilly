@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import {
 		activateImport,
 		cancelImport,
@@ -17,7 +17,7 @@
 		type ReviewItem,
 		type ReviewOutcome,
 		type ReviewSeverity
-	} from '$lib/api/admin';
+	} from '#lib/api/admin.js';
 
 	let job = $state<ImportJob | null>(null);
 	let reviewSummary = $state<ImportReviewSummary | null>(null);
@@ -40,7 +40,7 @@
 	let polling = false;
 	let pollTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	const jobId = $derived(Number($page.params.id));
+	const jobId = $derived(Number(page.params.id));
 	const invalidJobId = $derived(!Number.isFinite(jobId) || jobId < 1);
 
 	function isTerminal(status: ImportJob['status']): boolean {
@@ -178,7 +178,7 @@
 		error = null;
 		try {
 			const retry = await retryImport(currentJob.id);
-			await goto(resolve(`/admin/import/${retry.id}`));
+			await goto(resolve(`admin/import/${retry.id}`));
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Retry failed';
 		} finally {
@@ -254,10 +254,10 @@
 </svelte:head>
 
 <a
-	href={resolve('/admin/import')}
+	href={resolve('admin/import')}
 	class="text-sm mb-4 inline-block"
 	style="color: var(--color-brand-500);"
-	data-testid="back-link">&larr; Zurück zur Import-Übersicht</a
+	data-testid="back-link">← Zurück zur Import-Übersicht</a
 >
 
 {#if loading}
@@ -281,6 +281,7 @@
 	>
 		Import #{job.id}
 	</h1>
+
 	<p class="text-sm mb-6" style="color: var(--text-secondary);">
 		Adapter: {job.adapter_name}
 		{#if job.source_key}· Quelle: {job.source_key}{/if}
@@ -557,8 +558,8 @@
 										{item.published_at ?? '–'}<br /><small
 											>{item.part_number !== null && item.part_total !== null
 												? `${item.part_number} von ${item.part_total}`
-												: (item.cycle ?? '–')}</small
-										>
+												: (item.cycle ?? '–')}
+										</small>
 									</td>
 									<td class="py-3 px-2">
 										{#if item.cover_local_path}

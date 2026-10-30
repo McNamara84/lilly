@@ -1,8 +1,14 @@
 <script lang="ts">
-	import { requestPasswordReset } from '$lib/api/auth';
+	import { onMount } from 'svelte';
+	import { requestPasswordReset } from '#lib/api/auth.js';
 	import { resolve } from '$app/paths';
 
 	let email = $state('');
+	// Do not accept input before the client-side request handler is attached.
+	let ready = $state(false);
+	onMount(() => {
+		ready = true;
+	});
 	let emailTouched = $state(false);
 	let isLoading = $state(false);
 	let submitted = $state(false);
@@ -84,6 +90,7 @@
 				<div>
 					<label for="reset-email" class="block text-sm font-medium mb-1.5">E-Mail</label>
 					<input
+						disabled={!ready}
 						id="reset-email"
 						data-testid="reset-email-input"
 						type="email"
@@ -103,7 +110,7 @@
 				</div>
 				<button
 					type="submit"
-					disabled={isLoading}
+					disabled={!ready || isLoading}
 					class="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
 					style="background-color: var(--color-brand-700);"
 					data-testid="reset-request-submit"
@@ -113,9 +120,9 @@
 			</form>
 		{/if}
 		<p class="mt-6 text-center text-sm">
-			<a href={resolve('/login')} class="font-medium" style="color: var(--color-brand-500);">
-				Zurück zur Anmeldung
-			</a>
+			<a href={resolve('login')} class="font-medium" style="color: var(--color-brand-500);"
+				>Zurück zur Anmeldung</a
+			>
 		</p>
 	</section>
 </main>

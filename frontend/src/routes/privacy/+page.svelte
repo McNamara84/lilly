@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { fetchAuthOptions } from '$lib/api/auth';
+	import { fetchAuthOptions } from '#lib/api/auth.js';
 
 	let policyVersion = $state('');
 
@@ -17,6 +17,7 @@
 
 <div class="min-h-[calc(100vh-3.5rem)] px-4 py-8 sm:px-6 lg:px-8 max-w-3xl mx-auto">
 	<h1 class="text-3xl font-bold mb-6" style="color: var(--text-primary);">Datenschutzerklärung</h1>
+
 	<p class="mb-6 text-sm" data-testid="privacy-policy-version">
 		Version {policyVersion || 'wird geladen'}
 	</p>
@@ -29,7 +30,8 @@
 			<p>
 				Verantwortlich für die Datenverarbeitung auf dieser Plattform ist der Betreiber von LILLY.
 				Name, Anschrift und Kontaktdaten des Betreibers finden Sie im
-				<a class="underline" href={resolve('/imprint')}>Impressum</a>.
+				<a class="underline" href={resolve('imprint')}>Impressum</a>
+				.
 			</p>
 		</section>
 
@@ -153,7 +155,7 @@
 
 	<div class="mt-8">
 		<a
-			href={resolve('/register')}
+			href={resolve('register')}
 			class="text-sm font-medium"
 			style="color: var(--color-brand-500);"
 		>
