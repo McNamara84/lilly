@@ -1,6 +1,7 @@
 import type { CollectionEntry } from '#lib/api/collection.js';
 import type { MeResponse } from '#lib/api/auth.js';
 import type { Issue, Series } from '#lib/api/series.js';
+import { isOfflineUserBlocked, offlineSessionVersion, isCurrentOfflineSession } from './session';
 import type {
 	CollectionMutation,
 	OfflineMetadata,
@@ -42,20 +43,10 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 	});
 }
 
-function deleteByUser(store: IDBObjectStore, userId: number): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const request = store.index('user_id').openCursor(userId);
-		request.addEventListener('error', () => reject(request.error), { once: true });
-		request.addEventListener('success', () => {
-			const cursor = request.result;
-			if (!cursor) {
-				resolve();
-				return;
-			}
-			cursor.delete();
-			cursor.continue();
-		});
-	});
+async function deleteByUser(store: IDBObjectStore, userId: number): Promise<void> {
+	// Batch requests in the same transaction; cursor round trips stall large snapshots in WebKit.
+	const keys = await requestResult<IDBValidKey[]>(store.index('user_id').getAllKeys(userId));
+	for (const key of keys) store.delete(key);
 }
 
 function createUserStore(database: IDBDatabase, name: string, keyPath: string): IDBObjectStore {
@@ -84,7 +75,10 @@ function openDatabase(): Promise<IDBDatabase> {
 		});
 		request.addEventListener('success', () => {
 			const database = request.result;
-			database.addEventListener('versionchange', () => database.close());
+			database.addEventListener('versionchange', () => {
+				database.close();
+				databasePromise = null;
+			});
 			resolve(database);
 		});
 		request.addEventListener('error', () => {
@@ -104,7 +98,10 @@ function snapshotMetadataKey(userId: number): string {
 }
 
 export async function saveConfirmedProfile(profile: MeResponse): Promise<void> {
+	const version = offlineSessionVersion();
+	if (isOfflineUserBlocked(profile.id)) return;
 	const database = await openDatabase();
+	if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(profile.id)) return;
 	const transaction = database.transaction([STORES.profiles, STORES.metadata], 'readwrite');
 	const done = transactionDone(transaction);
 	const stored: StoredProfile = {
@@ -122,51 +119,91 @@ export async function saveConfirmedProfile(profile: MeResponse): Promise<void> {
 }
 
 export async function getCachedProfile(): Promise<MeResponse | null> {
+	const version = offlineSessionVersion();
 	const database = await openDatabase();
 	const transaction = database.transaction([STORES.profiles, STORES.metadata], 'readonly');
 	const active = await requestResult<OfflineMetadata | undefined>(
 		transaction.objectStore(STORES.metadata).get('active_user_id')
 	);
 	if (!active || typeof active.value !== 'number') return null;
+	if (isOfflineUserBlocked(active.value)) return null;
 	const stored = await requestResult<StoredProfile | undefined>(
 		transaction.objectStore(STORES.profiles).get(active.value)
 	);
-	return stored?.profile ?? null;
+	return isCurrentOfflineSession(version) && !isOfflineUserBlocked(active.value)
+		? (stored?.profile ?? null)
+		: null;
 }
 
 export async function replaceOfflineSnapshot(snapshot: OfflineSnapshot): Promise<void> {
+	const version = offlineSessionVersion();
+	if (isOfflineUserBlocked(snapshot.user_id)) return;
 	const database = await openDatabase();
 	const transaction = database.transaction(
 		[STORES.series, STORES.issues, STORES.collection, STORES.metadata],
 		'readwrite'
 	);
 	const done = transactionDone(transaction);
-	await Promise.all([
-		deleteByUser(transaction.objectStore(STORES.series), snapshot.user_id),
-		deleteByUser(transaction.objectStore(STORES.issues), snapshot.user_id),
-		deleteByUser(transaction.objectStore(STORES.collection), snapshot.user_id)
+	const [localSeries, localIssues, localEntries] = await Promise.all([
+		requestResult<StoredSeries[]>(
+			transaction.objectStore(STORES.series).index('user_id').getAll(snapshot.user_id)
+		),
+		requestResult<StoredIssue[]>(
+			transaction.objectStore(STORES.issues).index('user_id').getAll(snapshot.user_id)
+		),
+		requestResult<StoredCollectionEntry[]>(
+			transaction.objectStore(STORES.collection).index('user_id').getAll(snapshot.user_id)
+		)
 	]);
-
-	const seriesStore = transaction.objectStore(STORES.series);
-	for (const item of snapshot.series) {
-		seriesStore.put({
-			...item,
-			key: userKey(snapshot.user_id, item.id),
-			user_id: snapshot.user_id
-		});
+	const retained = localEntries.filter(
+		(entry) => entry.sync_state === 'pending' || entry.sync_state === 'conflict'
+	);
+	const retainedIssueIds = new Set(retained.map((entry) => entry.issue_id));
+	const retainedSeriesIds = new Set(retained.map((entry) => entry.series_id));
+	if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(snapshot.user_id)) {
+		await done;
+		return;
 	}
-	const issueStore = transaction.objectStore(STORES.issues);
-	for (const item of snapshot.issues) {
-		issueStore.put({ ...item, key: userKey(snapshot.user_id, item.id), user_id: snapshot.user_id });
-	}
-	const collectionStore = transaction.objectStore(STORES.collection);
-	for (const item of snapshot.collection_entries) {
-		collectionStore.put({
-			...item,
-			key: userKey(snapshot.user_id, item.id),
-			user_id: snapshot.user_id
-		});
-	}
+	// Avoid rewriting the whole catalog on every navigation. In WebKit, hundreds of
+	// redundant writes hold the transaction lock long enough to block interactive reads.
+	const reconcile = <T extends { id: number }>(
+		storeName: string,
+		before: (T & { key: string; user_id: number })[],
+		after: T[]
+	) => {
+		const store = transaction.objectStore(storeName);
+		const previous = new Map(before.map((item) => [item.id, item]));
+		for (const item of after) {
+			const stored = {
+				...item,
+				key: userKey(snapshot.user_id, item.id),
+				user_id: snapshot.user_id
+			};
+			if (JSON.stringify(previous.get(item.id)) !== JSON.stringify(stored)) store.put(stored);
+			previous.delete(item.id);
+		}
+		for (const item of previous.values()) store.delete(item.key);
+	};
+	// Pending entries override the server view; retain their catalog references too.
+	reconcile(STORES.series, localSeries, [
+		...snapshot.series,
+		...localSeries.filter(
+			(item) =>
+				retainedSeriesIds.has(item.id) && !snapshot.series.some((series) => series.id === item.id)
+		)
+	]);
+	reconcile(STORES.issues, localIssues, [
+		...snapshot.issues,
+		...localIssues.filter(
+			(item) =>
+				retainedIssueIds.has(item.id) && !snapshot.issues.some((issue) => issue.id === item.id)
+		)
+	]);
+	const pendingIds = new Set(retained.map((entry) => entry.id));
+	reconcile(STORES.collection, localEntries, [
+		...snapshot.collection_entries.filter((entry) => !pendingIds.has(entry.id)),
+		...retained
+	]);
 	transaction.objectStore(STORES.metadata).put({
 		key: snapshotMetadataKey(snapshot.user_id),
 		user_id: snapshot.user_id,
@@ -183,13 +220,27 @@ export async function mergeCollectionEntries(
 	userId: number,
 	entries: CollectionEntry[]
 ): Promise<void> {
-	if (entries.length === 0) return;
+	const version = offlineSessionVersion();
+	if (entries.length === 0 || isOfflineUserBlocked(userId)) return;
 	const database = await openDatabase();
 	const transaction = database.transaction(STORES.collection, 'readwrite');
 	const done = transactionDone(transaction);
 	const store = transaction.objectStore(STORES.collection);
-	for (const entry of entries) {
-		store.put({ ...entry, key: userKey(userId, entry.id), user_id: userId });
+	const existing = await Promise.all(
+		entries.map((entry) =>
+			requestResult<StoredCollectionEntry | undefined>(store.get(userKey(userId, entry.id)))
+		)
+	);
+	for (const [index, entry] of entries.entries()) {
+		const current = existing[index];
+		if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(userId)) break;
+		if (
+			!entry.sync_state &&
+			(current?.sync_state === 'pending' || current?.sync_state === 'conflict')
+		)
+			continue;
+		const stored = { ...entry, key: userKey(userId, entry.id), user_id: userId };
+		if (JSON.stringify(current) !== JSON.stringify(stored)) store.put(stored);
 	}
 	await done;
 }
@@ -207,6 +258,7 @@ export async function deleteStoredCollectionEntry(userId: number, entryId: numbe
 }
 
 export async function listStoredCollectionEntries(userId: number): Promise<CollectionEntry[]> {
+	if (isOfflineUserBlocked(userId)) return [];
 	const database = await openDatabase();
 	const transaction = database.transaction(STORES.collection, 'readonly');
 	const records = await requestResult<StoredCollectionEntry[]>(
@@ -216,6 +268,7 @@ export async function listStoredCollectionEntries(userId: number): Promise<Colle
 }
 
 export async function listStoredSeries(userId: number): Promise<Series[]> {
+	if (isOfflineUserBlocked(userId)) return [];
 	const database = await openDatabase();
 	const transaction = database.transaction(STORES.series, 'readonly');
 	const records = await requestResult<StoredSeries[]>(
@@ -225,6 +278,7 @@ export async function listStoredSeries(userId: number): Promise<Series[]> {
 }
 
 export async function listStoredIssues(userId: number, seriesId?: number): Promise<Issue[]> {
+	if (isOfflineUserBlocked(userId)) return [];
 	const database = await openDatabase();
 	const transaction = database.transaction(STORES.issues, 'readonly');
 	const records = await requestResult<StoredIssue[]>(
@@ -236,6 +290,7 @@ export async function listStoredIssues(userId: number, seriesId?: number): Promi
 }
 
 export async function getStoredIssue(userId: number, issueId: number): Promise<Issue | null> {
+	if (isOfflineUserBlocked(userId)) return null;
 	const database = await openDatabase();
 	const transaction = database.transaction(STORES.issues, 'readonly');
 	const record = await requestResult<StoredIssue | undefined>(
@@ -255,6 +310,7 @@ export async function enqueueMutation(mutation: CollectionMutation): Promise<voi
 }
 
 export async function listMutations(userId: number): Promise<CollectionMutation[]> {
+	if (isOfflineUserBlocked(userId)) return [];
 	const database = await openDatabase();
 	const transaction = database.transaction(STORES.mutations, 'readonly');
 	const mutations = await requestResult<CollectionMutation[]>(
@@ -280,6 +336,7 @@ export async function putConflict(conflict: StoredConflict): Promise<void> {
 }
 
 export async function listConflicts(userId: number): Promise<StoredConflict[]> {
+	if (isOfflineUserBlocked(userId)) return [];
 	const database = await openDatabase();
 	const transaction = database.transaction(STORES.conflicts, 'readonly');
 	return requestResult<StoredConflict[]>(
@@ -318,7 +375,8 @@ export async function clearOfflineUserData(userId: number): Promise<void> {
 		deleteByUser(transaction.objectStore(STORES.issues), userId),
 		deleteByUser(transaction.objectStore(STORES.collection), userId),
 		deleteByUser(transaction.objectStore(STORES.mutations), userId),
-		deleteByUser(transaction.objectStore(STORES.conflicts), userId)
+		deleteByUser(transaction.objectStore(STORES.conflicts), userId),
+		deleteByUser(transaction.objectStore(STORES.metadata), userId)
 	]);
 	transaction.objectStore(STORES.profiles).delete(userId);
 	transaction.objectStore(STORES.metadata).delete(snapshotMetadataKey(userId));
@@ -329,6 +387,18 @@ export async function clearOfflineUserData(userId: number): Promise<void> {
 	await done;
 }
 
+/** Resume cleanup interrupted by a closed/navigated tab before accepting another session. */
+export async function clearBlockedOfflineUsers(): Promise<void> {
+	const database = await openDatabase();
+	const transaction = database.transaction(STORES.profiles, 'readonly');
+	const profiles = await requestResult<StoredProfile[]>(
+		transaction.objectStore(STORES.profiles).getAll()
+	);
+	for (const profile of profiles) {
+		if (isOfflineUserBlocked(profile.user_id)) await clearOfflineUserData(profile.user_id);
+	}
+}
+
 export async function resetOfflineDatabaseForTests(): Promise<void> {
 	if (databasePromise) {
 		const database = await databasePromise;
@@ -337,4 +407,84 @@ export async function resetOfflineDatabaseForTests(): Promise<void> {
 	}
 	if (typeof indexedDB === 'undefined') return;
 	await requestResult(indexedDB.deleteDatabase(DATABASE_NAME));
+}
+
+export interface OfflineWriteState {
+	entries: Map<number, CollectionEntry>;
+	mutations: Map<string, CollectionMutation>;
+	conflicts: Map<string, StoredConflict>;
+	metadata: Map<string, OfflineMetadata>;
+}
+
+/** Serialize read/modify/write across tabs. The callback must remain synchronous. */
+export async function editOfflineState<T>(
+	userId: number,
+	edit: (state: OfflineWriteState) => T
+): Promise<T> {
+	const version = offlineSessionVersion();
+	const database = await openDatabase();
+	const transaction = database.transaction(
+		[STORES.collection, STORES.mutations, STORES.conflicts, STORES.metadata],
+		'readwrite'
+	);
+	const done = transactionDone(transaction);
+	try {
+		const names = [STORES.collection, STORES.mutations, STORES.conflicts, STORES.metadata];
+		const rows = await Promise.all(
+			names.map((name) =>
+				requestResult<unknown[]>(transaction.objectStore(name).index('user_id').getAll(userId))
+			)
+		);
+		const originals = rows.map((items, index) => {
+			const key = transaction.objectStore(names[index]).keyPath as string;
+			return new Map(
+				(items as Record<string, unknown>[]).map((item) => [item[key], JSON.stringify(item)])
+			);
+		});
+		if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(userId))
+			throw new Error('Die lokale Sitzung wurde beendet.');
+		const state: OfflineWriteState = {
+			entries: new Map(
+				(rows[0] as StoredCollectionEntry[]).map(({ key: _key, user_id: _userId, ...entry }) => [
+					entry.id,
+					entry
+				])
+			),
+			mutations: new Map((rows[1] as CollectionMutation[]).map((item) => [item.mutation_id, item])),
+			conflicts: new Map((rows[2] as StoredConflict[]).map((item) => [item.mutation_id, item])),
+			metadata: new Map((rows[3] as OfflineMetadata[]).map((item) => [item.key, item]))
+		};
+		const result = edit(state);
+		const values = [
+			[...state.entries.values()].map((entry) => ({
+				...entry,
+				key: userKey(userId, entry.id),
+				user_id: userId
+			})),
+			[...state.mutations.values()],
+			[...state.conflicts.values()],
+			[...state.metadata.values()]
+		];
+		for (let index = 0; index < names.length; index++) {
+			const store = transaction.objectStore(names[index]);
+			const key = store.keyPath as string;
+			const before = originals[index];
+			for (const item of values[index]) {
+				const id = (item as unknown as Record<string, unknown>)[key];
+				if (before.get(id) !== JSON.stringify(item)) store.put(item);
+				before.delete(id);
+			}
+			for (const id of before.keys()) store.delete(id as IDBValidKey);
+		}
+		await done;
+		return result;
+	} catch (error) {
+		try {
+			transaction.abort();
+		} catch {
+			/* The transaction may already have aborted. */
+		}
+		await done.catch(() => undefined);
+		throw error;
+	}
 }

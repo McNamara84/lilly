@@ -6,3 +6,7 @@ coverage/
 playwright-report/
 test-results/
 package-lock.json
+.pwa-builds/
+.lighthouseci/
+test-results-mobile/
+test-results-update/

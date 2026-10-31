@@ -115,7 +115,7 @@ test.describe('Trade lists', () => {
 		try {
 			await page.goto('/collection/add');
 			await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
-			await page.getByTestId('series-card').first().click();
+			await page.getByTestId('series-card').filter({ hasText: 'Maddrax' }).click();
 			await expect(page.getByTestId('series-status-cell').first()).toBeVisible();
 			await page.getByTestId('series-status-cell').first().click();
 			await page.getByTestId('status-duplicate').click();

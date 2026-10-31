@@ -125,6 +125,8 @@ export async function startOAuth(
 		body: JSON.stringify({ intent, ...consent })
 	});
 	const result = await handleResponse<{ authorization_url: string }>(response);
+	if (intent === 'login' || intent === 'register')
+		sessionStorage.setItem('lilly-interactive-oauth', String(Date.now()));
 	return result.authorization_url;
 }
 

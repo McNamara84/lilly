@@ -1,4 +1,6 @@
 :80 {
+	encode zstd gzip
+
 	handle /api/* {
 		# With no trusted upstream configured, Caddy discards client-supplied
 		# forwarding values and derives X-Forwarded-For from the socket peer.

@@ -17,6 +17,7 @@ describe('PWA lifecycle', () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.restoreAllMocks();
 		if (originalServiceWorker) {
 			Object.defineProperty(navigator, 'serviceWorker', originalServiceWorker);
@@ -118,5 +119,46 @@ describe('PWA lifecycle', () => {
 			{ once: true }
 		);
 		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
+
+	it('keeps unsaved inputs when the user declines an update and permits submitted forms', async () => {
+		const waiting = { postMessage: vi.fn() };
+		setServiceWorker({
+			ready: Promise.resolve({ waiting, addEventListener: vi.fn() }),
+			addEventListener: vi.fn((_type, callback) => callback())
+		});
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		const form = document.createElement('form');
+		const input = document.createElement('input');
+		form.append(input);
+		document.body.append(form);
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		vi.spyOn(window, 'confirm').mockReturnValue(false);
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).not.toHaveBeenCalled();
+		form.dispatchEvent(new Event('submit', { bubbles: true }));
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+		form.remove();
+	});
+
+	it('reports a stalled update and removes its event listener without reloading', async () => {
+		vi.useFakeTimers();
+		const serviceWorker = {
+			ready: Promise.resolve({ waiting: { postMessage: vi.fn() } }),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn()
+		};
+		setServiceWorker(serviceWorker);
+		const module = await import('#lib/offline/pwa.svelte.js');
+		const activation = module.activateWaitingServiceWorker();
+		await vi.advanceTimersByTimeAsync(15000);
+		await activation;
+		expect(module.getPwaState().updateError).toContain('erneut');
+		expect(serviceWorker.removeEventListener).toHaveBeenCalledWith(
+			'controllerchange',
+			expect.any(Function)
+		);
 	});
 });

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('#lib/offline/database.js', () => ({
 	getCachedProfile: mocks.getCachedProfile,
-	listStoredCollectionEntries: vi.fn(),
+	listStoredCollectionEntries: vi.fn().mockResolvedValue([]),
 	mergeCollectionEntries: mocks.mergeCollectionEntries,
 	replaceOfflineSnapshot: vi.fn()
 }));

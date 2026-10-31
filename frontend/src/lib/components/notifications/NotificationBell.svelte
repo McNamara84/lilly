@@ -124,7 +124,7 @@
 		{#if count > 0}
 			<span
 				class="absolute -right-1 -top-1 min-w-5 rounded-full px-1 text-center text-xs font-bold"
-				style="background: var(--color-error); color: white;"
+				style="background: var(--color-error); color: #000;"
 				data-testid="notification-count"
 			>
 				{count > 99 ? '99+' : count}

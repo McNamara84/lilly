@@ -40,7 +40,11 @@ export default ts.config(
 			'node_modules/',
 			'coverage/',
 			'playwright-report/',
-			'test-results/'
+			'test-results/',
+			'test-results-mobile/',
+			'test-results-update/',
+			'.pwa-builds/',
+			'.lighthouseci/'
 		]
 	}
 );

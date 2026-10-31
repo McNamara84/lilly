@@ -10,6 +10,7 @@ pub mod oauth;
 pub mod password_reset_tokens;
 pub mod privacy_consents;
 pub mod profiles;
+mod pwa_fixtures;
 pub mod refresh_tokens;
 pub mod series;
 pub mod trade_matching;

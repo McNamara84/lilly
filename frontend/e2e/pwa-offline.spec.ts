@@ -87,7 +87,7 @@ test('collection reloads offline and a merged create/edit syncs exactly once', a
 
 		await page.getByTestId('collection-fab').click();
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
-		await page.getByTestId('series-card').first().click();
+		await page.getByTestId('series-card').filter({ hasText: 'Maddrax' }).click();
 		await expect(page.getByTestId('series-status-grid')).toBeVisible();
 		const missingCell = page
 			.locator('[data-testid="series-status-cell"][data-status="missing"]')

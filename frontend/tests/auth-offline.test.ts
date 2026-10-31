@@ -16,6 +16,7 @@ vi.mock('#lib/api/collection.js', () => ({
 describe('offline authentication context', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
+		localStorage.clear();
 		vi.unstubAllGlobals();
 		vi.resetModules();
 		const { resetOfflineDatabaseForTests } = await import('#lib/offline/database.js');
@@ -35,7 +36,7 @@ describe('offline authentication context', () => {
 		const { getAuthState, initAuth } = await import('#lib/stores/auth.svelte.js');
 		await initAuth();
 
-		messageHandler?.({ data: { type: 'logout', user_id: 7 } } as MessageEvent);
+		messageHandler?.({ data: { type: 'changed', user_id: 7 } } as MessageEvent);
 		expect(getAuthState().user).toEqual(profile(7));
 		messageHandler?.({ data: { type: 'account-deletion', user_id: 8 } } as MessageEvent);
 		expect(getAuthState().user).toEqual(profile(7));
@@ -105,8 +106,8 @@ describe('offline authentication context', () => {
 			expect(serviceWorkerPost).toHaveBeenCalledWith({ type: 'PURGE_PRIVATE_DATA' })
 		);
 		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
-		expect(getAuthState().isAuthenticated).toBe(true);
-		expect(await database.getCachedProfile()).toEqual(profile(7));
+		expect(getAuthState().isAuthenticated).toBe(false);
+		expect(await database.getCachedProfile()).toBeNull();
 
 		await deactivateAccountLocally();
 		expect(getAuthState().isAuthenticated).toBe(false);

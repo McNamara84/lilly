@@ -48,7 +48,7 @@
 	}
 
 	async function handleLogout() {
-		await performLogout();
+		if ((await performLogout().catch(() => true)) === false) return;
 		await goto(resolve('login'));
 	}
 

@@ -140,6 +140,7 @@ export function initializeOfflineStatus(): void {
 	});
 	window.setInterval(() => {
 		if (!online) void reconnectAndSynchronize();
+		else if (pendingCount > 0 && !syncing) void synchronizeNow();
 	}, 5_000);
 
 	if (typeof BroadcastChannel !== 'undefined') {

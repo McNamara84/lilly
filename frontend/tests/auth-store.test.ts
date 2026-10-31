@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock API module before importing auth store
@@ -8,7 +9,10 @@ vi.mock('#lib/api/auth.js', () => ({
 }));
 
 describe('Auth Store', () => {
-	beforeEach(() => {
+	beforeEach(async () => {
+		localStorage.clear();
+		const { resetOfflineDatabaseForTests } = await import('#lib/offline/database.js');
+		await resetOfflineDatabaseForTests();
 		vi.clearAllMocks();
 		vi.resetModules();
 	});

@@ -230,7 +230,7 @@ async fn process_sync_mutation(
     auth: &AuthUser,
     mutation: CollectionSyncMutation,
 ) -> Result<CollectionSyncResult, AppError> {
-    const MAX_TRANSACTION_ATTEMPTS: u8 = 3;
+    const MAX_TRANSACTION_ATTEMPTS: u8 = 5;
 
     if let Err(message) = validate_mutation_id(mutation.mutation_id()) {
         return Ok(rejected_sync_result(
@@ -244,14 +244,17 @@ async fn process_sync_mutation(
         match process_sync_mutation_once(state, auth, &mutation).await {
             Err(error)
                 if attempt < MAX_TRANSACTION_ATTEMPTS
-                    && is_retryable_sync_transaction_error(&error) =>
+                    && is_retryable_collection_transaction_error(&error) =>
             {
                 tracing::warn!(
                     mutation_id = mutation.mutation_id(),
                     attempt,
                     "Collection sync transaction was rolled back; retrying"
                 );
-                tokio::time::sleep(std::time::Duration::from_millis(10 * u64::from(attempt))).await;
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    50 * 2_u64.pow(u32::from(attempt - 1)),
+                ))
+                .await;
             }
             result => return result,
         }
@@ -451,7 +454,7 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
     )
 }
 
-fn is_retryable_sync_transaction_error(error: &AppError) -> bool {
+fn is_retryable_collection_transaction_error(error: &AppError) -> bool {
     let AppError::InternalError(error) = error else {
         return false;
     };
@@ -459,9 +462,11 @@ fn is_retryable_sync_transaction_error(error: &AppError) -> bool {
         return false;
     };
 
+    // SQLx exposes SQLSTATE through code(); MariaDB's numeric codes are separate.
     database_error
-        .code()
-        .is_some_and(|code| matches!(code.as_ref(), "1205" | "1213" | "40001"))
+        .try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>()
+        .is_some_and(|error| matches!(error.number(), 1020 | 1205 | 1213))
+        || database_error.code().is_some_and(|code| code == "40001")
 }
 
 fn mutation_fingerprint(mutation: &CollectionSyncMutation) -> Result<String, AppError> {
@@ -612,8 +617,31 @@ async fn add_to_collection(
     auth: AuthUser,
     Json(body): Json<AddCollectionEntryRequest>,
 ) -> Result<(StatusCode, Json<CollectionEntryResponse>), AppError> {
+    for attempt in 1..=5_u8 {
+        match add_to_collection_once(&state, &auth, &body).await {
+            Err(error) if attempt < 5 && is_retryable_collection_transaction_error(&error) => {
+                tracing::warn!(
+                    attempt,
+                    "Collection creation transaction was rolled back; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    50 * 2_u64.pow(u32::from(attempt - 1)),
+                ))
+                .await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the bounded transaction retry loop always returns")
+}
+
+async fn add_to_collection_once(
+    state: &AppState,
+    auth: &AuthUser,
+    body: &AddCollectionEntryRequest,
+) -> Result<(StatusCode, Json<CollectionEntryResponse>), AppError> {
     let mut transaction = state.inner.pool.begin().await?;
-    let entry = add_to_collection_in_transaction(&mut transaction, &auth, &body).await?;
+    let entry = add_to_collection_in_transaction(&mut transaction, auth, body).await?;
     transaction.commit().await?;
 
     Ok((StatusCode::CREATED, Json(entry)))
@@ -634,6 +662,18 @@ async fn add_to_collection_in_transaction(
         ));
     }
 
+    let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
+    let edition_label =
+        normalize_edition_label(body.edition_label.as_deref()).map_err(AppError::BadRequest)?;
+
+    // Acquire issue/user locks before the first consistent read. Otherwise a
+    // transaction waiting for another create can retain a stale allocation snapshot.
+    crate::db::trade_matching::lock_reconciliation_users_for_issues(
+        transaction,
+        auth.user_id,
+        &[body.issue_id],
+    )
+    .await?;
     // Ensure the issue exists and belongs to an active series
     if !collection::is_issue_in_active_series_on_connection(transaction, body.issue_id).await? {
         return Err(AppError::NotFound(format!(
@@ -642,23 +682,16 @@ async fn add_to_collection_in_transaction(
         )));
     }
 
-    let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
-    let edition_label =
-        normalize_edition_label(body.edition_label.as_deref()).map_err(AppError::BadRequest)?;
-
-    if matches!(status, "duplicate" | "wanted") {
-        crate::db::trade_matching::lock_reconciliation_users_for_issues(
-            transaction,
-            auth.user_id,
-            &[body.issue_id],
-        )
-        .await?;
-    }
     let copy_number = match body.copy_number {
         Some(copy_number) => copy_number,
         None => {
             collection::next_copy_number_on_connection(transaction, auth.user_id, body.issue_id)
-                .await?
+                .await
+                .map_err(|error| {
+                    AppError::InternalError(
+                        anyhow::Error::new(error).context("Allocating a collection copy"),
+                    )
+                })?
                 .ok_or_else(|| AppError::ConflictWithCode {
                     message: "No free copy number is available for this issue".to_string(),
                     code: "collection_capacity_exceeded".to_string(),
@@ -687,7 +720,7 @@ async fn add_to_collection_in_transaction(
                 "Duplicate entry: this issue with the same copy number already exists in your collection".to_string(),
             );
         }
-        AppError::from(e)
+        AppError::InternalError(anyhow::Error::new(e).context("Inserting a collection copy"))
     })?;
 
     let row = collection::find_entry_row_by_id_and_user_on_connection(
@@ -701,7 +734,13 @@ async fn add_to_collection_in_transaction(
     })?;
 
     if matches!(status, "duplicate" | "wanted") {
-        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id).await?;
+        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id)
+            .await
+            .map_err(|error| {
+                AppError::InternalError(
+                    anyhow::Error::new(error).context("Reconciling collection matches"),
+                )
+            })?;
     }
 
     Ok(CollectionEntryResponse::from(&row))
@@ -844,7 +883,13 @@ async fn update_entry_in_transaction(
         || (body.condition_grade.is_some()
             && matches!(existing.status.as_str(), "duplicate" | "wanted"))
     {
-        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id).await?;
+        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id)
+            .await
+            .map_err(|error| {
+                AppError::InternalError(
+                    anyhow::Error::new(error).context("Reconciling collection matches"),
+                )
+            })?;
     }
 
     Ok(UpdatedCollectionEntry {
@@ -899,6 +944,30 @@ async fn delete_entry(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(entry_id): Path<u32>,
+) -> Result<StatusCode, AppError> {
+    for attempt in 1..=5_u8 {
+        match delete_entry_once(&state, &auth, entry_id).await {
+            Err(error) if attempt < 5 && is_retryable_collection_transaction_error(&error) => {
+                tracing::warn!(
+                    entry_id,
+                    attempt,
+                    "Collection deletion transaction was rolled back; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    50 * 2_u64.pow(u32::from(attempt - 1)),
+                ))
+                .await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the bounded transaction retry loop always returns")
+}
+
+async fn delete_entry_once(
+    state: &AppState,
+    auth: &AuthUser,
+    entry_id: u32,
 ) -> Result<StatusCode, AppError> {
     let mut transaction = state.inner.pool.begin().await?;
     trade_matching::prepare_entry_mutation_in_transaction(&mut transaction, auth.user_id, entry_id)
@@ -1558,6 +1627,107 @@ mod tests {
             .await
             .expect("series fixture must be deleted");
         let _ = tokio::fs::remove_dir_all(media_root).await;
+    }
+
+    #[tokio::test]
+    async fn concurrent_collection_creates_and_deletions_preserve_consistency() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(8)
+            .connect(&url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let series_id = inserted_id(
+            &sqlx::query("INSERT INTO series (name, slug, active) VALUES (?, ?, TRUE)")
+                .bind(format!("Concurrent deletes {suffix}"))
+                .bind(format!("concurrent-deletes-{suffix}"))
+                .execute(&pool)
+                .await
+                .unwrap(),
+        );
+        let issue_id = insert_issue(&pool, series_id, 1, "Delete fixture").await;
+        let root = std::env::temp_dir().join(format!("lilly-concurrent-deletes-{suffix}"));
+        let state = test_state(pool.clone(), root.clone());
+        let mut users = Vec::new();
+        let mut targets = Vec::new();
+        let mut creates = tokio::task::JoinSet::new();
+        for index in 0..2 {
+            let user_id = inserted_id(&sqlx::query("INSERT INTO users (email, display_name) VALUES (?, 'Concurrent delete tester')")
+                .bind(format!("delete-{suffix}-{index}@example.test")).execute(&pool).await.unwrap());
+            users.push(user_id);
+            let auth = AuthUser {
+                user_id,
+                display_name: "Delete tester".into(),
+                role: "user".into(),
+                auth_time: 0,
+                session_version: 0,
+            };
+            for _ in 1..=8 {
+                let state = state.clone();
+                let auth = auth.clone();
+                creates.spawn(async move {
+                    let (_, Json(entry)) = add_to_collection(
+                        State(state),
+                        auth.clone(),
+                        Json(AddCollectionEntryRequest {
+                            issue_id,
+                            copy_number: None,
+                            edition_label: None,
+                            condition_grade: Some("Z2".into()),
+                            status: Some(if index == 0 { "duplicate" } else { "wanted" }.into()),
+                            notes: None,
+                        }),
+                    )
+                    .await
+                    .unwrap();
+                    (auth, entry.id)
+                });
+            }
+        }
+        while let Some(result) = creates.join_next().await {
+            targets.push(result.unwrap());
+        }
+        assert_eq!(targets.len(), 16);
+        let barrier = Arc::new(tokio::sync::Barrier::new(targets.len()));
+        let mut tasks = tokio::task::JoinSet::new();
+        for (auth, id) in targets {
+            let state = state.clone();
+            let barrier = barrier.clone();
+            tasks.spawn(async move {
+                barrier.wait().await;
+                delete_entry(State(state), auth, Path(id)).await
+            });
+        }
+        while let Some(result) = tasks.join_next().await {
+            assert_eq!(result.unwrap().unwrap(), StatusCode::NO_CONTENT);
+        }
+        let remaining: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM collection_entries WHERE issue_id = ?")
+                .bind(issue_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining, 0);
+        for user in users {
+            sqlx::query("DELETE FROM users WHERE id = ?")
+                .bind(user)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     fn test_state(pool: sqlx::MySqlPool, media_root: PathBuf) -> AppState {

@@ -115,7 +115,12 @@ async fn main() {
 
     // Seed deterministic demo data only if explicitly enabled (dev/test only)
     if config.e2e.demo_seed_enabled
-        && let Err(e) = db::demo::seed_demo_data(&pool, config.e2e.worker_count).await
+        && let Err(e) = db::demo::seed_demo_data(
+            &pool,
+            config.e2e.worker_count,
+            std::path::Path::new(&config.media_path),
+        )
+        .await
     {
         tracing::error!("Failed to seed demo data: {e}");
     }

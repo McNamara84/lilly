@@ -40,8 +40,8 @@
 		style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));"
 		data-testid="cover-grid"
 	>
-		{#each items as entry (entry.id || `missing-${entry.issue_id}`)}
-			<CoverCard {entry} onclick={() => onselect?.(entry)} />
+		{#each items as entry, index (entry.id || `missing-${entry.issue_id}`)}
+			<CoverCard {entry} priority={index === 0} onclick={() => onselect?.(entry)} />
 		{/each}
 	</div>
 {/if}

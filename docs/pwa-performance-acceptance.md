@@ -1,0 +1,192 @@
+# Abnahme: PWA und Performance (#111, #56, #58)
+
+Stand: 31.10.2026. Dieser Bericht gehört zu dem Commit, der ihn einführt. Die lokalen
+Messungen verwenden die Git-Basis `28adf4b` mit den Änderungen dieses Commits; der
+Messrunner kennzeichnet den noch nicht committeten Stand ausdrücklich. Der
+Implementierungsplan ist kein Bestandteil des Commits.
+
+Die vereinbarte Abdeckung umfasst Chromium, Firefox und WebKit automatisiert.
+Echte Android-/iOS-Geräteprüfungen sind ausdrücklich auf später verschoben.
+Ein erfolgreicher Abschluss dieses Pakets erklärt nicht das gesamte MVP für fertig.
+
+## Funktionale Nachweise
+
+| Kriterium | Implementierung und Nachweis | Ergebnis |
+| --- | --- | --- |
+| Installation und Offline-Einstieg | Manifest, Icons, Installationsereignisse; `pwa-offline.spec.ts`, `pwa-lifecycle.test.ts` | Automatisiert; Gerätetests offen |
+| Beide Startserien offline | Deterministischer Katalog mit je 100 Heften; `pwa-resilience.spec.ts` | Browserprüfung |
+| Dauerhafte Änderungen | Atomare Transaktion für Eintrag und Queue; persistierte temporäre IDs und Reihenfolge; `offline-queue-resilience.test.ts` | Einschließlich Transaktionsabbruch |
+| Große Queue | 0/1/100/101 Mutationen, höchstens 100 pro Anfrage; Fehler im zweiten Paket, Wiederaufnahme | Unit- und Backend-/Browsernachweis |
+| Verlorene Antwort | Identische UUID und Payload beim Wiederholen; Browser lässt den Server verarbeiten und verwirft die erste Antwort | Keine doppelte Anlage |
+| Gleichzeitiges Bearbeiten | Versuchte Payload unveränderlich; Folgeänderung erhält eigene UUID und später Server-ID/Revision | Unit- und Integrationstests |
+| Mehrere Tabs | Atomare Sperre pro Benutzer, 60 Sekunden gültig, alle 20 Sekunden verlängert | Übernahme nach Ablauf; A/B-Test mit zweitem Tab |
+| Konfliktentscheidung | Serverstand übernehmen oder aktuellen lokalen Wunsch mit neuer UUID erneut anwenden | Beide Wege in drei Browsern |
+| Snapshot trotz ausstehender Änderungen | Lokaler Inhalt und Katalogreferenzen bleiben erhalten | Regressionstests für Snapshot und Listenantwort |
+| Logout und Kontowechsel | Bestätigung bei Datenverlust, sofortige Sperre/Broadcast, Sitzungsversion gegen verspätete Antworten | Unit-Tests; Logout in zwei Tabs, Anmeldung als anderer Nutzer im selben Browser, ausschließlich dessen Daten offline |
+| Fehler beim lokalen Löschen | Sichtbare Fehlermeldung; gesperrte Identität wird weder offline noch über alte Cookies reaktiviert; abgebrochene Bereinigung beim Sitzungsstart wiederholen | Fehlerpfad und physische Datenlöschung beim Kontowechsel getestet; ausdrücklicher Login möglich |
+| Private Daten | API-Antworten und persönliche Fotos nicht im gemeinsamen Cache; benutzergebundene IndexedDB-Daten | Cache-Policy-/Service-Worker-Tests und Browser-Logout |
+| Produktionsupdate A → B | Zwei tatsächlich gebaute Versionen unter einer Origin; Queue, zweiter Tab mit Eingaben, alte Assets, Cachebereinigung | 6 Tests bestanden, je 2 pro Browser |
+| Unterbrochener Download von B | A bleibt verwendbar, B erneut installierbar; Aktivierungsfehler sichtbar | Drei Browser und Unit-Fehlerpfad |
+| Onlinepflichtige Funktionen | Tausch, Nachrichten, OAuth und Fotos; direkte Offline-Navigation mit Hinweisseite | Bestehende Browser-/Komponententests |
+| Parallele Sammlungsvorgänge | Sperren vor dem ersten Snapshot; vorübergehende MariaDB-Konflikte bei Sync, Anlegen und Löschen höchstens fünfmal mit wachsender Wartezeit versuchen | MariaDB-Integration mit 16 parallelen Anlagen und Löschungen |
+
+Das lokale Schema bleibt Version 1: zusätzliche Queue-Felder sind optional, bestehende
+Datensätze werden weiter gelesen. Es werden keine Benutzerdaten für ein Update gelöscht.
+Nach einem abrupt beendeten Tab kann die Wiederaufnahme bis zum Ablauf seiner
+60-Sekunden-Sperre warten; die Queue bleibt währenddessen sichtbar und gespeichert.
+
+## Testumgebung und Ausführung
+
+- Windows, Node 26.13.0, npm 12.2.1, Playwright 1.64.1.
+- Chromium 156.0.8078.4 (Revision 1248), Firefox 157.0 (1555), WebKit 27.2 (2370).
+- Eigener Compose-Projektname `lilly-pwa-e2e`, App-Port 18082, Mailpit 18027;
+  separate MariaDB-Testdatenbank für Rust. Keine vorhandenen Abnahmevolumes verwendet.
+- Der Demo-Seed aktiviert PWA-Testkonten und Cover ausschließlich bei
+  `ENABLE_DEMO_SEED=true` und positiver `E2E_WORKER_COUNT`.
+- Die E2E-Compose-Datei erhöht Anfragelimits für die vielen über dieselbe Proxy-Adresse
+  laufenden Testnutzer. Produktionslimits bleiben unverändert.
+- `npm ci --offline` erfolgreich; Lockdatei konsistent, keine neue Abhängigkeit.
+- Frontend: 917 Tests bestanden; Statements 97,80 %, Branches 87,86 %,
+  Funktionen 96,79 %, Zeilen 98,86 %.
+- Rust: 319 Backend-, 80 Adapter- und 30 Core-Tests mit echter Datenbank bestanden,
+  einschließlich des zusätzlichen Paralleltests.
+- Lint, Typprüfung, Formatierung, Rustfmt, Clippy und Produktionsbuild erfolgreich.
+- Abschließende vollständige Browserregression: **311 bestanden** in 5,6 Minuten,
+  sieben erwartete Ausnahmen (sechs separate A/B-Fälle und eine WebKit-Offline-Navigation).
+  Alle 15 Barrierefreiheitsfälle sind enthalten; die zuvor gefundenen Kontrastfehler
+  sind behoben.
+- Abschließende mobile Chromium-Emulation: **10 von 10 bestanden**.
+- In diesen Browserläufen enthalten sind die PWA-Prüfungen:
+  **39 bestanden, eine dokumentierte WebKit-Ausnahme**, verteilt auf Chromium,
+  Firefox, WebKit und mobile Chromium-Emulation. Der Kontowechsel prüft beide Konten
+  ohne Zurücksetzen des Browserprofils; der neue große Snapshot erhält 15 Sekunden
+  für seinen Erstaufbau, der vollständige Ablauf höchstens 60 Sekunden.
+
+Reproduktionsbefehle (Frontend-Verzeichnis, isolierter Stack läuft):
+
+```sh
+npm run test:coverage
+npm run test:e2e:all
+npx playwright test --project=mobile-chrome e2e/pwa-offline.spec.ts e2e/pwa-resilience.spec.ts
+npm run test:pwa:update
+npm run test:lighthouse
+```
+
+`test:pwa:update` startet einen nur lokal erreichbaren Testproxy und zwei Node-Server,
+schaltet per zufälligem Testtoken zwischen Builds um und beendet die eigenen Prozesse
+anschließend. Die sechs Updatefälle sind im normalen Einzelbuild-Durchlauf bewusst
+ausgelassen und werden im verpflichtenden separaten CI-Schritt ausgeführt.
+
+## Performance-Nachweis
+
+Verbindlich sind fünf kalte Läufe je Strecke: anonymer Einstieg `/` bis zur sichtbaren
+Anmeldung und authentifizierte `/collection` mit tatsächlich sichtbarer Sammlung und
+geladenem Cover. Jeder Lauf verwendet einen neuen Lighthouse- und Browserprozess
+mit genau einem Messtab; nur im zweiten Fall
+werden Cookies aus einem direkten API-Login gesetzt. Service Worker, Cache Storage,
+IndexedDB und HTTP-Cache sind vor der Navigation leer.
+
+Fixture: 200 Einträge, je 100 aus Maddrax und John Sinclair; Z0 bis Z4;
+120 eigene, 40 doppelte und 40 gesuchte Exemplare. 200 unterschiedliche lokale JPEGs
+mit 320 × 480 Pixeln verhindern Abhängigkeiten von externen Wiki-Servern.
+Diese kontrollierte Mindestgröße ersetzt keine Messung sehr großer realer Kataloge.
+
+Profil: 412 × 823 CSS-Pixel, DPR 1,75; simulierte mobile Drosselung mit RTT 150 ms,
+Durchsatz 1.638,4 Kbit/s, Request-Latenz 562,5 ms, Download 1.474,56 Kbit/s,
+Upload 675 Kbit/s und CPU-Faktor 4. Lighthouse 13.6.0 mit der von Playwright installierten
+Chromium Headless Shell 156.0.8078.4. Der Runner ermittelt deren plattformspezifischen
+Pfad aus Playwrights Browserregister; `CHROME_PATH` erlaubt eine ausdrückliche Alternative.
+Browservariante und tatsächliche Versionsmeldung stehen im Ergebnis-JSON. Grenzwerte gelten pro Strecke:
+FCP-Median ≤ 3.000 ms, Performance-Median ≥ 90. Ungültige Navigationen, falsche
+Identität, fehlende Inhalte oder Messwerte sowie Browserfehler lassen den Lauf scheitern.
+
+Die abschließende Serie hat **beide Gates bestanden**. FCP-Werte in dieser Tabelle
+sind auf ganze Millisekunden gerundet; die unveränderten Messwerte, Toolversionen
+und das Profil stehen in [pwa-performance-results.json](pwa-performance-results.json).
+
+| Strecke | FCP der fünf Läufe (ms) | Performance der fünf Läufe | FCP-Median | Performance-Median |
+| --- | --- | --- | --- | --- |
+| Anonymer Einstieg `/` → `/login` | 764 / 769 / 760 / 770 / 757 | 99 / 99 / 99 / 99 / 99 | **764 ms** | **99** |
+| Angemeldete Sammlung `/collection` | 761 / 796 / 761 / 784 / 764 | 98 / 96 / 96 / 98 / 98 | **764 ms** | **98** |
+
+Alle zehn Läufe waren gültig und wurden vollständig berücksichtigt. Rohberichte
+liegen lokal in `frontend/.lighthouseci/`; CI archiviert sie privat für 14 Tage und
+schlägt bei fehlenden Artefakten fehl. Cookies werden vor dem Speichern geschwärzt.
+
+Mehrere Messserien mit dem vollständigen Chromium-Browser wurden wegen `NO_NAVSTART`
+vollständig verworfen. Die aufgezeichnete Fehlerspur enthielt Navigationsereignisse ohne
+Dokument-URL; Lighthouse konnte daraus keinen gültigen Messbeginn bestimmen, obwohl
+die Anmeldung sichtbar war. Prozessisolation, das Schließen zusätzlicher Tabs und das
+Weglassen eines zusätzlichen Leer-Seiten-Aufrufs beseitigten diesen Aufnahmefehler nicht.
+Die bereits installierte Headless Shell derselben Chromium-Version lieferte anschließend
+acht gültige Diagnoseläufe hintereinander und wird nun ausdrücklich als Messbrowser
+verwendet. Diese Diagnoseläufe gehen nicht in die Abnahmemediane ein.
+
+Die erste gültige vollständige Messserie erreichte für die Anmeldung 99 Punkte,
+für die Sammlung jedoch nur 87 Punkte im Median. Das erste sichtbare Cover wurde
+noch verzögert geladen; es erhält jetzt `loading="eager"` und `fetchpriority="high"`,
+während weitere Cover weiterhin verzögert laden. Außerdem fehlte im Standard-Caddyfile
+die bereits im Deployment konfigurierte Komprimierung. `encode zstd gzip` gilt nun
+auch für den lokalen und CI-Stack, insbesondere für den großen Offline-Snapshot.
+Die Grenzwerte und das mobile Messprofil wurden dafür nicht verändert.
+
+Der Runner verwendet pro Messung einen eigenen Prozess und genau einen Tab.
+Auch ungültige JSON-/HTML-Berichte werden vor der Validierung gespeichert und Cookies
+darin geschwärzt; diese Regeln sind getestet. Die abschließende vollständige Abnahmeserie lief
+ohne parallele Build- oder Browsertests. Es werden keine besten Einzelwerte aus mehreren
+Serien ausgewählt und keine fehlerhaften Läufe stillschweigend wiederholt.
+
+Die vollständigen Regressionstests führten außerdem zu Korrekturen an Testdaten und
+Implementierung: Serientests wählen Maddrax ausdrücklich statt nach Listenposition;
+Queue-Fixtures verwenden getrennte Heftnummern pro Worker. Beim Anlegen werden Sperren
+vor dem ersten konsistenten Lesen gesetzt, damit wartende Transaktionen keinen veralteten
+Stand für die Exemplarvergabe behalten. Numerische MariaDB-Codes werden getrennt vom
+SQLSTATE ausgewertet. Ein wiederholter kompletter Snapshot-Austausch blockierte in
+WebKit nachfolgende Datenbankzugriffe rund sechs Sekunden. Der Abgleich schreibt jetzt
+nur geänderte Datensätze und löscht entfernte Datensätze; wiederholte Snapshots,
+Katalogkorrekturen, entfernte Einträge und erhaltene lokale Änderungen sind getestet.
+Die beiden betroffenen Browserabläufe bestanden danach jeweils zweimal.
+IndexedDB-Löschungen werden innerhalb der Transaktion gebündelt. Verlorene Antworten werden direkt
+an der Fetch-Grenze nach echter Serververarbeitung simuliert, weil WebKit solche
+Service-Worker-Anfragen nicht zuverlässig durch `page.route` leitet.
+
+Ein Sync-Timeout erhält ebenfalls die vorgemerkte Änderung und dieselbe Mutations-ID;
+das Formular behandelt den lokal gespeicherten Vorgang als ausstehend. Die vollständige
+Regression deckte außerdem einen bestehenden Kontrastfehler der Benachrichtigungszahl
+auf: Weiß auf Rot erreichte nur 3,76:1. Schwarzer Text auf derselben Hintergrundfarbe
+behebt die vier betroffenen Barrierefreiheitsbefunde.
+
+Der zusätzliche Kontowechseltest fand unter WebKit eine bei schneller Navigation
+abgebrochene lokale Löschung. Der nächste Sitzungsstart bereinigt deshalb verbleibende
+gesperrte Profile, bevor er ein anderes Konto bestätigt. Doppelt oder verspätet
+eintreffende Logout-Nachrichten erzeugen keine zweite Sitzungsversion, die eine neue
+Anmeldung abbrechen könnte. Der Test prüft die tatsächlich gespeicherten Benutzer-IDs
+und anschließend die Offline-Anzeige des neuen Kontos.
+
+## Browsergrenzen und spätere Geräteprüfung
+
+Playwright-WebKit kann beim vollständig netzlosen Neuladen einer vom Service Worker
+kontrollierten Seite einen internen Browserfehler liefern. Die betroffenen Reloads und
+direkten Offline-Navigationen sind dort ausgenommen. Chromium und Firefox prüfen sie;
+WebKit prüft weiterhin Offline-Schreiben, Kataloglesen innerhalb der App, Reconnect,
+Konflikte, tabübergreifenden Logout und echte Produktionsupdates. Die Ausnahmen sind
+keine Aussage über die Funktionsfähigkeit auf realen Safari-Geräten.
+
+- [ ] Android: Installation aus dem Browser, Start über Homescreen, Offline-Kaltstart.
+- [ ] iPhone/iPad: „Zum Home-Bildschirm“, eigenständiger Start, Offline-Kaltstart.
+- [ ] Beide Plattformen: App beenden/neu öffnen, ausstehende Änderungen erhalten,
+  Reconnect und Update mit ungespeicherten Eingaben.
+- [ ] Speicherknappheit, Betriebssystembereinigung und lange Offline-Zeiträume prüfen.
+
+## Abgleich mit #19
+
+[Issue #19](https://github.com/McNamara84/lilly/issues/19) ist seit 31.10.2026 als
+abgeschlossen markiert. Seine beiden Kommentare enthalten keinen vollständigen
+John-Sinclair-Erst-/Wiederholungsnachweis. Der vorhandene lokale Bericht zu Job 7
+enthält weiterhin `completed_with_errors`, zwei fehlgeschlagene Hefte und blockierte
+Freigabe. Das bestätigt keinen späteren erfolgreichen Vollimport.
+
+Die offenen Nachweise in [der MVP-Importabnahme](mvp-acceptance.md) bleiben deshalb
+unverändert. Die deterministischen PWA-Fixtures ersetzen weder Quellprüfung noch
+Live-Importabnahme. In diesem Paket wurde kein Live-Import neu gestartet und kein
+Issue auf GitHub geändert.

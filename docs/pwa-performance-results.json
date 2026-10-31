@@ -1,0 +1,126 @@
+{
+  "commit": "28adf4b66a68f2317128e440d5b5ba542a12afd5",
+  "workingTreeDirty": true,
+  "tools": {
+    "node": "26.13.0",
+    "lighthouse": "13.6.0",
+    "puppeteer": "25.16.0",
+    "playwright": "1.64.1",
+    "chromium": "HeadlessChrome/156.0.8078.4"
+  },
+  "recordedAt": "2026-10-31T19:35:26.986Z",
+  "profile": {
+    "formFactor": "mobile",
+    "throttlingMethod": "simulate",
+    "throttling": {
+      "rttMs": 150,
+      "throughputKbps": 1638.4,
+      "requestLatencyMs": 562.5,
+      "downloadThroughputKbps": 1474.56,
+      "uploadThroughputKbps": 675,
+      "cpuSlowdownMultiplier": 4
+    },
+    "screenEmulation": {
+      "mobile": true,
+      "width": 412,
+      "height": 823,
+      "deviceScaleFactor": 1.75,
+      "disabled": false
+    },
+    "disableStorageReset": false
+  },
+  "coldBrowserPerRun": true,
+  "isolatedLighthouseProcessPerRun": true,
+  "browser": {
+    "variant": "chromium-headless-shell",
+    "executable": "chrome-headless-shell.exe"
+  },
+  "fixture": "200 entries across Maddrax and John Sinclair, 200 distinct local JPEG covers (320x480), all five conditions and three statuses; no remote cover requests",
+  "runs": [
+    {
+      "route": "public",
+      "iteration": 1,
+      "fcp": 763.588,
+      "performance": 0.99,
+      "total": 0
+    },
+    {
+      "route": "public",
+      "iteration": 2,
+      "fcp": 769.0340000000001,
+      "performance": 0.99,
+      "total": 0
+    },
+    {
+      "route": "public",
+      "iteration": 3,
+      "fcp": 759.8330000000001,
+      "performance": 0.99,
+      "total": 0
+    },
+    {
+      "route": "public",
+      "iteration": 4,
+      "fcp": 770.075,
+      "performance": 0.99,
+      "total": 0
+    },
+    {
+      "route": "public",
+      "iteration": 5,
+      "fcp": 757.325,
+      "performance": 0.99,
+      "total": 0
+    },
+    {
+      "route": "collection",
+      "iteration": 1,
+      "fcp": 761.424,
+      "performance": 0.98,
+      "total": 200
+    },
+    {
+      "route": "collection",
+      "iteration": 2,
+      "fcp": 795.8529999999998,
+      "performance": 0.96,
+      "total": 200
+    },
+    {
+      "route": "collection",
+      "iteration": 3,
+      "fcp": 760.9200000000001,
+      "performance": 0.96,
+      "total": 200
+    },
+    {
+      "route": "collection",
+      "iteration": 4,
+      "fcp": 784.342,
+      "performance": 0.98,
+      "total": 200
+    },
+    {
+      "route": "collection",
+      "iteration": 5,
+      "fcp": 763.5340000000001,
+      "performance": 0.98,
+      "total": 200
+    }
+  ],
+  "results": [
+    {
+      "route": "public",
+      "fcp": 763.588,
+      "performance": 0.99,
+      "passed": true
+    },
+    {
+      "route": "collection",
+      "fcp": 763.5340000000001,
+      "performance": 0.98,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

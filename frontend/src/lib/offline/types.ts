@@ -49,6 +49,9 @@ interface MutationBase {
 	created_at: string;
 	attempts: number;
 	last_error: string | null;
+	/** Once attempted, the request payload must never change, even after a lost response. */
+	sent?: boolean;
+	depends_on?: string;
 }
 
 export interface CreateCollectionMutation extends MutationBase {

@@ -33,7 +33,7 @@ describe('service worker', () => {
 	let fetchMock: ReturnType<typeof vi.fn>;
 	let worker: {
 		location: { origin: string; href: string };
-		clients: { claim: ReturnType<typeof vi.fn> };
+		clients: { claim: ReturnType<typeof vi.fn>; matchAll: ReturnType<typeof vi.fn> };
 		skipWaiting: ReturnType<typeof vi.fn>;
 		addEventListener: ReturnType<typeof vi.fn>;
 	};
@@ -51,7 +51,7 @@ describe('service worker', () => {
 		fetchMock = vi.fn();
 		worker = {
 			location: { origin: 'https://lilly.test', href: 'https://lilly.test/service-worker.js' },
-			clients: { claim: vi.fn(async () => undefined) },
+			clients: { claim: vi.fn(async () => undefined), matchAll: vi.fn(async () => []) },
 			skipWaiting: vi.fn(async () => undefined),
 			addEventListener: vi.fn((type: string, handler: WorkerHandler) => handlers.set(type, handler))
 		};
@@ -82,10 +82,11 @@ describe('service worker', () => {
 		return response;
 	}
 
-	function dispatchMessage(data: unknown) {
+	function dispatchMessage(data: unknown, source?: { id: string }) {
 		let completion: Promise<unknown> | undefined;
 		handlers.get('message')?.({
 			data,
+			source,
 			waitUntil: (promise: Promise<unknown>) => (completion = promise)
 		});
 		return completion;
@@ -95,7 +96,10 @@ describe('service worker', () => {
 		fetchMock.mockResolvedValueOnce(new Response('shell'));
 		await dispatchExtendable('install');
 
-		expect(appCache.addAll).toHaveBeenCalledWith(['/manifest.webmanifest']);
+		expect(appCache.addAll).toHaveBeenCalledWith([
+			'/manifest.webmanifest',
+			'/_app/immutable/app.js'
+		]);
 		expect(appCache.put).toHaveBeenCalledWith('/', expect.any(Response));
 
 		fetchMock.mockRejectedValueOnce(new TypeError('offline'));
@@ -108,6 +112,28 @@ describe('service worker', () => {
 		expect(cacheStorage.delete).toHaveBeenCalledOnce();
 		expect(cacheStorage.delete).toHaveBeenCalledWith('lilly-app-old');
 		expect(worker.clients.claim).toHaveBeenCalledOnce();
+	});
+
+	it('retains old assets for unknown or previous clients and cleans up when every client is current', async () => {
+		worker.clients.matchAll.mockResolvedValue([{ id: 'first' }, { id: 'second' }]);
+		await dispatchExtendable('activate');
+		expect(cacheStorage.delete).not.toHaveBeenCalled();
+		await dispatchMessage({ type: 'CLIENT_VERSION', version: 'test' }, { id: 'first' });
+		await dispatchMessage({ type: 'CLIENT_VERSION', version: 'old' }, { id: 'second' });
+		expect(cacheStorage.delete).not.toHaveBeenCalled();
+		await dispatchMessage({ type: 'CLIENT_VERSION', version: 'test' }, { id: 'second' });
+		expect(cacheStorage.delete).toHaveBeenCalledWith('lilly-app-old');
+	});
+
+	it('serves an old hashed chunk from the previous cache while that tab stays open', async () => {
+		const previous = createCache();
+		const url = 'https://lilly.test/_app/immutable/old-route.js';
+		previous.entries.set(url, new Response('previous route'));
+		cacheStorage.open.mockImplementation(async (name: string) =>
+			name === 'lilly-app-old' ? previous : appCache
+		);
+		expect(await (await dispatchFetch(new Request(url)))?.text()).toBe('previous route');
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('uses network-first navigation with cached page and shell fallbacks', async () => {

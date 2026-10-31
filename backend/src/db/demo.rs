@@ -6,7 +6,11 @@ use super::users;
 ///
 /// The operation is idempotent and only runs when `ENABLE_DEMO_SEED=true`.
 #[allow(clippy::too_many_lines)]
-pub async fn seed_demo_data(pool: &MySqlPool, e2e_worker_count: u16) -> Result<(), anyhow::Error> {
+pub async fn seed_demo_data(
+    pool: &MySqlPool,
+    e2e_worker_count: u16,
+    media_path: &std::path::Path,
+) -> Result<(), anyhow::Error> {
     let user_id = users::seed_demo_user(pool).await?;
     let e2e_user_ids = users::seed_e2e_worker_users(pool, e2e_worker_count).await?;
     let mut transaction = pool.begin().await?;
@@ -183,6 +187,9 @@ pub async fn seed_demo_data(pool: &MySqlPool, e2e_worker_count: u16) -> Result<(
     }
 
     transaction.commit().await?;
+    if e2e_worker_count > 0 {
+        super::pwa_fixtures::seed(pool, e2e_worker_count, media_path).await?;
+    }
     tracing::info!("Demo catalogue seeded");
     Ok(())
 }
