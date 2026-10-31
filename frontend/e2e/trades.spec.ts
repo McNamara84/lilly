@@ -175,7 +175,7 @@ test.describe('Trade lists', () => {
 			);
 			await match.getByRole('button', { name: 'Tausch vorschlagen' }).click();
 			const proposalResponse = await proposalResponsePromise;
-			expect(proposalResponse.ok()).toBe(true);
+			expect(proposalResponse.ok(), await proposalResponse.text()).toBe(true);
 			tradeId = ((await proposalResponse.json()) as { id: number }).id;
 			expect(tradeId).toBeGreaterThan(0);
 			const tradeLink = page.getByRole('link', { name: 'Details und Nachrichten' });
@@ -196,9 +196,9 @@ test.describe('Trade lists', () => {
 					password: 'e2e-partner-password'
 				}
 			});
-			expect(login.ok()).toBe(true);
+			await expect(login).toBeOK();
 			const accepted = await partner.post(`/api/v1/me/trades/${tradeId}/accept`);
-			expect(accepted.ok()).toBe(true);
+			await expect(accepted).toBeOK();
 			const trade = (await accepted.json()) as AcceptedTradeFixture;
 			acceptedTrade = trade;
 			expect(trade.my_offers[0]).toMatchObject({
@@ -217,7 +217,7 @@ test.describe('Trade lists', () => {
 					content: 'Ich versende gern als BüWa.'
 				}
 			});
-			expect(message.ok()).toBe(true);
+			await expect(message).toBeOK();
 
 			await page.reload();
 			await expect(page.getByText('Aktiv')).toBeVisible();
@@ -227,7 +227,7 @@ test.describe('Trade lists', () => {
 			await expect(page.getByText('Perfekt, danke!')).toBeVisible();
 
 			const history = await partner.get(`/api/v1/me/messages/${trade.thread_id}`);
-			expect(history.ok()).toBe(true);
+			await expect(history).toBeOK();
 			expect(await history.text()).toContain('Perfekt, danke!');
 
 			const firstCompletionResponse = page.waitForResponse(
@@ -237,7 +237,7 @@ test.describe('Trade lists', () => {
 			);
 			await page.getByRole('button', { name: 'Tausch als erhalten bestätigen' }).click();
 			const firstCompletion = await firstCompletionResponse;
-			expect(firstCompletion.ok()).toBe(true);
+			expect(firstCompletion.ok(), await firstCompletion.text()).toBe(true);
 			const awaitingPartner = (await firstCompletion.json()) as {
 				status: string;
 				my_completion_confirmed_at: string | null;
@@ -250,7 +250,7 @@ test.describe('Trade lists', () => {
 
 			const secondCompletion = await partner.post(`/api/v1/me/trades/${tradeId}/complete`);
 			completed = secondCompletion.ok();
-			expect(completed).toBe(true);
+			await expect(secondCompletion).toBeOK();
 			const completedTrade = (await secondCompletion.json()) as {
 				status: string;
 				completed_at: string | null;
@@ -265,7 +265,7 @@ test.describe('Trade lists', () => {
 			const receivedCollection = await page.request.get(
 				`/api/v1/me/collection?issue_id=${receivedIssueId}`
 			);
-			expect(receivedCollection.ok()).toBe(true);
+			await expect(receivedCollection).toBeOK();
 			const receivedBody = (await receivedCollection.json()) as {
 				data: Array<{
 					id: number;
@@ -285,7 +285,7 @@ test.describe('Trade lists', () => {
 			const sentCollection = await page.request.get(
 				`/api/v1/me/collection?issue_id=${sentIssueId}`
 			);
-			expect(sentCollection.ok()).toBe(true);
+			await expect(sentCollection).toBeOK();
 			expect(
 				((await sentCollection.json()) as { data: Array<{ id: number }> }).data
 			).not.toContainEqual(expect.objectContaining({ id: trade.partner_offers[0].entry_id }));
@@ -330,13 +330,13 @@ test.describe('Trade lists', () => {
 					]);
 					const restorations = [...browserRestoration, ...partnerRestoration];
 					const failedRestoration = restorations.find((result) => result.status === 'rejected');
-					expect(
-						failedRestoration,
-						'Both completed-trade fixtures must be restored'
-					).toBeUndefined();
+					expect
+						.soft(failedRestoration, 'Both completed-trade fixtures must be restored')
+						.toBeUndefined();
 				} else if (tradeId !== undefined) {
 					const cancelled = await page.request.post(`/api/v1/me/trades/${tradeId}/cancel`);
-					expect(cancelled.ok()).toBe(true);
+					// Report cleanup failures without replacing the original test error.
+					await expect.soft(cancelled).toBeOK();
 				}
 			} finally {
 				await partner?.dispose();

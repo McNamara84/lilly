@@ -20,7 +20,8 @@ export default defineConfig({
 	reporter: process.env.CI ? [['dot'], ['html', { open: 'never' }]] : [['html', { open: 'never' }]],
 	use: {
 		baseURL: 'http://localhost:80',
-		trace: 'on-first-retry',
+		// A failed attempt can leave server state that changes the retry's failure.
+		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure'
 	},
 	projects: [
