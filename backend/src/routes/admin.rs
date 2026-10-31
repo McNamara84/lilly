@@ -54,11 +54,8 @@ pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
     security(("accessCookie" = [])),
     responses(
         (status = 200, description = "Successful operation", body = ImportScheduleStatus),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -85,11 +82,8 @@ async fn import_schedule(
     security(("accessCookie" = [])),
     responses(
         (status = 200, description = "Successful operation", body = Vec<SeriesAdminResponse>),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -177,7 +171,6 @@ async fn activate_series(
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -216,11 +209,8 @@ struct AdapterInfo {
     security(("accessCookie" = [])),
     responses(
         (status = 200, description = "Successful operation", body = Vec<AdapterInfo>),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -294,7 +284,6 @@ struct ImportJobWithSlug {
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
         (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 413, description = "Request too large", body = crate::openapi::ApiError),
         (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
@@ -334,7 +323,6 @@ async fn start_import(
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -470,7 +458,6 @@ async fn retry_import(
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -523,7 +510,6 @@ struct PaginatedImportErrorResponse {
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -569,7 +555,6 @@ struct ReviewItemParams {
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -754,7 +739,6 @@ const fn default_per_page() -> u32 {
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -804,11 +788,8 @@ struct PaginatedIssueResponse {
     security(("accessCookie" = [])),
     responses(
         (status = 200, description = "Successful operation", body = Vec<ImportJobResponse>),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )

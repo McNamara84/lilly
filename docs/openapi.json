@@ -3738,16 +3738,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -3767,26 +3757,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -3848,16 +3818,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -3877,26 +3837,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -3994,16 +3934,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
           },
           "409": {
             "content": {
@@ -4105,16 +4035,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -4134,26 +4054,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -4212,16 +4112,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -4241,26 +4131,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -4371,16 +4241,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -4802,16 +4662,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -5102,16 +4952,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -5221,16 +5061,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -5362,16 +5192,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -5432,16 +5252,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -5461,26 +5271,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -5708,16 +5498,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -5815,16 +5595,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
           "409": {
             "content": {
               "application/json": {
@@ -5918,16 +5688,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "403": {
             "content": {
               "application/json": {
@@ -5937,26 +5697,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -5977,16 +5717,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Internal server error"
           }
         },
         "security": [],
@@ -6010,16 +5740,6 @@
               }
             },
             "description": "Successful operation"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
           },
           "401": {
             "content": {
@@ -6050,16 +5770,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -6111,26 +5821,6 @@
           "204": {
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
           "403": {
             "content": {
               "application/json": {
@@ -6140,26 +5830,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -6215,56 +5885,6 @@
               }
             },
             "description": "Successful operation"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -6332,16 +5952,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -6361,16 +5971,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
           },
           "409": {
             "content": {
@@ -6487,36 +6087,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -6626,16 +6196,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
           "409": {
             "content": {
               "application/json": {
@@ -6734,46 +6294,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -6793,16 +6313,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Internal server error"
           }
         },
         "security": [],
@@ -6856,26 +6366,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "413": {
             "content": {
@@ -6990,26 +6480,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "413": {
             "content": {
               "application/json": {
@@ -7059,16 +6529,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Internal server error"
           }
         },
         "security": [],
@@ -7132,16 +6592,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
           },
           "409": {
             "content": {
@@ -7240,16 +6690,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -7269,26 +6709,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -7376,16 +6796,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
           },
           "409": {
             "content": {
@@ -7510,26 +6920,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "413": {
             "content": {
               "application/json": {
@@ -7579,16 +6969,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Internal server error"
           }
         },
         "security": [],
@@ -7634,36 +7014,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -7683,16 +7033,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Internal server error"
           }
         },
         "security": [],
@@ -7740,16 +7080,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -7759,16 +7089,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -7884,16 +7204,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -7903,16 +7213,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -7967,26 +7267,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
           "403": {
             "content": {
               "application/json": {
@@ -7996,26 +7276,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -8072,16 +7332,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "403": {
             "content": {
               "application/json": {
@@ -8091,26 +7341,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -8317,16 +7547,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -8356,16 +7576,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -8575,26 +7785,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -8848,26 +8038,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -8925,16 +8095,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -8954,26 +8114,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -9032,16 +8172,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -9061,26 +8191,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -9178,26 +8288,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "413": {
             "content": {
@@ -9342,16 +8432,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -9490,26 +8570,6 @@
             },
             "description": "Request too large"
           },
-          "415": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Unsupported content type"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request shape"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -9623,16 +8683,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -10014,26 +9064,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -10143,16 +9173,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -10423,26 +9443,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -10572,16 +9572,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -10864,16 +9854,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "413": {
             "content": {
               "application/json": {
@@ -11022,26 +10002,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -11092,16 +10052,6 @@
           "204": {
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -11121,26 +10071,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -11199,16 +10129,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -11228,26 +10148,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -11352,16 +10252,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -11422,16 +10312,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -11451,26 +10331,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -11529,16 +10389,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -11568,16 +10418,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -11684,16 +10524,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "413": {
             "content": {
               "application/json": {
@@ -11774,16 +10604,6 @@
           "204": {
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
           "401": {
             "content": {
               "application/json": {
@@ -11813,16 +10633,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -11929,16 +10739,6 @@
             },
             "description": "Resource not found or not visible"
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "413": {
             "content": {
               "application/json": {
@@ -11948,26 +10748,6 @@
               }
             },
             "description": "Request too large"
-          },
-          "415": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Unsupported content type"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request shape"
           },
           "429": {
             "content": {
@@ -12075,16 +10855,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "413": {
             "content": {
@@ -12241,26 +11011,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -12378,26 +11128,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -12507,16 +11237,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -12996,26 +11716,6 @@
             },
             "description": "Operation forbidden"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -13112,26 +11812,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "413": {
             "content": {
@@ -13287,26 +11967,6 @@
               }
             },
             "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -13478,46 +12138,6 @@
             },
             "description": "Successful operation"
           },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
-          },
           "429": {
             "content": {
               "application/json": {
@@ -13537,16 +12157,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Internal server error"
           }
         },
         "security": [],
@@ -13573,46 +12183,6 @@
               }
             },
             "description": "Successful operation"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -13708,16 +12278,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -13727,16 +12287,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -13814,16 +12364,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -13833,16 +12373,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -14045,16 +12575,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -14064,16 +12584,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -14151,16 +12661,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -14170,16 +12670,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {
@@ -14257,16 +12747,6 @@
             },
             "description": "Invalid request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Operation forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -14276,16 +12756,6 @@
               }
             },
             "description": "Resource not found or not visible"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "State conflict"
           },
           "429": {
             "content": {

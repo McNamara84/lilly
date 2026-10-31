@@ -307,6 +307,190 @@ mod tests {
         }
     }
 
+    #[test]
+    fn operation_contracts_exclude_unreachable_error_categories() {
+        let spec = serde_json::to_value(crate::api::specification()).unwrap();
+        for (path, method, expected) in [
+            ("/api/v1/series", "get", vec![200, 429, 500]),
+            ("/api/v1/auth/options", "get", vec![200, 429]),
+            ("/api/v1/media/photo-policy", "get", vec![200, 429]),
+            ("/api/v1/auth/verify", "get", vec![303, 400, 429]),
+            ("/api/v1/auth/oauth/link", "get", vec![200, 429, 500]),
+            ("/api/v1/auth/logout", "post", vec![200, 403, 429]),
+            (
+                "/api/v1/me/notifications/unread-count",
+                "get",
+                vec![200, 401, 403, 429, 500],
+            ),
+            (
+                "/api/v1/me/collection/sync",
+                "post",
+                vec![200, 400, 401, 403, 413, 415, 422, 429, 500],
+            ),
+        ] {
+            let actual = spec["paths"][path][method]["responses"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(|status| status.parse::<u16>().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected, "{method} {path}");
+        }
+    }
+
+    async fn assert_contract_response(
+        spec: &Value,
+        path: &str,
+        method: &str,
+        response: Response,
+        expected: u16,
+    ) {
+        assert_eq!(response.status().as_u16(), expected, "{method} {path}");
+        let value: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 65_536).await.unwrap()).unwrap();
+        assert_schema(spec, path, method, expected, &value);
+    }
+
+    #[tokio::test]
+    async fn write_operation_contracts_cover_origin_and_body_rejections() {
+        let spec = serde_json::to_value(crate::api::specification()).unwrap();
+        let token = jwt::create_token(
+            7,
+            "Contract Tester",
+            "admin",
+            "admin-route-test-secret",
+            3600,
+        )
+        .unwrap();
+        for (path, item) in spec["paths"].as_object().unwrap() {
+            let uri = path
+                .split('/')
+                .map(|part| if part.starts_with('{') { "1" } else { part })
+                .collect::<Vec<_>>()
+                .join("/");
+            for (method, operation) in item.as_object().unwrap() {
+                if !matches!(method.as_str(), "post" | "put" | "patch" | "delete") {
+                    continue;
+                }
+                let app = crate::api::application(test_state(), false);
+                let request = || {
+                    Request::builder()
+                        .method(Method::from_bytes(method.to_uppercase().as_bytes()).unwrap())
+                        .uri(&uri)
+                        .header(header::COOKIE, format!("access_token={token}"))
+                };
+                let response = app
+                    .clone()
+                    .oneshot(
+                        request()
+                            .header(header::ORIGIN, "https://untrusted.example")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_contract_response(&spec, path, method, response, 403).await;
+
+                let content = &operation["requestBody"]["content"];
+                let cases = if content.get("application/json").is_some() {
+                    vec![
+                        ("application/json", "{".to_string(), 400),
+                        ("text/plain", "{}".to_string(), 415),
+                        ("application/json", "null".to_string(), 422),
+                        ("application/json", " ".repeat(2 * 1024 * 1024 + 1), 413),
+                    ]
+                } else if content.get("multipart/form-data").is_some() {
+                    vec![("text/plain", String::new(), 400)]
+                } else {
+                    Vec::new()
+                };
+                for (content_type, body, expected) in cases {
+                    let response = app
+                        .clone()
+                        .oneshot(
+                            request()
+                                .header(header::CONTENT_TYPE, content_type)
+                                .body(Body::from(body))
+                                .unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    assert_contract_response(&spec, path, method, response, expected).await;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn public_catalog_errors_and_rate_limits_match_the_contract() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = sqlx::MySqlPool::connect(&database_url).await.unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let spec = serde_json::to_value(crate::api::specification()).unwrap();
+        let mut state = test_state();
+        std::sync::Arc::get_mut(&mut state.inner).unwrap().pool = pool.clone();
+        let app = crate::api::application(state, false);
+        for (path, uri, expected) in [
+            ("/api/v1/series", "/api/v1/series?ignored=value", 200),
+            ("/api/v1/issues/{id}", "/api/v1/issues/invalid", 400),
+            ("/api/v1/issues/{id}", "/api/v1/issues/0", 404),
+            (
+                "/api/v1/series/{slug}/issues",
+                "/api/v1/series/absent/issues?page=invalid",
+                400,
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(uri)
+                        .header(header::ORIGIN, "https://untrusted.example")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_contract_response(&spec, path, "get", response, expected).await;
+        }
+        pool.close().await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/series")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_contract_response(&spec, "/api/v1/series", "get", response, 500).await;
+
+        let mut state = test_state();
+        let mut config = crate::config::RateLimitConfig::default();
+        config.public_api.max_requests = 0;
+        std::sync::Arc::get_mut(&mut state.inner)
+            .unwrap()
+            .request_security =
+            crate::services::rate_limit::RequestSecurity::new(config, Vec::new(), "contract-test");
+        let app = crate::api::application(state, false);
+        for path in [
+            "/api/v1/series",
+            "/api/v1/auth/options",
+            "/api/v1/media/photo-policy",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert!(response.headers().contains_key(header::RETRY_AFTER));
+            assert_contract_response(&spec, path, "get", response, 429).await;
+        }
+    }
+
     #[tokio::test]
     async fn failed_password_logins_match_the_contract() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {

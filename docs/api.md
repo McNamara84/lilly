@@ -94,6 +94,16 @@ JSON ist das Standardformat. Bilder werden als `image/jpeg`, Datei-Uploads als
 Importstarts antworten asynchron mit `202`; OAuth- und Verifikationsabläufe verwenden
 Redirects. Die konkrete Status-/Inhaltstyp-Kombination steht je Operation im Vertrag.
 
+Jede Operation dokumentiert nur erreichbare Statuscodes aus ihrem Handler, den
+aufgerufenen Diensten, der Eingabeprüfung und der Middleware. Das allgemeine
+Ratenlimit kann bei allen fachlichen Operationen `429` liefern; die Origin-Prüfung
+betrifft nur schreibende Methoden (`403`). Geschützte Leseoperationen können dennoch
+`401` oder `403` liefern, etwa bei fehlender Anmeldung oder vorgemerkter Kontolöschung.
+JSON-Eingaben berücksichtigen `400`, `413`, `415` und `422`; Multipart-Uploads folgen
+ihrer eigenen Eingabeprüfung. Fachliche Fehler, die als Redirect oder als Ergebnis
+innerhalb einer erfolgreichen Sync-Antwort behandelt werden, sind keine zusätzlichen
+HTTP-Fehlerantworten dieser Operation.
+
 Fehler verwenden ein gemeinsames JSON-Objekt:
 
 ```json

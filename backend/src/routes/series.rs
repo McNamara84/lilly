@@ -59,10 +59,6 @@ struct PaginatedResponse<T: Serialize> {
     security(),
     responses(
         (status = 200, description = "Successful operation", body = Vec<SeriesResponse>),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
-        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -85,9 +81,7 @@ async fn list_series(State(state): State<AppState>) -> Result<Json<Vec<SeriesRes
     responses(
         (status = 200, description = "Successful operation", body = PaginatedResponse<IssueResponse>),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
-        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -132,9 +126,7 @@ async fn list_series_issues(
     responses(
         (status = 200, description = "Successful operation", body = IssueResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
-        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )

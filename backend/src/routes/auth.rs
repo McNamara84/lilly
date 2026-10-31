@@ -96,7 +96,6 @@ pub(super) fn clear_cookie(name: &str, path: &str) -> Cookie<'static> {
         (status = 201, description = "Successful operation", body = RegisterResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
         (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 413, description = "Request too large", body = crate::openapi::ApiError),
         (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
@@ -263,11 +262,7 @@ fn register_validation_error(errors: &validator::ValidationErrors) -> AppError {
     responses(
         (status = 303, description = "Redirect to application", headers(("Location" = String, description = "Application redirect target"))),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
-        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
 )]
 async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQuery>) -> Response {
@@ -312,13 +307,10 @@ async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQ
         (status = 200, description = "Successful operation", body = MessageResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 413, description = "Request too large", body = crate::openapi::ApiError),
         (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
         (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
 )]
 async fn resend_verification(
@@ -413,7 +405,6 @@ async fn upgrade_password_hash(state: &AppState, user_id: u32, current_hash: &st
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Invalid email or password", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
         (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 413, description = "Request too large", body = crate::openapi::ApiError),
         (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
@@ -589,11 +580,8 @@ pub(super) async fn authenticated_jar_at(
     security(("refreshCookie" = [])),
     responses(
         (status = 200, description = "Successful operation", body = MessageResponse),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -720,13 +708,10 @@ const PASSWORD_RESET_REQUEST_MESSAGE: &str =
         (status = 200, description = "Successful operation", body = MessageResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 413, description = "Request too large", body = crate::openapi::ApiError),
         (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
         (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
 )]
 async fn request_password_reset(
@@ -825,8 +810,6 @@ async fn request_password_reset(
         (status = 200, description = "Successful operation", body = MessageResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 413, description = "Request too large", body = crate::openapi::ApiError),
         (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
         (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
@@ -918,12 +901,8 @@ fn invalid_password_reset_token() -> AppError {
     security(),
     responses(
         (status = 200, description = "Successful operation", body = MessageResponse),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
 )]
 async fn logout(
@@ -959,11 +938,9 @@ async fn logout(
     security(("accessCookie" = [])),
     responses(
         (status = 200, description = "Successful operation", body = MeResponse),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )

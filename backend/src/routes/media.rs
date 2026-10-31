@@ -44,12 +44,7 @@ pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
     security(),
     responses(
         (status = 200, description = "Successful operation", body = PhotoPolicyResponse),
-        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
-        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
-        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
-        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
 )]
 async fn photo_policy(State(state): State<AppState>) -> Json<PhotoPolicyResponse> {
@@ -77,7 +72,6 @@ async fn photo_policy(State(state): State<AppState>) -> Json<PhotoPolicyResponse
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -113,8 +107,6 @@ async fn list_photos(
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
         (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 413, description = "Request too large", body = crate::openapi::ApiError),
-        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
-        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -243,7 +235,6 @@ async fn persist_photo(
         (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
@@ -284,9 +275,7 @@ async fn delete_photo(
     responses(
         (status = 200, description = "Successful operation", content_type = "image/jpeg", body = crate::openapi::BinaryImage),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
-        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
-        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
         (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
         (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
     )
