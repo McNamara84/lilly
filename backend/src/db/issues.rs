@@ -403,7 +403,7 @@ pub async fn get_issue_persons(
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT p.name FROM persons p \
          JOIN issue_persons ip ON ip.person_id = p.id \
-         WHERE ip.issue_id = ? AND ip.role = ? ORDER BY p.name",
+         WHERE ip.issue_id = ? AND ip.role = ? ORDER BY p.name COLLATE utf8mb4_unicode_ci",
     )
     .bind(issue_id)
     .bind(role)
@@ -420,7 +420,7 @@ pub async fn get_issue_keywords(
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT k.name FROM keywords k \
          JOIN issue_keywords ik ON ik.keyword_id = k.id \
-         WHERE ik.issue_id = ? ORDER BY k.name",
+         WHERE ik.issue_id = ? ORDER BY k.name COLLATE utf8mb4_unicode_ci",
     )
     .bind(issue_id)
     .fetch_all(pool)
@@ -433,7 +433,7 @@ pub async fn get_issue_notes(pool: &MySqlPool, issue_id: u32) -> Result<Vec<Stri
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT n.text FROM notes n \
          JOIN issue_notes ino ON ino.note_id = n.id \
-         WHERE ino.issue_id = ? ORDER BY n.text",
+         WHERE ino.issue_id = ? ORDER BY n.text COLLATE utf8mb4_unicode_ci",
     )
     .bind(issue_id)
     .fetch_all(pool)
@@ -476,7 +476,7 @@ pub async fn build_issue_responses(
     let persons_query = format!(
         "SELECT ip.issue_id, p.name, ip.role FROM persons p \
          JOIN issue_persons ip ON ip.person_id = p.id \
-         WHERE ip.issue_id IN ({placeholders}) ORDER BY ip.issue_id, p.name"
+         WHERE ip.issue_id IN ({placeholders}) ORDER BY ip.issue_id, p.name COLLATE utf8mb4_unicode_ci"
     );
     let mut q = sqlx::query_as::<_, (u32, String, String)>(sqlx::AssertSqlSafe(persons_query));
     for id in &ids {
@@ -488,7 +488,7 @@ pub async fn build_issue_responses(
     let keywords_query = format!(
         "SELECT ik.issue_id, k.name FROM keywords k \
          JOIN issue_keywords ik ON ik.keyword_id = k.id \
-         WHERE ik.issue_id IN ({placeholders}) ORDER BY ik.issue_id, k.name"
+         WHERE ik.issue_id IN ({placeholders}) ORDER BY ik.issue_id, k.name COLLATE utf8mb4_unicode_ci"
     );
     let mut q = sqlx::query_as::<_, (u32, String)>(sqlx::AssertSqlSafe(keywords_query));
     for id in &ids {
@@ -500,7 +500,7 @@ pub async fn build_issue_responses(
     let notes_query = format!(
         "SELECT ino.issue_id, n.text FROM notes n \
          JOIN issue_notes ino ON ino.note_id = n.id \
-         WHERE ino.issue_id IN ({placeholders}) ORDER BY ino.issue_id, n.text"
+         WHERE ino.issue_id IN ({placeholders}) ORDER BY ino.issue_id, n.text COLLATE utf8mb4_unicode_ci"
     );
     let mut q = sqlx::query_as::<_, (u32, String)>(sqlx::AssertSqlSafe(notes_query));
     for id in &ids {

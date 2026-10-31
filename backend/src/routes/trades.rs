@@ -1,7 +1,8 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, post};
-use axum::{Json, Router};
 
 use super::AppState;
 use crate::auth::middleware::AuthUser;
@@ -18,29 +19,49 @@ use crate::models::trades::{
 };
 use crate::services::{trade_matching as matching_service, trades as trade_service};
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/me/trade-offers", get(list_trade_offers))
-        .route("/api/v1/me/wanted", get(list_wanted_entries))
-        .route("/api/v1/me/wanted/candidates", get(list_wanted_candidates))
-        .route("/api/v1/me/wanted/bulk", post(add_wanted_entries))
-        .route("/api/v1/me/wanted/{entry_id}", delete(delete_wanted_entry))
-        .route("/api/v1/me/matches", get(list_matches))
-        .route("/api/v1/me/matches/{match_id}", get(get_match))
-        .route(
-            "/api/v1/me/matches/{match_id}/proposals",
-            post(create_trade_proposal),
-        )
-        .route("/api/v1/me/trades", get(list_open_trades))
-        .route("/api/v1/me/trades/{trade_id}", get(get_trade))
-        .route("/api/v1/me/trades/{trade_id}/accept", post(accept_trade))
-        .route("/api/v1/me/trades/{trade_id}/cancel", post(cancel_trade))
-        .route(
-            "/api/v1/me/trades/{trade_id}/complete",
-            post(complete_trade),
-        )
+    openapi_router().into()
 }
 
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(list_trade_offers))
+        .routes(utoipa_axum::routes!(list_wanted_entries))
+        .routes(utoipa_axum::routes!(list_wanted_candidates))
+        .routes(utoipa_axum::routes!(add_wanted_entries))
+        .routes(utoipa_axum::routes!(delete_wanted_entry))
+        .routes(utoipa_axum::routes!(list_matches))
+        .routes(utoipa_axum::routes!(get_match))
+        .routes(utoipa_axum::routes!(create_trade_proposal))
+        .routes(utoipa_axum::routes!(list_open_trades))
+        .routes(utoipa_axum::routes!(get_trade))
+        .routes(utoipa_axum::routes!(accept_trade))
+        .routes(utoipa_axum::routes!(cancel_trade))
+        .routes(utoipa_axum::routes!(complete_trade))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/matches",
+    operation_id = "trades_list_matches",
+    tag = "trades",
+    summary = "List matches",
+    description = "List matches. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(PageParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedMatchesResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_matches(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -51,6 +72,26 @@ async fn list_matches(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/matches/{match_id}",
+    operation_id = "trades_get_match",
+    tag = "trades",
+    summary = "Get match",
+    description = "Get match. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("match_id" = u32, Path, description = "match id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = TradeMatchResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_match(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -61,6 +102,30 @@ async fn get_match(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/matches/{match_id}/proposals",
+    operation_id = "trades_create_trade_proposal",
+    tag = "trades",
+    summary = "Create trade proposal",
+    description = "Create trade proposal. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("match_id" = u32, Path, description = "match id", minimum = 1)),
+    request_body = CreateTradeProposalRequest,
+    responses(
+        (status = 201, description = "Successful operation", body = TradeResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn create_trade_proposal(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -72,6 +137,26 @@ async fn create_trade_proposal(
     Ok((StatusCode::CREATED, Json(trade)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/trades",
+    operation_id = "trades_list_open_trades",
+    tag = "trades",
+    summary = "List open trades",
+    description = "List open trades. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(TradePageParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedTradesResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_open_trades(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -82,6 +167,26 @@ async fn list_open_trades(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/trades/{trade_id}",
+    operation_id = "trades_get_trade",
+    tag = "trades",
+    summary = "Get trade",
+    description = "Get trade. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("trade_id" = u32, Path, description = "trade id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = TradeResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_trade(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -92,6 +197,26 @@ async fn get_trade(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/trades/{trade_id}/accept",
+    operation_id = "trades_accept_trade",
+    tag = "trades",
+    summary = "Accept trade",
+    description = "Accept trade. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("trade_id" = u32, Path, description = "trade id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = TradeResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn accept_trade(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -102,6 +227,26 @@ async fn accept_trade(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/trades/{trade_id}/cancel",
+    operation_id = "trades_cancel_trade",
+    tag = "trades",
+    summary = "Cancel trade",
+    description = "Cancel trade. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("trade_id" = u32, Path, description = "trade id", minimum = 1)),
+    responses(
+        (status = 204, description = "Successful operation"),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn cancel_trade(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -111,6 +256,26 @@ async fn cancel_trade(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/trades/{trade_id}/complete",
+    operation_id = "trades_complete_trade",
+    tag = "trades",
+    summary = "Complete trade",
+    description = "Record this participant's completion confirmation. Only the second confirmation transfers both directions atomically; retries never transfer twice. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("trade_id" = u32, Path, description = "trade id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = TradeResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn complete_trade(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -135,6 +300,26 @@ async fn complete_trade(
     Ok(Json(result.trade))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/trade-offers",
+    operation_id = "trades_list_trade_offers",
+    tag = "trades",
+    summary = "List trade offers",
+    description = "List trade offers. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(TradeListQueryParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedTradeOffersResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_trade_offers(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -162,6 +347,26 @@ async fn list_trade_offers(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/wanted",
+    operation_id = "trades_list_wanted_entries",
+    tag = "trades",
+    summary = "List wanted entries",
+    description = "List wanted entries. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(TradeListQueryParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedWantedResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_wanted_entries(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -183,6 +388,26 @@ async fn list_wanted_entries(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/wanted/candidates",
+    operation_id = "trades_list_wanted_candidates",
+    tag = "trades",
+    summary = "List wanted candidates",
+    description = "List wanted candidates. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(TradeListQueryParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedWantedCandidatesResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_wanted_candidates(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -206,6 +431,29 @@ async fn list_wanted_candidates(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/wanted/bulk",
+    operation_id = "trades_add_wanted_entries",
+    tag = "trades",
+    summary = "Add wanted entries",
+    description = "Add wanted entries. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body = BulkWantedRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = BulkWantedResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn add_wanted_entries(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -229,6 +477,26 @@ async fn add_wanted_entries(
     Ok(Json(result))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/me/wanted/{entry_id}",
+    operation_id = "trades_delete_wanted_entry",
+    tag = "trades",
+    summary = "Delete wanted entry",
+    description = "Delete wanted entry. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("entry_id" = u32, Path, description = "entry id", minimum = 1)),
+    responses(
+        (status = 204, description = "Successful operation"),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn delete_wanted_entry(
     State(state): State<AppState>,
     auth: AuthUser,

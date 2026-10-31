@@ -1,8 +1,9 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use chrono::{NaiveDateTime, Utc};
@@ -23,26 +24,23 @@ use crate::models::user::{
 };
 use crate::services::rate_limit::{PeerAddress, RateLimitPolicy};
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/auth/login", post(login))
-        .route("/api/v1/auth/register", post(register))
-        .route("/api/v1/auth/verify", get(verify_email))
-        .route(
-            "/api/v1/auth/resend-verification",
-            post(resend_verification),
-        )
-        .route(
-            "/api/v1/auth/password-reset/request",
-            post(request_password_reset),
-        )
-        .route(
-            "/api/v1/auth/password-reset/confirm",
-            post(confirm_password_reset),
-        )
-        .route("/api/v1/auth/refresh", post(refresh))
-        .route("/api/v1/auth/logout", post(logout))
-        .route("/api/v1/auth/me", get(me))
+    openapi_router().into()
+}
+
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(login))
+        .routes(utoipa_axum::routes!(register))
+        .routes(utoipa_axum::routes!(verify_email))
+        .routes(utoipa_axum::routes!(resend_verification))
+        .routes(utoipa_axum::routes!(request_password_reset))
+        .routes(utoipa_axum::routes!(confirm_password_reset))
+        .routes(utoipa_axum::routes!(refresh))
+        .routes(utoipa_axum::routes!(logout))
+        .routes(utoipa_axum::routes!(me))
 }
 
 fn generate_random_token() -> String {
@@ -85,6 +83,28 @@ pub(super) fn clear_cookie(name: &str, path: &str) -> Cookie<'static> {
         .build()
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/register",
+    operation_id = "auth_register",
+    tag = "auth",
+    summary = "Register",
+    description = "Register.",
+    security(),
+    request_body = RegisterRequest,
+    responses(
+        (status = 201, description = "Successful operation", body = RegisterResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn register(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -231,6 +251,25 @@ fn register_validation_error(errors: &validator::ValidationErrors) -> AppError {
     AppError::Validation { fields }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/verify",
+    operation_id = "auth_verify_email",
+    tag = "auth",
+    summary = "Verify email",
+    description = "Verify the one-time email token and redirect to the login page with a result indicator.",
+    security(),
+    params(VerifyQuery),
+    responses(
+        (status = 303, description = "Redirect to application", headers(("Location" = String, description = "Application redirect target"))),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQuery>) -> Response {
     let redirect_ok = format!("{}/login?verified=true", state.inner.app_base_url);
     let redirect_err = format!("{}/login?verify_error=invalid", state.inner.app_base_url);
@@ -260,6 +299,28 @@ async fn verify_email(State(state): State<AppState>, Query(query): Query<VerifyQ
     Redirect::to(&redirect_ok).into_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/resend-verification",
+    operation_id = "auth_resend_verification",
+    tag = "auth",
+    summary = "Resend verification",
+    description = "Resend verification.",
+    security(),
+    request_body = ResendVerificationRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn resend_verification(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -338,6 +399,28 @@ async fn upgrade_password_hash(state: &AppState, user_id: u32, current_hash: &st
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/login",
+    operation_id = "auth_login",
+    tag = "auth",
+    summary = "Login",
+    description = "Login.",
+    security(),
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = LoginResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -495,6 +578,25 @@ pub(super) async fn authenticated_jar_at(
         )))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/refresh",
+    operation_id = "auth_refresh",
+    tag = "auth",
+    summary = "Refresh",
+    description = "Rotate the refresh cookie and issue an access cookie with the current database role. Does not renew the time of credential verification.",
+    security(("refreshCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn refresh(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -604,6 +706,28 @@ async fn refresh(
 const PASSWORD_RESET_REQUEST_MESSAGE: &str =
     "If an eligible account exists, a password reset email has been sent.";
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/password-reset/request",
+    operation_id = "auth_request_password_reset",
+    tag = "auth",
+    summary = "Request password reset",
+    description = "Request password reset.",
+    security(),
+    request_body = PasswordResetRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn request_password_reset(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -687,6 +811,28 @@ async fn request_password_reset(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/password-reset/confirm",
+    operation_id = "auth_confirm_password_reset",
+    tag = "auth",
+    summary = "Confirm password reset",
+    description = "Confirm password reset.",
+    security(),
+    request_body = PasswordResetConfirmRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn confirm_password_reset(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -761,6 +907,24 @@ fn invalid_password_reset_token() -> AppError {
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/logout",
+    operation_id = "auth_logout",
+    tag = "auth",
+    summary = "Logout",
+    description = "Clear session cookies and revoke the presented refresh session.",
+    security(),
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -784,6 +948,25 @@ async fn logout(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/me",
+    operation_id = "auth_me",
+    tag = "auth",
+    summary = "Me",
+    description = "Me. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = MeResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn me(
     State(state): State<AppState>,
     auth_user: AuthUser,

@@ -230,6 +230,7 @@ mod tests {
     #[test]
     fn test_log_fallback_created_when_no_smtp_host() {
         let config = AppConfig {
+            api_docs_enabled: false,
             database_url: String::new(),
             jwt_secret: String::new(),
             jwt_access_token_expiry: 900,

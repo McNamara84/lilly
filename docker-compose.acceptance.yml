@@ -1,0 +1,28 @@
+# Use with docker-compose.yml and a dedicated --project-name/--env-file.
+services:
+  backend:
+    image: lilly-backend:acceptance
+    environment:
+      ENABLE_DEMO_SEED: "false"
+      ENABLE_E2E_FIXTURE_ADAPTER: "false"
+      IMPORT_SCHEDULER_ENABLED: "false"
+      API_DOCS_ENABLED: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_TLS_MODE: none
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+    depends_on:
+      mailpit:
+        condition: service_started
+  frontend:
+    image: lilly-frontend:acceptance
+  caddy:
+    ports: !override
+      - "127.0.0.1:${ACCEPTANCE_PORT:-18080}:80"
+  mailpit:
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+    environment:
+      MP_MAX_MESSAGES: "200"
+    ports:
+      - "127.0.0.1:${ACCEPTANCE_MAIL_PORT:-18025}:8025"

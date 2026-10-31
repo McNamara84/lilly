@@ -24,7 +24,8 @@ pub struct OwnProfileRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = profile::OwnProfileResponse)]
 pub struct OwnProfileResponse {
     pub id: u32,
     pub email: String,
@@ -33,6 +34,7 @@ pub struct OwnProfileResponse {
     pub location: Option<String>,
     pub profile_public: bool,
     pub collection_public: bool,
+    #[schema(format = "local-date-time")]
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -52,9 +54,12 @@ impl From<OwnProfileRow> for OwnProfileResponse {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = profile::UpdateProfileRequest)]
 pub struct UpdateProfileRequest {
+    /// Trimmed; requires 2 to 100 Unicode characters after trimming.
     pub display_name: String,
+    /// Trimmed; at most 255 Unicode characters after trimming. Empty values clear it.
     pub location: Option<String>,
 }
 
@@ -101,13 +106,15 @@ impl UpdateProfileRequest {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = profile::UpdateVisibilityRequest)]
 pub struct UpdateVisibilityRequest {
     pub profile_public: bool,
     pub collection_public: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = profile::VisibilityResponse)]
 pub struct VisibilityResponse {
     pub profile_public: bool,
     pub collection_public: bool,
@@ -122,12 +129,14 @@ pub struct PublicProfileRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = profile::PublicProfileResponse)]
 pub struct PublicProfileResponse {
     pub id: u32,
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub location: Option<String>,
+    #[schema(format = "local-date-time")]
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -151,7 +160,8 @@ pub struct AvatarRow {
     pub profile_public: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = profile::PublicCollectionEntryResponse)]
 pub struct PublicCollectionEntryResponse {
     pub issue_id: u32,
     pub issue_number: u32,
@@ -188,7 +198,8 @@ impl From<&CollectionEntryRow> for PublicCollectionEntryResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = profile::PaginatedPublicCollectionResponse)]
 pub struct PaginatedPublicCollectionResponse {
     pub data: Vec<PublicCollectionEntryResponse>,
     pub page: u32,

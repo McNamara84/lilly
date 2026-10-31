@@ -15,7 +15,7 @@ export default mergeConfig(
 			coverage: {
 				provider: 'v8',
 				reporter: ['text', 'lcov', 'html'],
-				include: ['src/**/*.{ts,svelte}'],
+				include: ['src/**/*.{ts,svelte}', 'test-support/**/*.ts'],
 				exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'src/app.html']
 			}
 		}

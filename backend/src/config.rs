@@ -105,6 +105,7 @@ impl Default for PhotoUploadConfig {
 }
 
 pub struct AppConfig {
+    pub api_docs_enabled: bool,
     pub database_url: String,
     pub jwt_secret: String,
     pub jwt_access_token_expiry: u64,
@@ -205,6 +206,10 @@ impl AppConfig {
                 .unwrap_or_else(|| "2592000".to_string())
                 .parse()
                 .expect("JWT_REFRESH_TOKEN_EXPIRY must be a number"),
+            api_docs_enabled: get("API_DOCS_ENABLED")
+                .unwrap_or_else(|| "false".to_string())
+                .parse()
+                .expect("API_DOCS_ENABLED must be true or false"),
             password_reset_ttl_seconds,
             backend_port: get("BACKEND_PORT")
                 .unwrap_or_else(|| "8080".to_string())
@@ -458,6 +463,7 @@ mod tests {
         assert_eq!(config.jwt_refresh_token_expiry, 2_592_000);
         assert_eq!(config.password_reset_ttl_seconds, 3_600);
         assert_eq!(config.backend_port, 8080);
+        assert!(!config.api_docs_enabled);
         assert!(config.smtp_host.is_none());
         assert_eq!(config.smtp_port, 587);
         assert_eq!(config.smtp_tls_mode, SmtpTlsMode::StartTls);
@@ -518,6 +524,28 @@ mod tests {
             config.trusted_proxy_cidrs[1]
                 .contains(&"2001:db8::42".parse::<std::net::IpAddr>().unwrap())
         );
+    }
+
+    #[test]
+    fn api_documentation_requires_explicit_enablement() {
+        let config = AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "API_DOCS_ENABLED" => Some("true".to_string()),
+            _ => None,
+        });
+        assert!(config.api_docs_enabled);
+    }
+
+    #[test]
+    #[should_panic(expected = "API_DOCS_ENABLED must be true or false")]
+    fn invalid_api_documentation_setting_is_rejected() {
+        AppConfig::from_lookup(|key| match key {
+            "DATABASE_URL" => Some("mysql://test:test@localhost/test".to_string()),
+            "JWT_SECRET" => Some("test-secret".to_string()),
+            "API_DOCS_ENABLED" => Some("yes".to_string()),
+            _ => None,
+        });
     }
 
     #[test]

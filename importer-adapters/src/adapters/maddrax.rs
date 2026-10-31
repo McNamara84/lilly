@@ -371,12 +371,7 @@ impl WikiAdapter for MaddraxAdapter {
             None => None,
         };
 
-        Ok(map_issue_details(
-            issue_number,
-            &wiki_title,
-            wikitext,
-            cycle,
-        ))
+        map_issue_details(issue_number, &wiki_title, wikitext, cycle)
     }
 
     async fn fetch_cover(
@@ -417,7 +412,7 @@ fn map_issue_details(
     wiki_title: &str,
     wikitext: &str,
     cycle: Option<String>,
-) -> IssueData {
+) -> Result<IssueData, AdapterError> {
     let fields = MaddraxAdapter::parse_wikitext_infobox(wikitext);
     let title = fields.get("Titel").map_or_else(
         || {
@@ -470,16 +465,17 @@ fn map_issue_details(
         .unwrap_or_default();
     let (part_number, part_total, notes) = parse_multipart_and_notes(&raw_notes);
 
-    let published_at = fields
+    let date_text = fields
         .get("Erscheinungsdatum")
-        .and_then(|s| parse_german_date(s));
+        .map(|value| MaddraxAdapter::strip_wiki_markup(value));
+    let published_at = crate::publication_date::parse(date_text.as_deref(), parse_german_date)?;
 
     let source_url = format!(
         "{MADDRAXIKON_BASE}/wiki/{}",
         urlencoding::encode(wiki_title)
     );
 
-    IssueData {
+    Ok(IssueData {
         issue_number,
         title,
         authors,
@@ -495,7 +491,7 @@ fn map_issue_details(
             source_record_id: format!("Quelle:MX{issue_number}"),
             source_url,
         },
-    }
+    })
 }
 
 fn parse_multipart_and_notes(raw: &str) -> (Option<u32>, Option<u32>, Vec<String>) {
@@ -672,7 +668,8 @@ mod tests {
                     (*number == reference.issue_number).then_some(*fixture)
                 })
                 .expect("every pinned record must have a local fixture");
-            let issue = map_issue_details(reference.issue_number, reference.title, fixture, None);
+            let issue =
+                map_issue_details(reference.issue_number, reference.title, fixture, None).unwrap();
             let issue = lilly_importer_core::normalize_and_validate_issue(
                 SOURCE_DESCRIPTOR,
                 reference.issue_number,
@@ -698,13 +695,31 @@ mod tests {
     }
 
     #[test]
+    fn publication_dates_distinguish_missing_values_from_malformed_source_data() {
+        for value in ["", "?", "unbekannt"] {
+            let wiki = format!(
+                "{{{{Roman\n|Titel = Example\n|Autor = Author\n|Erscheinungsdatum = {value}\n}}}}"
+            );
+            let issue = map_issue_details(2, "Example", &wiki, None).unwrap();
+            assert_eq!(issue.published_at, None);
+        }
+        let wiki =
+            "{{Roman\n|Titel = Example\n|Autor = Author\n|Erscheinungsdatum = 31.02.2024\n}}";
+        assert!(matches!(
+            map_issue_details(2, "Example", wiki, None),
+            Err(AdapterError::Parse(_))
+        ));
+    }
+
+    #[test]
     fn mx695_fixture_reproduces_future_stub_with_missing_author() {
         let issue = map_issue_details(
             695,
             "Trans-Meeraka-Express",
             include_str!("../../tests/fixtures/maddrax/mx0695.wiki"),
             None,
-        );
+        )
+        .unwrap();
 
         assert_eq!(issue.title, "Trans-Meeraka-Express");
         assert_eq!(issue.authors, [] as [std::string::String; 0]);

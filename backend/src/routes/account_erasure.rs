@@ -1,7 +1,8 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use axum_extra::extract::CookieJar;
 use chrono::{DateTime, Utc};
 
@@ -22,20 +23,42 @@ use crate::services::account_erasure::{
 };
 use crate::services::rate_limit::{PeerAddress, RateLimitPolicy};
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/api/v1/me/account-deletion",
-            get(status).post(request_deletion).delete(cancel_deletion),
-        )
-        .route("/api/v1/me/account-deletion/options", get(deletion_options))
-        .route(
-            "/api/v1/auth/reauth/password",
-            post(reauthenticate_password),
-        )
-        .route("/api/v1/admin/account-erasure-jobs", get(admin_jobs))
+    openapi_router().into()
 }
 
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(
+            status,
+            request_deletion,
+            cancel_deletion
+        ))
+        .routes(utoipa_axum::routes!(deletion_options))
+        .routes(utoipa_axum::routes!(reauthenticate_password))
+        .routes(utoipa_axum::routes!(admin_jobs))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/account-deletion",
+    operation_id = "account_erasure_status",
+    tag = "account_erasure",
+    summary = "Status",
+    description = "Read account deletion status using an active session or the restricted recovery cookie.",
+    security(("accessCookie" = []), ("recoveryCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = AccountDeletionStatusResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn status(
     State(state): State<AppState>,
     auth: OptionalAuthUser,
@@ -59,6 +82,25 @@ async fn status(
     result.map(Json).ok_or_else(recovery_required)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/account-deletion/options",
+    operation_id = "account_erasure_deletion_options",
+    tag = "account_erasure",
+    summary = "Deletion options",
+    description = "Deletion options. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = AccountDeletionOptionsResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn deletion_options(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -76,6 +118,29 @@ async fn deletion_options(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/account-deletion",
+    operation_id = "account_erasure_request_deletion",
+    tag = "account_erasure",
+    summary = "Request deletion",
+    description = "Schedule account erasure. Requires credentials verified within ten minutes and the exact confirmation phrase. Immediately deactivates all ordinary sessions. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body = RequestAccountDeletion,
+    responses(
+        (status = 202, description = "Successful operation", body = AccountDeletionStatusResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn request_deletion(
     State(state): State<AppState>,
     auth: RecentAuthUser,
@@ -116,6 +181,25 @@ async fn request_deletion(
     Ok((StatusCode::ACCEPTED, jar, Json(scheduled.status)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/me/account-deletion",
+    operation_id = "account_erasure_cancel_deletion",
+    tag = "account_erasure",
+    summary = "Cancel deletion",
+    description = "Cancel pending erasure with the restricted recovery cookie before the grace period ends.",
+    security(("recoveryCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = LoginResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn cancel_deletion(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -161,6 +245,29 @@ async fn cancel_deletion(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/reauth/password",
+    operation_id = "account_erasure_reauthenticate_password",
+    tag = "account_erasure",
+    summary = "Reauthenticate password",
+    description = "Reauthenticate password. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body = PasswordReauthenticationRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn reauthenticate_password(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -210,6 +317,25 @@ async fn reauthenticate_password(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/account-erasure-jobs",
+    operation_id = "account_erasure_admin_jobs",
+    tag = "account_erasure",
+    summary = "Admin jobs",
+    description = "Admin jobs. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = Vec<AdminAccountErasureJobResponse>),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn admin_jobs(
     _admin: AdminUser,
     State(state): State<AppState>,

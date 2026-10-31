@@ -148,7 +148,7 @@ impl JohnSinclairAdapter {
 
         for raw_line in wikitext.lines() {
             let line = raw_line.trim();
-            if !line.starts_with('|') || !line.contains("||") {
+            if !line.starts_with('|') {
                 continue;
             }
             let columns: Vec<&str> = line
@@ -156,13 +156,10 @@ impl JohnSinclairAdapter {
                 .split("||")
                 .map(str::trim)
                 .collect();
-            if columns.len() < 6 {
-                continue;
-            }
             let Ok(displayed_number) = columns[0].parse::<u32>() else {
                 continue;
             };
-            let Some(captures) = title_link.captures(columns[1]) else {
+            let Some(captures) = columns.get(1).and_then(|title| title_link.captures(title)) else {
                 return Err(AdapterError::Parse(format!(
                     "Issue {displayed_number} has no canonical JS page link"
                 )));
@@ -194,16 +191,20 @@ impl JohnSinclairAdapter {
                 .map_or(fallback_title, |value| value.as_str())
                 .trim()
                 .to_string();
-            let (part_number, part_total) = parse_part_position(columns[4]);
+            let (part_number, part_total) =
+                parse_part_position(columns.get(4).copied().unwrap_or_default());
             let summary = IssueSummary {
                 issue_number: canonical_number,
                 page_title,
                 title,
-                authors: parse_people(columns[2]),
-                cover_artists: parse_people(columns[3]),
+                authors: parse_people(columns.get(2).copied().unwrap_or_default()),
+                cover_artists: parse_people(columns.get(3).copied().unwrap_or_default()),
                 part_number,
                 part_total,
-                published_at: parse_german_date(columns[5]),
+                published_at: crate::publication_date::parse(
+                    columns.get(5).copied(),
+                    parse_german_date,
+                )?,
             };
 
             if summaries.insert(canonical_number, summary).is_some() {
@@ -356,7 +357,7 @@ impl WikiAdapter for JohnSinclairAdapter {
             .cloned()
             .ok_or_else(|| AdapterError::NotFound(format!("Issue {issue_number} not found")))?;
         let wikitext = self.fetch_page_wikitext(&summary.page_title).await?;
-        Ok(map_issue_details(summary, &wikitext))
+        map_issue_details(summary, &wikitext)
     }
 
     async fn fetch_cover(
@@ -397,7 +398,7 @@ impl WikiAdapter for JohnSinclairAdapter {
     }
 }
 
-fn map_issue_details(summary: IssueSummary, wikitext: &str) -> IssueData {
+fn map_issue_details(summary: IssueSummary, wikitext: &str) -> Result<IssueData, AdapterError> {
     let fields = parse_infobox_fields(wikitext);
     let authors = fields
         .get("Autoren")
@@ -409,9 +410,10 @@ fn map_issue_details(summary: IssueSummary, wikitext: &str) -> IssueData {
             || summary.cover_artists.clone(),
             |value| parse_people(value),
         );
-    let published_at = fields
+    let date_text = fields
         .get("Erscheinungsdatum")
-        .and_then(|value| parse_german_date(value))
+        .map(|value| strip_wiki_markup(value));
+    let published_at = crate::publication_date::parse(date_text.as_deref(), parse_german_date)?
         .or(summary.published_at);
     let (detail_part_number, detail_part_total) = fields
         .get("Teil")
@@ -434,7 +436,7 @@ fn map_issue_details(summary: IssueSummary, wikitext: &str) -> IssueData {
         .unwrap_or_default();
     let source_record_id = summary.page_title;
 
-    IssueData {
+    Ok(IssueData {
         issue_number: summary.issue_number,
         title: summary.title,
         authors,
@@ -453,7 +455,7 @@ fn map_issue_details(summary: IssueSummary, wikitext: &str) -> IssueData {
             ),
             source_record_id,
         },
-    }
+    })
 }
 
 fn parse_infobox_fields(wikitext: &str) -> HashMap<String, String> {
@@ -709,11 +711,61 @@ mod tests {
 
     #[test]
     fn parse_overview_rejects_rows_without_canonical_link() {
-        let invalid = "| 1 || Im Nachtclub der Vampire || Jason Dark || || || 17.01.1978";
-        assert!(matches!(
-            JohnSinclairAdapter::parse_overview(invalid),
-            Err(AdapterError::Parse(message)) if message.contains("no canonical")
-        ));
+        for invalid in [
+            "| 1",
+            "| 1 || Im Nachtclub der Vampire",
+            "| 1 || Im Nachtclub der Vampire || Jason Dark || || || 17.01.1978",
+        ] {
+            assert!(matches!(
+                JohnSinclairAdapter::parse_overview(invalid),
+                Err(AdapterError::Parse(message)) if message.contains("no canonical")
+            ));
+        }
+    }
+
+    #[test]
+    fn overview_keeps_real_source_rows_without_optional_trailing_columns() {
+        let summaries = JohnSinclairAdapter::parse_overview(include_str!(
+            "../../tests/fixtures/john_sinclair/short-rows.wiki"
+        ))
+        .unwrap();
+        assert_eq!(
+            summaries
+                .iter()
+                .map(|row| row.issue_number)
+                .collect::<Vec<_>>(),
+            [204, 1992, 2005, 2006, 2041]
+        );
+        for summary in summaries {
+            assert_ne!(summary.title, "");
+            assert_ne!(summary.authors, [] as [String; 0]);
+            assert_eq!(summary.cover_artists, [] as [String; 0]);
+            assert_eq!(summary.published_at, None);
+            let issue = map_issue_details(summary, "|Erscheinungsdatum || 17.01.1978").unwrap();
+            assert_eq!(issue.published_at, NaiveDate::from_ymd_opt(1978, 1, 17));
+        }
+    }
+
+    #[test]
+    fn overview_accepts_each_optional_column_boundary_and_defers_to_details() {
+        let columns = [
+            "2",
+            "[[JS 0002 - Example|Example]]",
+            "[[Author]]",
+            "Artist",
+            "1/2",
+            "17.01.1978",
+        ];
+        for count in 2..=columns.len() {
+            let row = format!("| {}", columns[..count].join(" || "));
+            let summary = JohnSinclairAdapter::parse_overview(&row).unwrap().remove(0);
+            assert_eq!(summary.authors.is_empty(), count < 3);
+            assert_eq!(summary.cover_artists.is_empty(), count < 4);
+            assert_eq!(summary.part_number.is_none(), count < 5);
+            assert_eq!(summary.published_at.is_none(), count < 6);
+            let issue = map_issue_details(summary, "|Autoren || [[Detail Author]]").unwrap();
+            assert_eq!(issue.authors, ["Detail Author"]);
+        }
     }
 
     #[test]
@@ -883,7 +935,7 @@ mod tests {
                 .find(|summary| summary.issue_number == reference.issue_number)
                 .unwrap()
                 .clone();
-            let issue = map_issue_details(summary, fixture);
+            let issue = map_issue_details(summary, fixture).unwrap();
             let issue = lilly_importer_core::normalize_and_validate_issue(
                 SOURCE_DESCRIPTOR,
                 reference.issue_number,
@@ -908,6 +960,40 @@ mod tests {
                     .starts_with(&format!("JS {:04}", reference.issue_number))
             );
         }
+    }
+
+    #[test]
+    fn publication_dates_validate_overview_and_details_without_losing_the_fallback() {
+        let overview =
+            "|1 || [[JS 0001 - Example|Example]] || [[Author]] || Artist || || 17.01.1978";
+        let summary = JohnSinclairAdapter::parse_overview(overview)
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            map_issue_details(summary.clone(), "").unwrap().published_at,
+            summary.published_at
+        );
+        assert!(map_issue_details(summary, "|Erscheinungsdatum || 31.02.2024").is_err());
+        assert!(
+            JohnSinclairAdapter::parse_overview(&overview.replace("17.01.1978", "31.02.2024"))
+                .is_err()
+        );
+        for value in ["", "?", "??????", "unbekannt"] {
+            let summary =
+                JohnSinclairAdapter::parse_overview(&overview.replace("17.01.1978", value))
+                    .unwrap()
+                    .remove(0);
+            assert_eq!(map_issue_details(summary, "").unwrap().published_at, None);
+        }
+        let summary = JohnSinclairAdapter::parse_overview(overview)
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            map_issue_details(summary.clone(), "|Erscheinungsdatum || ??????")
+                .unwrap()
+                .published_at,
+            summary.published_at
+        );
     }
 
     #[test]

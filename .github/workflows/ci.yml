@@ -108,6 +108,10 @@ jobs:
         with:
           toolchain: 1.99.1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Check generated OpenAPI contract
+        run: python3 scripts/openapi.py --check
+      - name: Test acceptance verifier
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - run: cargo test --locked --workspace
         env:
           DATABASE_URL: mysql://lilly_test:lilly_test@127.0.0.1:3306/lilly_test

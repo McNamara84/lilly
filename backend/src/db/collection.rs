@@ -729,7 +729,7 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
         where_parts.push(
             "AND EXISTS (SELECT 1 FROM issue_persons ip JOIN persons p ON ip.person_id = p.id \
                          WHERE ip.issue_id = i.id AND ip.role = 'author' \
-                         AND p.name LIKE CONCAT('%', ?, '%'))"
+                         AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%'))"
                 .to_string(),
         );
     }
@@ -739,7 +739,7 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
             "AND (i.title LIKE CONCAT('%', ?, '%') \
              OR EXISTS (SELECT 1 FROM issue_persons ip JOIN persons p ON ip.person_id = p.id \
                         WHERE ip.issue_id = i.id AND ip.role = 'author' \
-                        AND p.name LIKE CONCAT('%', ?, '%')))"
+                        AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%')))"
                 .to_string(),
         );
     }
@@ -751,7 +751,7 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
         Some("title") => "i.title",
         Some("condition") => "FIELD(ce.condition_grade, 'Z0','Z1','Z2','Z3','Z4')",
         Some("author") => {
-            "COALESCE((SELECT MIN(p.name) FROM issue_persons ip \
+            "COALESCE((SELECT MIN(p.name COLLATE utf8mb4_unicode_ci) FROM issue_persons ip \
              JOIN persons p ON ip.person_id = p.id \
              WHERE ip.issue_id = i.id AND ip.role = 'author'), '')"
         }
@@ -797,7 +797,7 @@ fn build_missing_filter_clauses(params: &CollectionQueryParams) -> (String, Stri
         where_parts.push(
             "AND EXISTS (SELECT 1 FROM issue_persons ip JOIN persons p ON ip.person_id = p.id \
                          WHERE ip.issue_id = i.id AND ip.role = 'author' \
-                         AND p.name LIKE CONCAT('%', ?, '%'))"
+                         AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%'))"
                 .to_string(),
         );
     }
@@ -807,7 +807,7 @@ fn build_missing_filter_clauses(params: &CollectionQueryParams) -> (String, Stri
             "AND (i.title LIKE CONCAT('%', ?, '%') \
              OR EXISTS (SELECT 1 FROM issue_persons ip JOIN persons p ON ip.person_id = p.id \
                         WHERE ip.issue_id = i.id AND ip.role = 'author' \
-                        AND p.name LIKE CONCAT('%', ?, '%')))"
+                        AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%')))"
                 .to_string(),
         );
     }
@@ -816,7 +816,7 @@ fn build_missing_filter_clauses(params: &CollectionQueryParams) -> (String, Stri
         Some("series") => "s.name",
         Some("title") => "i.title",
         Some("author") => {
-            "COALESCE((SELECT MIN(p.name) FROM issue_persons ip \
+            "COALESCE((SELECT MIN(p.name COLLATE utf8mb4_unicode_ci) FROM issue_persons ip \
              JOIN persons p ON ip.person_id = p.id \
              WHERE ip.issue_id = i.id AND ip.role = 'author'), '')"
         }
@@ -861,7 +861,7 @@ mod tests {
         assert!(where_clause.contains("ce.condition_grade = ?"));
         assert!(where_clause.contains("i.title LIKE"));
         assert!(where_clause.contains("ip.role = 'author'"));
-        assert!(order_clause.contains("MIN(p.name)"));
+        assert!(order_clause.contains("MIN(p.name COLLATE utf8mb4_unicode_ci)"));
         assert!(order_clause.contains("DESC"));
         assert!(order_clause.ends_with("ce.id ASC"));
     }
@@ -913,7 +913,7 @@ mod tests {
             ("issue_number", "i.issue_number"),
             ("condition", "FIELD(ce.condition_grade"),
             ("title", "i.title"),
-            ("author", "MIN(p.name)"),
+            ("author", "MIN(p.name COLLATE utf8mb4_unicode_ci)"),
             ("added", "ce.created_at"),
         ];
 

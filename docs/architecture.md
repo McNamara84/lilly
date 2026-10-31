@@ -308,6 +308,8 @@ Die verbleibenden Tabellen folgen demselben Muster. Hier eine kompakte Übersich
 
 Alle Endpunkte sind unter dem Präfix `/api/v1` erreichbar. Authentifizierte Endpunkte erfordern einen gültigen JWT im `HttpOnly`-Access-Cookie.
 
+Der implementierte Vertrag wird aus denselben Handler-Registrierungen wie der Axum-Router erzeugt: [OpenAPI 3.1](openapi.json). [API-Handbuch](api.md) beschreibt Cookies, Fehler, Formate, Versionierung und Vertragstests. `python scripts/openapi.py --check` prüft den Export ohne Datenbank. `API_DOCS_ENABLED=true` aktiviert die lokal ausgelieferte Swagger UI unter `/api/v1/docs/`; standardmäßig sind Dokumentationsrouten deaktiviert.
+
 ### 5.1 Endpunkt-Übersicht
 
 | Methode             | Pfad                                              | Auth         | Beschreibung                                                                            |

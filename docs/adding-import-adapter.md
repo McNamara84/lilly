@@ -77,10 +77,14 @@ mit Bilddaten und Identität. Mehrdeutige Antworten und alle Abruffehler müssen
 `AdapterError` zurückgegeben werden, damit die Orchestrierung ein vorhandenes Cover behält.
 So kann sie Altbestände korrigieren, ohne unveränderte Bilddateien erneut zu laden.
 
-Pflichtfelder eines Hefts sind positive Heftnummer, Titel, mindestens ein Autor,
-Erscheinungsdatum und vollständige Provenienz. Adapter liefern Transportfehler als
+Pflichtfelder eines Hefts sind positive Heftnummer, Titel, mindestens ein Autor
+und vollständige Provenienz. Das Erscheinungsdatum ist optional: fehlende oder ausdrücklich
+unbekannte Angaben bleiben `None`, vorhandene vollständige Angaben müssen gültig sein.
+Ein späterer Vollscan ergänzt das Datum bei unveränderter Heft-ID. Adapter liefern Transportfehler als
 `AdapterError::Network`, nicht gefundene Datensätze als `NotFound` und eine Antwort, die sich
-gar nicht als Heft interpretieren lässt, als `Parse`. Eine syntaktisch interpretierbare
+gar nicht als Heft interpretieren lässt, als `Parse`. Ausdrücklich temporäre Quellenausfälle
+werden als `TemporarilyUnavailable` geliefert, damit die Orchestrierung begrenzt und mit
+ansteigenden Pausen wiederholen kann. Eine syntaktisch interpretierbare
 Antwort darf fehlende Pflichtfelder zunächst als leere Werte beziehungsweise `None` abbilden.
 Die generische Orchestrierung ruft anschließend `normalize_and_validate_issue()` auf und
 verwirft solche Teilrecords vor jeder Persistenz als recordbezogenen Fehler.

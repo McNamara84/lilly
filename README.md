@@ -89,13 +89,19 @@ While generic book managers and general-purpose collector software exist, there 
 - See deduplicated match, proposal, acceptance, completion, cancellation, and message notifications
 - Deliberately **no** buy/sell system – LILLY is a pure trading platform
 
+### Shared application API
+
+All implemented business routes share an OpenAPI 3.1 contract generated from the Rust handlers and DTOs. Run `python scripts/openapi.py` to export it, or add `--check` to detect drift without database access. Set `API_DOCS_ENABLED=true` for self-hosted Swagger UI at `/api/v1/docs/`; it is disabled by default. See the [API guide](docs/api.md) and [generated specification](docs/openapi.json).
+
 ### Series Data and Import
 
 - Initial series: **Maddrax – Die dunkle Zukunft der Erde** and **Geisterjäger John Sinclair**
-- Master data (issue number, title, author, publication date) imported from fan wikis ([Maddraxikon](https://de.maddraxikon.com), [Gruselroman-Wiki](https://gruselroman-wiki.de))
+- Master data (issue number, title, author, source identity, optional validated publication date) imported from fan wikis ([Maddraxikon](https://de.maddraxikon.com), [Gruselroman-Wiki](https://gruselroman-wiki.de))
 - Complete, idempotent synchronization via the timezone-aware backend scheduler to capture new issues and improved wiki metadata
 - Persistent progress with created/updated/unchanged/skipped/failed counters, cancellation and linked recovery runs
 - Modular import system – additional series can be added with new adapters
+
+Publication dates may be unknown and are backfilled by later imports. Invalid supplied dates are reported instead of silently treated as missing. See the [isolated live-import acceptance guide](docs/mvp-import-acceptance.md).
 
 ### Community
 
@@ -440,6 +446,9 @@ Detailed planning documents are located in the [`docs/`](docs/) folder:
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [requirements.md](docs/requirements.md)                     | Requirements catalog with all functional and non-functional requirements               |
 | [architecture.md](docs/architecture.md)                     | Architecture and design document (tech stack, database schema, API design, deployment) |
+| [api.md](docs/api.md)                                       | Shared REST API, generated OpenAPI contract, authentication, and compatibility rules |
+| [mvp-import-acceptance.md](docs/mvp-import-acceptance.md)     | Reproducible live import acceptance in an isolated local Docker environment |
+| [mvp-acceptance.md](docs/mvp-acceptance.md)                   | Implementation evidence, test coverage, and live acceptance results for issues #44, #19, and #74 |
 | [uxdesign.md](docs/uxdesign.md)                             | UI/UX concept (design philosophy, components, screens, responsive strategy)            |
 | [design-tokens.json](docs/design-tokens.json)               | Machine-readable design tokens (colors, typography, spacing, animations)               |
 | [components.json](docs/components.json)                     | Machine-readable component specifications                                              |

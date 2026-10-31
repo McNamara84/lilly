@@ -21,7 +21,8 @@ pub struct ImportSchedulerConfig {
     pub adapters: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = import_scheduler::ImportScheduleStatus)]
 pub struct ImportScheduleStatus {
     pub enabled: bool,
     pub schedule: String,

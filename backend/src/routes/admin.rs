@@ -1,7 +1,8 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
@@ -18,40 +19,50 @@ use crate::services::import::{
 use crate::services::import_scheduler::ImportScheduleStatus;
 use crate::services::publication;
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/admin/series", get(list_all_series))
-        .route(
-            "/api/v1/admin/series/{slug}/activate",
-            post(activate_series),
-        )
-        .route(
-            "/api/v1/admin/series/{slug}/deactivate",
-            post(deactivate_series),
-        )
-        .route("/api/v1/admin/adapters", get(list_adapters))
-        .route("/api/v1/admin/import", post(start_import))
-        .route("/api/v1/admin/import/schedule", get(import_schedule))
-        .route("/api/v1/admin/import/history", get(import_history))
-        .route("/api/v1/admin/import/{id}", get(get_import_job))
-        .route("/api/v1/admin/import/{id}/cancel", post(cancel_import))
-        .route("/api/v1/admin/import/{id}/retry", post(retry_import))
-        .route("/api/v1/admin/import/{id}/errors", get(get_import_errors))
-        .route(
-            "/api/v1/admin/import/{id}/review/summary",
-            get(get_import_review_summary),
-        )
-        .route(
-            "/api/v1/admin/import/{id}/review/items",
-            get(get_import_review_items),
-        )
-        .route("/api/v1/admin/import/{id}/activate", post(activate_import))
-        .route(
-            "/api/v1/admin/import/{id}/series-issues",
-            get(get_import_series_issues),
-        )
+    openapi_router().into()
 }
 
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(list_all_series))
+        .routes(utoipa_axum::routes!(activate_series))
+        .routes(utoipa_axum::routes!(deactivate_series))
+        .routes(utoipa_axum::routes!(list_adapters))
+        .routes(utoipa_axum::routes!(start_import))
+        .routes(utoipa_axum::routes!(import_schedule))
+        .routes(utoipa_axum::routes!(import_history))
+        .routes(utoipa_axum::routes!(get_import_job))
+        .routes(utoipa_axum::routes!(cancel_import))
+        .routes(utoipa_axum::routes!(retry_import))
+        .routes(utoipa_axum::routes!(get_import_errors))
+        .routes(utoipa_axum::routes!(get_import_review_summary))
+        .routes(utoipa_axum::routes!(get_import_review_items))
+        .routes(utoipa_axum::routes!(activate_import))
+        .routes(utoipa_axum::routes!(get_import_series_issues))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/import/schedule",
+    operation_id = "admin_import_schedule",
+    tag = "admin",
+    summary = "Import schedule",
+    description = "Import schedule. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = ImportScheduleStatus),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn import_schedule(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -64,6 +75,25 @@ async fn import_schedule(
     Ok(Json(status))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/series",
+    operation_id = "admin_list_all_series",
+    tag = "admin",
+    summary = "List all series",
+    description = "List all series. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = Vec<SeriesAdminResponse>),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_all_series(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -83,13 +113,34 @@ async fn list_all_series(
     Ok(Json(response))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = admin::SeriesAdminResponse)]
 struct SeriesAdminResponse {
     #[serde(flatten)]
     series: SeriesResponse,
     latest_import_job_id: Option<u32>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/series/{slug}/activate",
+    operation_id = "admin_activate_series",
+    tag = "admin",
+    summary = "Activate series",
+    description = "Compatibility operation: an inactive series returns review_required. Activate a reviewed import job instead. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("slug" = String, Path, description = "slug")),
+    responses(
+        (status = 200, description = "Successful operation", body = crate::models::user::MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn activate_series(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -111,6 +162,26 @@ async fn activate_series(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/series/{slug}/deactivate",
+    operation_id = "admin_deactivate_series",
+    tag = "admin",
+    summary = "Deactivate series",
+    description = "Deactivate series. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("slug" = String, Path, description = "slug")),
+    responses(
+        (status = 200, description = "Successful operation", body = crate::models::user::MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn deactivate_series(
     admin: AdminUser,
     State(state): State<AppState>,
@@ -126,7 +197,8 @@ async fn deactivate_series(
     Ok(Json(serde_json::json!({ "message": "Series deactivated" })))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = admin::AdapterInfo)]
 struct AdapterInfo {
     name: String,
     display_name: String,
@@ -134,6 +206,25 @@ struct AdapterInfo {
     source_key: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/adapters",
+    operation_id = "admin_list_adapters",
+    tag = "admin",
+    summary = "List adapters",
+    description = "List adapters. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = Vec<AdapterInfo>),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_adapters(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -154,7 +245,8 @@ async fn list_adapters(
     Ok(Json(adapters))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = admin::StartImportRequest)]
 struct StartImportRequest {
     adapter: String,
 }
@@ -188,6 +280,29 @@ struct ImportJobWithSlug {
     retry_of_job_id: Option<u32>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/import",
+    operation_id = "admin_start_import",
+    tag = "admin",
+    summary = "Start import",
+    description = "Start an asynchronous full synchronization. Only administrators may start imports; poll the returned job ID for progress. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    request_body = StartImportRequest,
+    responses(
+        (status = 202, description = "Successful operation", body = ImportJobResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn start_import(
     admin: AdminUser,
     State(state): State<AppState>,
@@ -204,6 +319,26 @@ async fn start_import(
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/import/{id}",
+    operation_id = "admin_get_import_job",
+    tag = "admin",
+    summary = "Get import job",
+    description = "Get import job. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = ImportJobResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_import_job(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -217,6 +352,27 @@ async fn get_import_job(
     Ok(Json(ImportJobResponse::from_job_with_slug(&job, slug)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/import/{id}/cancel",
+    operation_id = "admin_cancel_import",
+    tag = "admin",
+    summary = "Cancel import",
+    description = "Persist a cooperative cancellation request. Returns 202 while cancellation is pending, or 200 for an already terminal job. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = ImportJobResponse),
+        (status = 202, description = "Successful operation", body = ImportJobResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn cancel_import(
     admin: AdminUser,
     State(state): State<AppState>,
@@ -270,6 +426,26 @@ fn cancellation_status_after_noop(
     )))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/import/{id}/retry",
+    operation_id = "admin_retry_import",
+    tag = "admin",
+    summary = "Retry import",
+    description = "Create a new full scan linked to an interrupted, cancelled or failed job. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    responses(
+        (status = 202, description = "Successful operation", body = ImportJobResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn retry_import(
     admin: AdminUser,
     State(state): State<AppState>,
@@ -279,6 +455,26 @@ async fn retry_import(
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/import/{id}/errors",
+    operation_id = "admin_get_import_errors",
+    tag = "admin",
+    summary = "Get import errors",
+    description = "Get import errors. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1), PaginationParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedImportErrorResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_import_errors(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -303,7 +499,8 @@ async fn get_import_errors(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = admin::PaginatedImportErrorResponse)]
 struct PaginatedImportErrorResponse {
     data: Vec<ImportJobError>,
     page: u32,
@@ -311,6 +508,26 @@ struct PaginatedImportErrorResponse {
     total: u32,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/import/{id}/review/summary",
+    operation_id = "admin_get_import_review_summary",
+    tag = "admin",
+    summary = "Get import review summary",
+    description = "Get import review summary. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = ReviewSummary),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_import_review_summary(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -321,7 +538,9 @@ async fn get_import_review_summary(
     ))
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = admin::ReviewItemParams)]
+#[into_params(parameter_in = Query)]
 struct ReviewItemParams {
     #[serde(default = "default_page")]
     page: u32,
@@ -335,6 +554,26 @@ struct ReviewItemParams {
     sample: bool,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/import/{id}/review/items",
+    operation_id = "admin_get_import_review_items",
+    tag = "admin",
+    summary = "Get import review items",
+    description = "Get import review items. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1), ReviewItemParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedReviewItems),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_import_review_items(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -436,6 +675,30 @@ fn normalize_review_query(query: Option<String>) -> Result<Option<String>, AppEr
     Ok(query)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/import/{id}/activate",
+    operation_id = "admin_activate_import",
+    tag = "admin",
+    summary = "Activate import",
+    description = "Publish the latest complete reviewed import. Blocking findings prevent activation; non-blocking warnings require acknowledgement. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    request_body = ActivateImportRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = ActivationResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn activate_import(
     admin: AdminUser,
     State(state): State<AppState>,
@@ -457,7 +720,9 @@ async fn activate_import(
     Ok(Json(response))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = admin::PaginationParams)]
+#[into_params(parameter_in = Query)]
 struct PaginationParams {
     #[serde(default = "default_page")]
     page: u32,
@@ -474,6 +739,26 @@ const fn default_per_page() -> u32 {
 }
 
 /// Returns all issues for the series associated with this import job (not just issues from this specific import run).
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/import/{id}/series-issues",
+    operation_id = "admin_get_import_series_issues",
+    tag = "admin",
+    summary = "Get import series issues",
+    description = "Get import series issues. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1), PaginationParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedIssueResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_import_series_issues(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -500,7 +785,8 @@ async fn get_import_series_issues(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = admin::PaginatedIssueResponse)]
 struct PaginatedIssueResponse {
     data: Vec<IssueResponse>,
     page: u32,
@@ -508,6 +794,25 @@ struct PaginatedIssueResponse {
     total: u32,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/import/history",
+    operation_id = "admin_import_history",
+    tag = "admin",
+    summary = "Import history",
+    description = "Import history. Requires the Admin role.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = Vec<ImportJobResponse>),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn import_history(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -565,7 +870,7 @@ async fn resolve_series_slug(pool: &sqlx::MySqlPool, series_id: u32) -> Result<S
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -582,7 +887,7 @@ mod tests {
 
     const TEST_JWT_SECRET: &str = "admin-route-test-secret";
 
-    fn test_state() -> AppState {
+    pub(crate) fn test_state() -> AppState {
         let pool = MySqlPoolOptions::new()
             .connect_lazy("mysql://test:test@127.0.0.1:9/lilly")
             .unwrap();
@@ -623,6 +928,7 @@ mod tests {
 
     fn protected_routes() -> Vec<(Method, &'static str)> {
         vec![
+            (Method::GET, "/api/v1/admin/account-erasure-jobs"),
             (Method::GET, "/api/v1/admin/series"),
             (Method::POST, "/api/v1/admin/series/test/activate"),
             (Method::POST, "/api/v1/admin/series/test/deactivate"),
@@ -657,7 +963,10 @@ mod tests {
     #[tokio::test]
     async fn every_admin_route_rejects_anonymous_and_regular_users_before_the_handler() {
         for (method, uri) in protected_routes() {
-            let app = Router::new().merge(router()).with_state(test_state());
+            let app = Router::new()
+                .merge(router())
+                .merge(crate::routes::account_erasure::router())
+                .with_state(test_state());
             let anonymous = app
                 .clone()
                 .oneshot(request(method.clone(), uri, None))
@@ -684,7 +993,10 @@ mod tests {
 
     #[tokio::test]
     async fn administrator_reaches_a_protected_handler() {
-        let app = Router::new().merge(router()).with_state(test_state());
+        let app = Router::new()
+            .merge(router())
+            .merge(crate::routes::account_erasure::router())
+            .with_state(test_state());
         let response = app
             .oneshot(request(
                 Method::GET,

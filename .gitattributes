@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep this new migration's SQLx checksum stable across Windows/Linux checkouts.
+# Do not change historical migration line endings in existing databases.
+backend/migrations/20261031000001_preserve_source_metadata_spelling.sql text eol=lf
