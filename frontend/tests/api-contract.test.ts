@@ -103,19 +103,17 @@ describe('OpenAPI response validation', () => {
 		validate('/api/v1/photo', 'GET', 200, 'image/jpeg', '\xff\xd8');
 	});
 	it('does not expose private response data in diagnostics', () => {
-		expect(() =>
-			createContractValidator(contract)('/api/v1/entries/1', 'GET', 200, 'application/json', {
-				id: 'secret-token',
-				date: null
-			})
-		).toThrow(/mismatch/);
+		let thrown: unknown;
 		try {
 			createContractValidator(contract)('/api/v1/entries/1', 'GET', 200, 'application/json', {
 				id: 'secret-token',
 				date: null
 			});
 		} catch (error) {
-			expect(String(error)).not.toContain('secret-token');
+			thrown = error;
 		}
+		expect(thrown).toBeInstanceOf(Error);
+		expect(String(thrown)).toMatch(/mismatch/);
+		expect(String(thrown)).not.toContain('secret-token');
 	});
 });

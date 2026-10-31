@@ -193,6 +193,7 @@ impl JohnSinclairAdapter {
                 .to_string();
             let (part_number, part_total) =
                 parse_part_position(columns.get(4).copied().unwrap_or_default());
+            let date_text = columns.get(5).map(|value| strip_wiki_markup(value));
             let summary = IssueSummary {
                 issue_number: canonical_number,
                 page_title,
@@ -202,7 +203,7 @@ impl JohnSinclairAdapter {
                 part_number,
                 part_total,
                 published_at: crate::publication_date::parse(
-                    columns.get(5).copied(),
+                    date_text.as_deref(),
                     parse_german_date,
                 )?,
             };
@@ -963,6 +964,44 @@ mod tests {
     }
 
     #[test]
+    fn publication_dates_normalize_wiki_markup_in_overview_and_details() {
+        let expected = NaiveDate::from_ymd_opt(1978, 1, 17);
+        for value in [
+            "17.01.1978",
+            "[[17.01.1978]]",
+            "[[Publication date|17.01.1978]]",
+            "'''17.01.1978'''",
+            "''[[Publication date|17.01.1978]]''",
+            "  [[17.01.1978]]  ",
+        ] {
+            let overview = format!(
+                "|1 || [[JS 0001 - Example|Example]] || [[Author]] || Artist || || {value}"
+            );
+            let summary = JohnSinclairAdapter::parse_overview(&overview)
+                .unwrap()
+                .remove(0);
+            assert_eq!(summary.published_at, expected, "overview: {value}");
+            assert_eq!(
+                map_issue_details(summary.clone(), "").unwrap().published_at,
+                expected,
+                "overview fallback: {value}"
+            );
+            let without_fallback = IssueSummary {
+                published_at: None,
+                ..summary
+            };
+            let details = format!("|Erscheinungsdatum || {value}");
+            assert_eq!(
+                map_issue_details(without_fallback, &details)
+                    .unwrap()
+                    .published_at,
+                expected,
+                "details: {value}"
+            );
+        }
+    }
+
+    #[test]
     fn publication_dates_validate_overview_and_details_without_losing_the_fallback() {
         let overview =
             "|1 || [[JS 0001 - Example|Example]] || [[Author]] || Artist || || 17.01.1978";
@@ -973,27 +1012,47 @@ mod tests {
             map_issue_details(summary.clone(), "").unwrap().published_at,
             summary.published_at
         );
-        assert!(map_issue_details(summary, "|Erscheinungsdatum || 31.02.2024").is_err());
-        assert!(
-            JohnSinclairAdapter::parse_overview(&overview.replace("17.01.1978", "31.02.2024"))
-                .is_err()
-        );
-        for value in ["", "?", "??????", "unbekannt"] {
-            let summary =
+        for value in [
+            "31.02.2024",
+            "[[31.02.2024]]",
+            "[[Date|29.02.1982]]",
+            "'''invalid'''",
+        ] {
+            assert!(matches!(
+                map_issue_details(summary.clone(), &format!("|Erscheinungsdatum || {value}")),
+                Err(AdapterError::Parse(_))
+            ));
+            assert!(matches!(
+                JohnSinclairAdapter::parse_overview(&overview.replace("17.01.1978", value)),
+                Err(AdapterError::Parse(_))
+            ));
+        }
+        for value in [
+            "",
+            "?",
+            "??????",
+            "unbekannt",
+            "[[?]]",
+            "[[Date|unbekannt]]",
+            "''??????''",
+        ] {
+            let without_date =
                 JohnSinclairAdapter::parse_overview(&overview.replace("17.01.1978", value))
                     .unwrap()
                     .remove(0);
-            assert_eq!(map_issue_details(summary, "").unwrap().published_at, None);
+            assert_eq!(without_date.published_at, None, "overview: {value}");
+            assert_eq!(
+                map_issue_details(without_date, "").unwrap().published_at,
+                None
+            );
+            assert_eq!(
+                map_issue_details(summary.clone(), &format!("|Erscheinungsdatum || {value}"))
+                    .unwrap()
+                    .published_at,
+                summary.published_at,
+                "detail fallback: {value}"
+            );
         }
-        let summary = JohnSinclairAdapter::parse_overview(overview)
-            .unwrap()
-            .remove(0);
-        assert_eq!(
-            map_issue_details(summary.clone(), "|Erscheinungsdatum || ??????")
-                .unwrap()
-                .published_at,
-            summary.published_at
-        );
     }
 
     #[test]
