@@ -6,6 +6,7 @@
 pub mod adapters;
 mod cover_image;
 mod http;
+mod publication_date;
 
 use lilly_importer_core::{AdapterError, AdapterRegistry};
 

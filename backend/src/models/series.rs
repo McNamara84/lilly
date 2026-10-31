@@ -19,8 +19,9 @@ pub struct Series {
     pub updated_at: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[allow(dead_code)]
+#[schema(as = series::SeriesResponse)]
 pub struct SeriesResponse {
     pub id: u32,
     pub name: String,
@@ -60,8 +61,9 @@ pub struct Issue {
     pub created_at: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[allow(dead_code)]
+#[schema(as = series::IssueResponse)]
 pub struct IssueResponse {
     pub id: u32,
     pub series_id: u32,
@@ -111,8 +113,9 @@ pub struct ImportJob {
     pub retry_of_job_id: Option<u32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[allow(dead_code)]
+#[schema(as = series::ImportJobResponse)]
 pub struct ImportJobResponse {
     pub id: u32,
     pub series_id: u32,
@@ -120,6 +123,7 @@ pub struct ImportJobResponse {
     pub adapter_name: String,
     pub source_key: Option<String>,
     pub trigger_type: String,
+    #[schema(format = "local-date-time")]
     pub scheduled_for: Option<chrono::NaiveDateTime>,
     pub status: String,
     pub total_issues: u32,
@@ -131,16 +135,22 @@ pub struct ImportJobResponse {
     pub failed_issues: u32,
     pub error_message: Option<String>,
     pub started_by: Option<u32>,
+    #[schema(format = "local-date-time")]
     pub started_at: Option<chrono::NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub completed_at: Option<chrono::NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub created_at: chrono::NaiveDateTime,
+    #[schema(format = "local-date-time")]
     pub updated_at: chrono::NaiveDateTime,
+    #[schema(format = "local-date-time")]
     pub cancel_requested_at: Option<chrono::NaiveDateTime>,
     pub cancel_requested_by: Option<u32>,
     pub retry_of_job_id: Option<u32>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[schema(as = series::ImportJobError)]
 pub struct ImportJobError {
     pub id: u32,
     pub job_id: u32,
@@ -151,6 +161,7 @@ pub struct ImportJobError {
     pub severity: String,
     pub code: String,
     pub message: String,
+    #[schema(format = "local-date-time")]
     pub created_at: chrono::NaiveDateTime,
 }
 

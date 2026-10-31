@@ -44,6 +44,11 @@ url = "2.5.8"
 ipnet = "2.12.2"
 lilly-importer-core = { path = "../importer-core" }
 lilly-importer-adapters = { path = "../importer-adapters" }
+utoipa = { version = "6.0.0", features = ["axum_extras", "chrono"] }
+utoipa-axum = "0.3.0"
+utoipa-swagger-ui = { version = "10.0.2", default-features = false, features = ["axum", "vendored"] }
 
 [dev-dependencies]
+tokio = { version = "1.54.1", features = ["test-util"] }
+jsonschema = { version = "0.60.2", default-features = false }
 tower = { version = "0.5.3", features = ["util"] }

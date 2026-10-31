@@ -14,7 +14,8 @@ pub struct CollectionPhotoRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = media::CollectionPhotoResponse)]
 pub struct CollectionPhotoResponse {
     pub id: u32,
     pub content_url: String,
@@ -23,6 +24,7 @@ pub struct CollectionPhotoResponse {
     pub byte_size: u32,
     pub width: u32,
     pub height: u32,
+    #[schema(format = "local-date-time")]
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -41,7 +43,8 @@ impl From<&CollectionPhotoRow> for CollectionPhotoResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = media::PhotoPolicyResponse)]
 pub struct PhotoPolicyResponse {
     pub allowed_media_types: [&'static str; 3],
     pub max_upload_bytes: usize,

@@ -39,9 +39,23 @@ test('collection reloads offline and a merged create/edit syncs exactly once', a
 					() =>
 						new Promise<number>((resolve, reject) => {
 							const request = indexedDB.open('lilly-offline');
-							request.onerror = () => reject(request.error);
+							// This readiness probe must not create an empty database before the
+							// application's first open creates its object stores.
+							request.onupgradeneeded = () => {
+								request.transaction?.abort();
+								resolve(0);
+							};
+							request.onerror = () => {
+								if (request.error?.name === 'AbortError') resolve(0);
+								else reject(request.error);
+							};
 							request.onsuccess = () => {
 								const database = request.result;
+								if (!database.objectStoreNames.contains('issues')) {
+									database.close();
+									resolve(0);
+									return;
+								}
 								const transaction = database.transaction('issues', 'readonly');
 								const count = transaction.objectStore('issues').count();
 								count.onerror = () => reject(count.error);

@@ -403,7 +403,8 @@ pub async fn get_issue_persons(
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT p.name FROM persons p \
          JOIN issue_persons ip ON ip.person_id = p.id \
-         WHERE ip.issue_id = ? AND ip.role = ? ORDER BY p.name",
+         WHERE ip.issue_id = ? AND ip.role = ? \
+         ORDER BY p.name COLLATE utf8mb4_unicode_ci, p.name COLLATE utf8mb4_bin",
     )
     .bind(issue_id)
     .bind(role)
@@ -420,7 +421,8 @@ pub async fn get_issue_keywords(
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT k.name FROM keywords k \
          JOIN issue_keywords ik ON ik.keyword_id = k.id \
-         WHERE ik.issue_id = ? ORDER BY k.name",
+         WHERE ik.issue_id = ? \
+         ORDER BY k.name COLLATE utf8mb4_unicode_ci, k.name COLLATE utf8mb4_bin",
     )
     .bind(issue_id)
     .fetch_all(pool)
@@ -433,7 +435,8 @@ pub async fn get_issue_notes(pool: &MySqlPool, issue_id: u32) -> Result<Vec<Stri
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT n.text FROM notes n \
          JOIN issue_notes ino ON ino.note_id = n.id \
-         WHERE ino.issue_id = ? ORDER BY n.text",
+         WHERE ino.issue_id = ? \
+         ORDER BY n.text COLLATE utf8mb4_unicode_ci, n.text COLLATE utf8mb4_bin",
     )
     .bind(issue_id)
     .fetch_all(pool)
@@ -476,7 +479,8 @@ pub async fn build_issue_responses(
     let persons_query = format!(
         "SELECT ip.issue_id, p.name, ip.role FROM persons p \
          JOIN issue_persons ip ON ip.person_id = p.id \
-         WHERE ip.issue_id IN ({placeholders}) ORDER BY ip.issue_id, p.name"
+         WHERE ip.issue_id IN ({placeholders}) \
+         ORDER BY ip.issue_id, p.name COLLATE utf8mb4_unicode_ci, p.name COLLATE utf8mb4_bin"
     );
     let mut q = sqlx::query_as::<_, (u32, String, String)>(sqlx::AssertSqlSafe(persons_query));
     for id in &ids {
@@ -488,7 +492,8 @@ pub async fn build_issue_responses(
     let keywords_query = format!(
         "SELECT ik.issue_id, k.name FROM keywords k \
          JOIN issue_keywords ik ON ik.keyword_id = k.id \
-         WHERE ik.issue_id IN ({placeholders}) ORDER BY ik.issue_id, k.name"
+         WHERE ik.issue_id IN ({placeholders}) \
+         ORDER BY ik.issue_id, k.name COLLATE utf8mb4_unicode_ci, k.name COLLATE utf8mb4_bin"
     );
     let mut q = sqlx::query_as::<_, (u32, String)>(sqlx::AssertSqlSafe(keywords_query));
     for id in &ids {
@@ -500,7 +505,8 @@ pub async fn build_issue_responses(
     let notes_query = format!(
         "SELECT ino.issue_id, n.text FROM notes n \
          JOIN issue_notes ino ON ino.note_id = n.id \
-         WHERE ino.issue_id IN ({placeholders}) ORDER BY ino.issue_id, n.text"
+         WHERE ino.issue_id IN ({placeholders}) \
+         ORDER BY ino.issue_id, n.text COLLATE utf8mb4_unicode_ci, n.text COLLATE utf8mb4_bin"
     );
     let mut q = sqlx::query_as::<_, (u32, String)>(sqlx::AssertSqlSafe(notes_query));
     for id in &ids {
@@ -549,4 +555,91 @@ pub async fn build_issue_responses(
         .collect();
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn single_and_batch_metadata_sort_case_and_accent_variants_deterministically() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = MySqlPool::connect(&database_url).await.unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = crate::auth::oauth::random_urlsafe_token();
+        let series_id: u32 = sqlx::query("INSERT INTO series (name, slug) VALUES (?, ?)")
+            .bind(format!("Metadata sorting test {suffix}"))
+            .bind(format!("metadata-sorting-{suffix}"))
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_id()
+            .try_into()
+            .unwrap();
+        let expected = ["Alpha", "alpha", "Álpha", "zebra"].map(|name| format!("{name} {suffix}"));
+        let mut rows = Vec::new();
+        for (index, order) in [[3, 1, 2, 0], [2, 0, 3, 1]].into_iter().enumerate() {
+            let names = order.map(|index| expected[index].clone());
+            let issue_number = u32::try_from(index + 1).unwrap();
+            let issue_id = replace_issue_metadata(
+                &pool,
+                &IssueMetadataUpdate {
+                    series_id,
+                    issue_number,
+                    title: "Metadata sorting test",
+                    published_at: None,
+                    part_number: None,
+                    part_total: None,
+                    cycle: None,
+                    cover: CoverUpdate::Keep,
+                    source_key: "metadata-sorting-test",
+                    source_record_id: &format!("{suffix}-{issue_number}"),
+                    source_wiki_url: None,
+                    authors: &names,
+                    cover_artists: &names,
+                    keywords: &names,
+                    notes: &names,
+                },
+            )
+            .await
+            .unwrap();
+            rows.push(find_issue_by_id(&pool, issue_id).await.unwrap().unwrap());
+        }
+        // Batch loading must preserve the caller's issue order as well as relation order.
+        rows.reverse();
+        let batch = build_issue_responses(&pool, &rows).await.unwrap();
+        let mut single = Vec::new();
+        for row in &rows {
+            single.push(build_issue_response(&pool, row).await.unwrap());
+        }
+
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for value in &expected {
+            for query in [
+                "DELETE FROM persons WHERE name = ?",
+                "DELETE FROM keywords WHERE name = ?",
+                "DELETE FROM notes WHERE text = ?",
+            ] {
+                sqlx::query(query).bind(value).execute(&pool).await.unwrap();
+            }
+        }
+
+        for responses in [&single, &batch] {
+            assert_eq!(responses.len(), rows.len());
+            for (row, response) in rows.iter().zip(responses) {
+                assert_eq!(response.id, row.id);
+                assert_eq!(response.authors, expected);
+                assert_eq!(response.cover_artists, expected);
+                assert_eq!(response.keywords, expected);
+                assert_eq!(response.notes, expected);
+            }
+        }
+    }
 }

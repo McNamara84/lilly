@@ -38,6 +38,10 @@ pub enum AdapterError {
     #[error("Rate limited")]
     RateLimited,
 
+    /// A source explicitly reported a temporary outage in an otherwise valid response.
+    #[error("Source temporarily unavailable: {0}")]
+    TemporarilyUnavailable(String),
+
     #[error("Adapter '{0}' is already registered")]
     DuplicateAdapter(String),
 

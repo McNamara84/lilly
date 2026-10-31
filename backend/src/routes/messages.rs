@@ -1,7 +1,8 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, patch};
-use axum::{Json, Router};
 
 use super::AppState;
 use crate::auth::middleware::AuthUser;
@@ -12,19 +13,37 @@ use crate::models::messaging::{
 };
 use crate::services::messaging;
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/me/messages", get(list_threads))
-        .route(
-            "/api/v1/me/messages/{thread_id}",
-            get(list_messages).post(send_message),
-        )
-        .route(
-            "/api/v1/me/messages/{thread_id}/read",
-            patch(mark_thread_read),
-        )
+    openapi_router().into()
 }
 
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(list_threads))
+        .routes(utoipa_axum::routes!(list_messages, send_message))
+        .routes(utoipa_axum::routes!(mark_thread_read))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/messages",
+    operation_id = "messages_list_threads",
+    tag = "messages",
+    summary = "List threads",
+    description = "List threads. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(ThreadPageParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedThreadsResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_threads(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -35,6 +54,25 @@ async fn list_threads(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/messages/{thread_id}",
+    operation_id = "messages_list_messages",
+    tag = "messages",
+    summary = "List messages",
+    description = "List messages. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("thread_id" = u32, Path, description = "thread id", minimum = 1), MessagePageParams),
+    responses(
+        (status = 200, description = "Successful operation", body = MessageListResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_messages(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -46,6 +84,31 @@ async fn list_messages(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/messages/{thread_id}",
+    operation_id = "messages_send_message",
+    tag = "messages",
+    summary = "Send message",
+    description = "Send a message within a trade in which the caller participates. A repeated client message ID returns the existing message with 200 instead of 201. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("thread_id" = u32, Path, description = "thread id", minimum = 1)),
+    request_body = SendMessageRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 201, description = "Successful operation", body = MessageResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn send_message(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -64,6 +127,29 @@ async fn send_message(
     ))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/me/messages/{thread_id}/read",
+    operation_id = "messages_mark_thread_read",
+    tag = "messages",
+    summary = "Mark thread read",
+    description = "Mark thread read. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("thread_id" = u32, Path, description = "thread id", minimum = 1)),
+    request_body = MarkThreadReadRequest,
+    responses(
+        (status = 204, description = "Successful operation"),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn mark_thread_read(
     State(state): State<AppState>,
     auth: AuthUser,

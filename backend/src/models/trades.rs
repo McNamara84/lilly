@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 pub const MAX_BULK_WANTED_ISSUES: usize = 100;
 pub const MAX_TRADE_LIST_SEARCH_LENGTH: usize = 200;
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = trades::TradeListQueryParams)]
+#[into_params(parameter_in = Query)]
 pub struct TradeListQueryParams {
     pub series_slug: Option<String>,
     pub q: Option<String>,
@@ -89,7 +91,8 @@ pub struct TradeListEntryRow {
     pub owner_display_name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::TradeOfferResponse)]
 pub struct TradeOfferResponse {
     pub entry_id: u32,
     pub issue_id: u32,
@@ -135,7 +138,8 @@ impl TryFrom<&TradeListEntryRow> for TradeOfferResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::WantedEntryResponse)]
 pub struct WantedEntryResponse {
     pub entry_id: u32,
     pub issue_id: u32,
@@ -170,7 +174,8 @@ impl From<&TradeListEntryRow> for WantedEntryResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::PaginatedTradeOffersResponse)]
 pub struct PaginatedTradeOffersResponse {
     pub data: Vec<TradeOfferResponse>,
     pub page: u32,
@@ -178,7 +183,8 @@ pub struct PaginatedTradeOffersResponse {
     pub total: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::PaginatedWantedResponse)]
 pub struct PaginatedWantedResponse {
     pub data: Vec<WantedEntryResponse>,
     pub page: u32,
@@ -199,7 +205,8 @@ pub struct WantedCandidateRow {
     pub wanted_entry_id: Option<u32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::WantedCandidateResponse)]
 pub struct WantedCandidateResponse {
     pub issue_id: u32,
     pub issue_number: u32,
@@ -230,7 +237,8 @@ impl From<&WantedCandidateRow> for WantedCandidateResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::PaginatedWantedCandidatesResponse)]
 pub struct PaginatedWantedCandidatesResponse {
     pub data: Vec<WantedCandidateResponse>,
     pub page: u32,
@@ -238,7 +246,8 @@ pub struct PaginatedWantedCandidatesResponse {
     pub total: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = trades::BulkWantedRequest)]
 pub struct BulkWantedRequest {
     pub issue_ids: Vec<u32>,
 }
@@ -262,19 +271,22 @@ pub fn normalize_bulk_issue_ids(issue_ids: &[u32]) -> Result<Vec<u32>, String> {
     Ok(normalized)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::WantedMutationResult)]
 pub struct WantedMutationResult {
     pub issue_id: u32,
     pub entry_id: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trades::WantedRejection)]
 pub struct WantedRejection {
     pub issue_id: u32,
     pub reason: &'static str,
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Default, utoipa::ToSchema)]
+#[schema(as = trades::BulkWantedResponse)]
 pub struct BulkWantedResponse {
     pub created: Vec<WantedMutationResult>,
     pub unchanged: Vec<WantedMutationResult>,

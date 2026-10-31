@@ -1,7 +1,8 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::ReviewItem)]
 pub struct ReviewItem {
     pub id: u32,
     pub job_id: u32,
@@ -24,10 +25,12 @@ pub struct ReviewItem {
     pub cover_status: String,
     pub cover_reason: Option<String>,
     pub cover_local_path: Option<String>,
+    #[schema(format = "local-date-time")]
     pub processed_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::PaginatedReviewItems)]
 pub struct PaginatedReviewItems {
     pub items: Vec<ReviewItem>,
     pub total: u32,
@@ -35,7 +38,8 @@ pub struct PaginatedReviewItems {
     pub per_page: u32,
 }
 
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::ReviewOutcomeCounts)]
 pub struct ReviewOutcomeCounts {
     pub total: u32,
     pub not_processed: u32,
@@ -46,20 +50,23 @@ pub struct ReviewOutcomeCounts {
     pub failed: u32,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::EligibilityReason)]
 pub struct EligibilityReason {
     pub code: String,
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::ActivationEligibility)]
 pub struct ActivationEligibility {
     pub eligible: bool,
     pub requires_acknowledgement: bool,
     pub reasons: Vec<EligibilityReason>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::ReferenceCheck)]
 pub struct ReferenceCheck {
     pub issue_number: u32,
     pub expected_title: String,
@@ -69,7 +76,8 @@ pub struct ReferenceCheck {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::PublicationEvent)]
 pub struct PublicationEvent {
     pub id: u32,
     pub series_id: u32,
@@ -79,10 +87,12 @@ pub struct PublicationEvent {
     pub decision: Option<String>,
     pub warning_count: u32,
     pub blocking_count: u32,
+    #[schema(format = "local-date-time")]
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::ReviewSummary)]
 pub struct ReviewSummary {
     pub job_id: u32,
     pub series_id: u32,
@@ -99,13 +109,15 @@ pub struct ReviewSummary {
     pub last_publication_event: Option<PublicationEvent>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::ActivateImportRequest)]
 pub struct ActivateImportRequest {
     #[serde(default)]
     pub acknowledge_warnings: bool,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[schema(as = import_review::ActivationResponse)]
 pub struct ActivationResponse {
     pub series_id: u32,
     pub active: bool,

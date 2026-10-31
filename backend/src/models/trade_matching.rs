@@ -5,7 +5,9 @@ use crate::models::profile::avatar_content_url;
 
 pub const MAX_PROPOSAL_ENTRIES_PER_DIRECTION: usize = 100;
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = trade_matching::PageParams)]
+#[into_params(parameter_in = Query)]
 pub struct PageParams {
     #[serde(default = "default_page")]
     pub page: u32,
@@ -37,7 +39,9 @@ impl PageParams {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = trade_matching::TradePageParams)]
+#[into_params(parameter_in = Query)]
 pub struct TradePageParams {
     #[serde(default)]
     pub scope: Option<String>,
@@ -137,7 +141,8 @@ pub struct MatchItemViewRow {
     pub condition_grade: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::TradePartnerResponse)]
 pub struct TradePartnerResponse {
     pub id: Option<u32>,
     pub display_name: String,
@@ -162,7 +167,8 @@ impl From<&MatchListRow> for TradePartnerResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::MatchIssueResponse)]
 pub struct MatchIssueResponse {
     pub entry_id: u32,
     pub wanted_entry_id: u32,
@@ -201,11 +207,13 @@ impl From<&MatchItemViewRow> for MatchIssueResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::TradeMatchResponse)]
 pub struct TradeMatchResponse {
     pub id: u32,
     pub status: String,
     pub revision: u32,
+    #[schema(format = "local-date-time")]
     pub changed_at: NaiveDateTime,
     pub partner: TradePartnerResponse,
     pub my_offers: Vec<MatchIssueResponse>,
@@ -215,7 +223,8 @@ pub struct TradeMatchResponse {
     pub open_trade_status: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::PaginatedMatchesResponse)]
 pub struct PaginatedMatchesResponse {
     pub data: Vec<TradeMatchResponse>,
     pub page: u32,
@@ -223,7 +232,8 @@ pub struct PaginatedMatchesResponse {
     pub total: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::CreateTradeProposalRequest)]
 pub struct CreateTradeProposalRequest {
     pub offered_entry_ids: Vec<u32>,
     pub requested_entry_ids: Vec<u32>,
@@ -320,7 +330,8 @@ pub struct TradeItemViewRow {
     pub condition_grade_snapshot: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::TradeItemResponse)]
 pub struct TradeItemResponse {
     pub entry_id: Option<u32>,
     pub wanted_entry_id: Option<u32>,
@@ -359,7 +370,8 @@ impl From<&TradeItemViewRow> for TradeItemResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::TradeResponse)]
 pub struct TradeResponse {
     pub id: u32,
     pub match_id: Option<u32>,
@@ -370,16 +382,24 @@ pub struct TradeResponse {
     pub partner_offers: Vec<TradeItemResponse>,
     pub thread_id: u32,
     pub cancellation_reason: Option<String>,
+    #[schema(format = "local-date-time")]
     pub proposed_at: NaiveDateTime,
+    #[schema(format = "local-date-time")]
     pub accepted_at: Option<NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub cancelled_at: Option<NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub completed_at: Option<NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub my_completion_confirmed_at: Option<NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub partner_completion_confirmed_at: Option<NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = trade_matching::PaginatedTradesResponse)]
 pub struct PaginatedTradesResponse {
     pub data: Vec<TradeResponse>,
     pub page: u32,

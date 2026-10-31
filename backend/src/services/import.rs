@@ -16,7 +16,9 @@ use crate::error::AppError;
 use crate::models::series::{ImportJobResponse, Issue, IssueResponse};
 use crate::routes::AppStateInner;
 
-const MAX_FETCH_ATTEMPTS: u8 = 3;
+// Live sources sometimes return intermittent DB connection failures even with HTTP 200.
+// Back off rather than repeatedly hitting an unavailable wiki in a short burst.
+const MAX_FETCH_ATTEMPTS: u8 = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ImportTrigger {
@@ -221,19 +223,27 @@ struct CanonicalIssue {
     source_url: String,
 }
 
+fn canonical_relation_values(values: &[String]) -> Vec<String> {
+    // MariaDB's locale-aware collation differs from Rust's lexical ordering.
+    // Relation order is not metadata; normalize both sides before comparing.
+    let mut values = values.to_vec();
+    values.sort();
+    values
+}
+
 impl From<&IssueData> for CanonicalIssue {
     fn from(issue: &IssueData) -> Self {
         Self {
             issue_number: issue.issue_number,
             title: issue.title.clone(),
-            authors: issue.authors.clone(),
+            authors: canonical_relation_values(&issue.authors),
             published_at: issue.published_at,
             part_number: issue.part_number,
             part_total: issue.part_total,
             cycle: issue.cycle.clone(),
-            cover_artists: issue.cover_artists.clone(),
-            keywords: issue.keywords.clone(),
-            notes: issue.notes.clone(),
+            cover_artists: canonical_relation_values(&issue.cover_artists),
+            keywords: canonical_relation_values(&issue.keywords),
+            notes: canonical_relation_values(&issue.notes),
             source_key: issue.source.source_key.clone(),
             source_record_id: issue.source.source_record_id.clone(),
             source_url: issue.source.source_url.clone(),
@@ -246,14 +256,14 @@ impl From<&IssueResponse> for CanonicalIssue {
         Self {
             issue_number: issue.issue_number,
             title: issue.title.clone(),
-            authors: issue.authors.clone(),
+            authors: canonical_relation_values(&issue.authors),
             published_at: issue.published_at,
             part_number: issue.part_number,
             part_total: issue.part_total,
             cycle: issue.cycle.clone(),
-            cover_artists: issue.cover_artists.clone(),
-            keywords: issue.keywords.clone(),
-            notes: issue.notes.clone(),
+            cover_artists: canonical_relation_values(&issue.cover_artists),
+            keywords: canonical_relation_values(&issue.keywords),
+            notes: canonical_relation_values(&issue.notes),
             source_key: issue.source_key.clone().unwrap_or_default(),
             source_record_id: issue.source_record_id.clone().unwrap_or_default(),
             source_url: issue.source_wiki_url.clone().unwrap_or_default(),
@@ -1030,7 +1040,7 @@ async fn fetch_issue_details_with_retry(
         match adapter.fetch_issue_details(issue_number).await {
             Ok(details) => return Ok(details),
             Err(error) if attempt < MAX_FETCH_ATTEMPTS && is_transient(&error) => {
-                tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt))).await;
+                tokio::time::sleep(fetch_retry_delay(attempt)).await;
                 attempt += 1;
             }
             Err(error) => return Err(error),
@@ -1051,7 +1061,7 @@ async fn fetch_issue_list_with_retry(adapter: &dyn WikiAdapter) -> Result<Vec<u3
                     error = %error,
                     "Transient issue list fetch failed; retrying"
                 );
-                tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt))).await;
+                tokio::time::sleep(fetch_retry_delay(attempt)).await;
                 attempt += 1;
             }
             Err(error) => return Err(error),
@@ -1061,11 +1071,33 @@ async fn fetch_issue_list_with_retry(adapter: &dyn WikiAdapter) -> Result<Vec<u3
 
 fn is_transient(error: &AdapterError) -> bool {
     match error {
-        AdapterError::RateLimited => true,
+        AdapterError::RateLimited | AdapterError::TemporarilyUnavailable(_) => true,
         AdapterError::Network(error) => error
             .status()
             .is_none_or(|status| matches!(status.as_u16(), 408 | 429 | 500..=599)),
         _ => false,
+    }
+}
+
+fn fetch_retry_delay(attempt: u8) -> Duration {
+    Duration::from_secs(1_u64 << attempt.saturating_sub(1).min(2))
+}
+
+async fn fetch_cover_with_retry(
+    adapter: &dyn WikiAdapter,
+    issue_number: u32,
+    known_source_sha1: Option<&str>,
+) -> Result<CoverFetchResult, AdapterError> {
+    let mut attempt = 1u8;
+    loop {
+        match adapter.fetch_cover(issue_number, known_source_sha1).await {
+            Ok(cover) => return Ok(cover),
+            Err(error) if attempt < MAX_FETCH_ATTEMPTS && is_transient(&error) => {
+                tokio::time::sleep(fetch_retry_delay(attempt)).await;
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
     }
 }
 
@@ -1089,42 +1121,43 @@ async fn fetch_and_store_cover(
     } else {
         None
     };
-    let (cover, identity) = match adapter.fetch_cover(issue_number, known_source_sha1).await {
-        Ok(CoverFetchResult::Missing) => {
-            return CoverImportResult::missing(
-                existing,
-                "The source does not provide an unambiguous canonical cover".to_string(),
-            );
-        }
-        Ok(CoverFetchResult::Unchanged(identity)) => {
-            if existing
-                .and_then(|cover| cover.local_path.as_ref())
-                .is_none()
-            {
-                return CoverImportResult::warning_keep(
-                    "fetch_failed",
-                    "The adapter reported an unchanged cover without a stored local file"
-                        .to_string(),
+    let (cover, identity) =
+        match fetch_cover_with_retry(adapter, issue_number, known_source_sha1).await {
+            Ok(CoverFetchResult::Missing) => {
+                return CoverImportResult::missing(
                     existing,
+                    "The source does not provide an unambiguous canonical cover".to_string(),
                 );
             }
-            return CoverImportResult::reused(existing, Some(identity));
-        }
-        Ok(CoverFetchResult::Downloaded { data, identity }) => (data, identity),
-        Err(error) => {
-            let message = format!("Failed to fetch cover: {error}");
-            let status = if matches!(error, AdapterError::Parse(_)) {
-                "invalid"
-            } else if message.to_ascii_lowercase().contains("permission")
-                || message.to_ascii_lowercase().contains("copyright")
-            {
-                "not_permitted"
-            } else {
-                "fetch_failed"
-            };
-            return CoverImportResult::warning_keep(status, message, existing);
-        }
-    };
+            Ok(CoverFetchResult::Unchanged(identity)) => {
+                if existing
+                    .and_then(|cover| cover.local_path.as_ref())
+                    .is_none()
+                {
+                    return CoverImportResult::warning_keep(
+                        "fetch_failed",
+                        "The adapter reported an unchanged cover without a stored local file"
+                            .to_string(),
+                        existing,
+                    );
+                }
+                return CoverImportResult::reused(existing, Some(identity));
+            }
+            Ok(CoverFetchResult::Downloaded { data, identity }) => (data, identity),
+            Err(error) => {
+                let message = format!("Failed to fetch cover: {error}");
+                let status = if matches!(error, AdapterError::Parse(_)) {
+                    "invalid"
+                } else if message.to_ascii_lowercase().contains("permission")
+                    || message.to_ascii_lowercase().contains("copyright")
+                {
+                    "not_permitted"
+                } else {
+                    "fetch_failed"
+                };
+                return CoverImportResult::warning_keep(status, message, existing);
+            }
+        };
 
     store_downloaded_cover(
         cover,
@@ -1554,6 +1587,7 @@ mod tests {
 
     enum ListFailureKind {
         RateLimited,
+        TemporarilyUnavailable,
         NonTransient,
         HttpServer(String),
     }
@@ -1614,6 +1648,9 @@ mod tests {
 
             match &self.failure_kind {
                 ListFailureKind::RateLimited => Err(AdapterError::RateLimited),
+                ListFailureKind::TemporarilyUnavailable => Err(
+                    AdapterError::TemporarilyUnavailable("temporary database outage".to_string()),
+                ),
                 ListFailureKind::NonTransient => {
                     Err(AdapterError::Parse("invalid issue list".to_string()))
                 }
@@ -1622,19 +1659,19 @@ mod tests {
         }
 
         async fn fetch_issue_details(&self, issue_number: u32) -> Result<IssueData, AdapterError> {
-            Err(AdapterError::Other(format!(
-                "unexpected issue fetch for {issue_number}"
-            )))
+            self.fetch_issue_list().await?;
+            let mut issue = issue_data("Retry test issue");
+            issue.issue_number = issue_number;
+            Ok(issue)
         }
 
         async fn fetch_cover(
             &self,
-            issue_number: u32,
+            _issue_number: u32,
             _known_source_sha1: Option<&str>,
         ) -> Result<CoverFetchResult, AdapterError> {
-            Err(AdapterError::Other(format!(
-                "unexpected cover fetch for {issue_number}"
-            )))
+            self.fetch_issue_list().await?;
+            Ok(CoverFetchResult::Missing)
         }
     }
 
@@ -1850,9 +1887,27 @@ mod tests {
             part_number: None,
             part_total: None,
             cycle: Some("Test Cycle".to_string()),
-            cover_artists: vec!["Test Artist".to_string()],
-            keywords: vec!["Test Keyword".to_string()],
-            notes: vec!["Test Note".to_string()],
+            cover_artists: vec![
+                "Test Artist".to_string(),
+                "Test\u{a0}Artist".to_string(),
+                "test artist".to_string(),
+            ],
+            keywords: vec![
+                "Zebra keyword".to_string(),
+                "apple keyword".to_string(),
+                "Ärger keyword".to_string(),
+                "PHOBOS".to_string(),
+                "Phobos".to_string(),
+                "Pilatre".to_string(),
+                "Pilâtre".to_string(),
+            ],
+            notes: vec![
+                "Zebra note".to_string(),
+                "apple note".to_string(),
+                "Ärger note".to_string(),
+                "Umlaufendes Cover".to_string(),
+                "umlaufendes Cover".to_string(),
+            ],
             source: SourceReference {
                 source_key: SYNC_DESCRIPTOR.source_key.to_string(),
                 source_record_id: format!("Issue:{issue_number}"),
@@ -1965,6 +2020,39 @@ mod tests {
         assert!(normalize_source_numbers(&[]).is_err());
         assert!(normalize_source_numbers(&[0, 1]).is_err());
         assert!(normalize_source_numbers(&[1, 1]).is_err());
+    }
+
+    #[test]
+    fn comparison_ignores_database_collation_order_but_detects_changed_values() {
+        let mut incoming = issue_data("Original");
+        let mut persisted = issue_response("Original");
+        let lexical = vec![
+            "Zebra".to_string(),
+            "apple".to_string(),
+            "Ärger".to_string(),
+        ];
+        let collation = vec![
+            "apple".to_string(),
+            "Ärger".to_string(),
+            "Zebra".to_string(),
+        ];
+        incoming.authors = lexical.clone();
+        incoming.cover_artists = lexical.clone();
+        incoming.keywords = lexical.clone();
+        incoming.notes = lexical;
+        persisted.authors = collation.clone();
+        persisted.cover_artists = collation.clone();
+        persisted.keywords = collation.clone();
+        persisted.notes = collation;
+        assert_eq!(
+            classify_issue(&incoming, Some(&persisted)),
+            IssueOutcome::Unchanged
+        );
+        persisted.notes[0] = "Changed note".to_string();
+        assert_eq!(
+            classify_issue(&incoming, Some(&persisted)),
+            IssueOutcome::Updated
+        );
     }
 
     #[test]
@@ -2103,7 +2191,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn issue_list_retry_recovers_within_the_attempt_limit() {
         for transient_failures in 1..usize::from(MAX_FETCH_ATTEMPTS) {
             let adapter = ListRetryAdapter::new(transient_failures, ListFailureKind::RateLimited);
@@ -2117,8 +2205,50 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn issue_list_retry_returns_the_last_transient_error_after_three_attempts() {
+    #[tokio::test(start_paused = true)]
+    async fn temporary_source_outages_are_retried_for_lists_and_covers_with_a_finite_limit() {
+        let maximum = usize::from(MAX_FETCH_ATTEMPTS);
+        for failures in 0..=maximum {
+            let list = ListRetryAdapter::new(failures, ListFailureKind::TemporarilyUnavailable);
+            assert_eq!(
+                fetch_issue_list_with_retry(&list).await.is_ok(),
+                failures < maximum
+            );
+            assert_eq!(list.calls(), (failures + 1).min(maximum));
+            let details = ListRetryAdapter::new(failures, ListFailureKind::TemporarilyUnavailable);
+            assert_eq!(
+                fetch_issue_details_with_retry(&details, 1).await.is_ok(),
+                failures < maximum
+            );
+            assert_eq!(details.calls(), (failures + 1).min(maximum));
+            let cover = ListRetryAdapter::new(failures, ListFailureKind::TemporarilyUnavailable);
+            assert_eq!(
+                fetch_cover_with_retry(&cover, 1, Some("known-sha1"))
+                    .await
+                    .is_ok(),
+                failures < maximum
+            );
+            assert_eq!(cover.calls(), (failures + 1).min(maximum));
+        }
+        let permanent = ListRetryAdapter::new(usize::MAX, ListFailureKind::NonTransient);
+        assert!(matches!(
+            fetch_cover_with_retry(&permanent, 1, None).await,
+            Err(AdapterError::Parse(_))
+        ));
+        assert_eq!(permanent.calls(), 1);
+    }
+
+    #[test]
+    fn retry_backoff_grows_and_is_capped() {
+        assert_eq!(fetch_retry_delay(1), Duration::from_secs(1));
+        assert_eq!(fetch_retry_delay(2), Duration::from_secs(2));
+        for attempt in 3..=MAX_FETCH_ATTEMPTS {
+            assert_eq!(fetch_retry_delay(attempt), Duration::from_secs(4));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn issue_list_retry_returns_the_last_transient_error_after_the_attempt_limit() {
         let adapter = ListRetryAdapter::new(usize::MAX, ListFailureKind::RateLimited);
 
         let error = fetch_issue_list_with_retry(&adapter)
@@ -2139,7 +2269,7 @@ mod tests {
             .expect("HTTP 500 responses must be retried as network errors");
 
         assert_eq!(issue_numbers, vec![3, 1, 2]);
-        assert_eq!(adapter.calls(), usize::from(MAX_FETCH_ATTEMPTS));
+        assert_eq!(adapter.calls(), 3);
         server.await.expect("fixture server must stop cleanly");
     }
 
@@ -2525,6 +2655,12 @@ mod tests {
                 past,
             )),
         );
+        source_issues
+            .get_mut(&1)
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .published_at = None;
         source_issues.insert(2, Ok(sync_issue(2, "Future Title", Vec::new(), future)));
         source_issues.insert(3, Ok(sync_issue(3, "Invalid Title", Vec::new(), past)));
         let scenario = Arc::new(RwLock::new(SyncScenario {
@@ -2592,6 +2728,13 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
+        let initial_date: Option<NaiveDate> =
+            sqlx::query_scalar("SELECT published_at FROM issues WHERE id = ?")
+                .bind(original_issue_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(initial_date, None);
         let collection_entry_id: u32 = sqlx::query(
             "INSERT INTO collection_entries \
              (user_id, issue_id, copy_number, condition_grade, status, notes) \
@@ -2616,7 +2759,7 @@ mod tests {
                 Ok(sync_issue(
                     1,
                     "Changed Old Title",
-                    vec!["Original Author".to_string()],
+                    vec!["ORIGINAL Author".to_string()],
                     past,
                 )),
             );
@@ -2645,6 +2788,13 @@ mod tests {
         assert_eq!(second.unchanged_issues, 0);
         assert_eq!(second.skipped_issues, 1);
         assert_eq!(second.failed_issues, 0);
+        let backfilled_date: Option<NaiveDate> =
+            sqlx::query_scalar("SELECT published_at FROM issues WHERE id = ?")
+                .bind(original_issue_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(backfilled_date, Some(past));
         assert_eq!(
             issues::count_issues_by_series(&pool, second.series_id)
                 .await
@@ -2686,6 +2836,40 @@ mod tests {
         assert_eq!(third.unchanged_issues, 2);
         assert_eq!(third.skipped_issues, 1);
         assert_eq!(third.failed_issues, 0);
+        let persisted = issues::find_issue_by_id(&pool, original_issue_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let persisted = issues::build_issue_response(&pool, &persisted)
+            .await
+            .unwrap();
+        let expected = scenario
+            .read()
+            .unwrap()
+            .issues
+            .get(&1)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            CanonicalIssue::from(&persisted),
+            CanonicalIssue::from(&expected)
+        );
+        // Exact dictionary identities must not make user searches case-sensitive.
+        for filter in ["author", "q"] {
+            let params =
+                serde_json::from_value::<crate::models::collection::CollectionQueryParams>(
+                    serde_json::json!({filter: "original author"}),
+                )
+                .unwrap();
+            assert_eq!(
+                crate::db::collection::count_collection_entries(&pool, user_id, &params)
+                    .await
+                    .unwrap(),
+                1
+            );
+        }
         let recovered_cover: (Option<String>,) = sqlx::query_as(
             "SELECT cover_local_path FROM issues WHERE series_id = ? AND issue_number = 1",
         )

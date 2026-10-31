@@ -27,28 +27,44 @@ pub struct CollectionEntry {
 // Request DTOs
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Serialize, Validate)]
+#[derive(Debug, Clone, Deserialize, Serialize, Validate, utoipa::ToSchema)]
+#[schema(as = collection::AddCollectionEntryRequest)]
 pub struct AddCollectionEntryRequest {
+    /// Identity of a visible, imported issue.
     pub issue_id: u32,
+    /// Required for owned/duplicate entries; optional for wanted entries.
+    #[schema(pattern = "^Z[0-4]$")]
     pub condition_grade: Option<String>,
+    /// Defaults to owned.
+    #[schema(pattern = "^(owned|duplicate|wanted)$")]
     pub status: Option<String>,
+    #[schema(max_length = 10000)]
     pub notes: Option<String>,
+    /// Omit to allocate the next available copy number.
     pub copy_number: Option<u8>,
+    /// Trimmed; at most 120 characters after trimming. Blank clears the label.
     pub edition_label: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Validate)]
+#[derive(Debug, Clone, Deserialize, Serialize, Validate, utoipa::ToSchema)]
+#[schema(as = collection::UpdateCollectionEntryRequest)]
 pub struct UpdateCollectionEntryRequest {
+    #[schema(pattern = "^Z[0-4]$")]
     pub condition_grade: Option<String>,
+    #[schema(pattern = "^(owned|duplicate|wanted)$")]
     pub status: Option<String>,
+    #[schema(max_length = 10000)]
     pub notes: Option<String>,
+    /// Trimmed; at most 120 characters after trimming. Blank clears the label.
     pub edition_label: Option<String>,
+    /// Optimistic concurrency revision; a stale revision produces a conflict.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_revision: Option<u64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(tag = "operation", rename_all = "snake_case")]
+#[schema(as = collection::CollectionSyncMutation)]
 pub enum CollectionSyncMutation {
     Create {
         mutation_id: String,
@@ -77,12 +93,16 @@ impl CollectionSyncMutation {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = collection::CollectionSyncRequest)]
 pub struct CollectionSyncRequest {
+    #[schema(max_items = 100)]
     pub mutations: Vec<CollectionSyncMutation>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = collection::CollectionQueryParams)]
+#[into_params(parameter_in = Query)]
 pub struct CollectionQueryParams {
     pub series_slug: Option<String>,
     pub issue_id: Option<u32>,
@@ -113,7 +133,8 @@ const fn default_per_page() -> u32 {
 // Response DTOs
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[schema(as = collection::CollectionEntryResponse)]
 pub struct CollectionEntryResponse {
     pub id: u32,
     pub issue_id: u32,
@@ -130,11 +151,14 @@ pub struct CollectionEntryResponse {
     pub status: String,
     pub notes: Option<String>,
     pub revision: Option<u64>,
+    #[schema(format = "local-date-time")]
     pub created_at: Option<chrono::NaiveDateTime>,
+    #[schema(format = "local-date-time")]
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = collection::OfflineCollectionSnapshotResponse)]
 pub struct OfflineCollectionSnapshotResponse {
     pub schema_version: u8,
     pub snapshot_version: String,
@@ -145,8 +169,9 @@ pub struct OfflineCollectionSnapshotResponse {
     pub collection_entries: Vec<CollectionEntryResponse>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
+#[schema(as = collection::CollectionSyncStatus)]
 pub enum CollectionSyncStatus {
     Applied,
     AlreadyApplied,
@@ -154,7 +179,8 @@ pub enum CollectionSyncStatus {
     Rejected,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[schema(as = collection::CollectionSyncResult)]
 pub struct CollectionSyncResult {
     pub mutation_id: String,
     pub status: CollectionSyncStatus,
@@ -163,12 +189,14 @@ pub struct CollectionSyncResult {
     pub code: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = collection::CollectionSyncResponse)]
 pub struct CollectionSyncResponse {
     pub results: Vec<CollectionSyncResult>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = collection::PaginatedCollectionResponse)]
 pub struct PaginatedCollectionResponse {
     pub data: Vec<CollectionEntryResponse>,
     pub page: u32,
@@ -176,7 +204,8 @@ pub struct PaginatedCollectionResponse {
     pub total: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = collection::CollectionStatsResponse)]
 pub struct CollectionStatsResponse {
     pub total_issues: Option<u32>,
     pub total_physical_owned: u32,
@@ -187,7 +216,8 @@ pub struct CollectionStatsResponse {
     pub series_stats: Vec<SeriesStatsEntry>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = collection::SeriesStatsEntry)]
 pub struct SeriesStatsEntry {
     pub series_id: u32,
     pub series_name: String,

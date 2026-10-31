@@ -1,10 +1,11 @@
 use std::str::FromStr;
 
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use axum_extra::extract::CookieJar;
 use chrono::Utc;
 
@@ -28,23 +29,38 @@ use crate::services::rate_limit::{PeerAddress, RateLimitPolicy};
 
 const LINK_CSRF_HEADER: &str = "x-csrf-token";
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/auth/options", get(options))
-        .route("/api/v1/auth/oauth/{provider}/start", post(start_oauth))
-        .route(
-            "/api/v1/auth/oauth/{provider}/callback",
-            get(oauth_callback),
-        )
-        .route(
-            "/api/v1/auth/oauth/link",
-            get(pending_link_status)
-                .post(confirm_link)
-                .delete(cancel_link),
-        )
-        .route("/api/v1/me/privacy-consents", get(list_privacy_consents))
+    openapi_router().into()
 }
 
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(options))
+        .routes(utoipa_axum::routes!(start_oauth))
+        .routes(utoipa_axum::routes!(oauth_callback))
+        .routes(utoipa_axum::routes!(
+            pending_link_status,
+            confirm_link,
+            cancel_link
+        ))
+        .routes(utoipa_axum::routes!(list_privacy_consents))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/options",
+    operation_id = "oauth_options",
+    tag = "oauth",
+    summary = "Options",
+    description = "Options.",
+    security(),
+    responses(
+        (status = 200, description = "Successful operation", body = AuthOptionsResponse),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+    )
+)]
 async fn options(State(state): State<AppState>) -> Json<AuthOptionsResponse> {
     Json(AuthOptionsResponse {
         privacy_policy: PrivacyPolicyOption {
@@ -59,6 +75,29 @@ async fn options(State(state): State<AppState>) -> Json<AuthOptionsResponse> {
 }
 
 #[allow(clippy::too_many_lines)]
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/oauth/{provider}/start",
+    operation_id = "oauth_start_oauth",
+    tag = "oauth",
+    summary = "Start oauth",
+    description = "Begin Google or GitHub Authorization Code + PKCE. Linking and reauthentication use the existing authenticated account; registration requires versioned privacy consent.",
+    security((), ("accessCookie" = [])),
+    params(("provider" = String, Path, description = "google or github", pattern = "^(google|github)$")),
+    request_body = OAuthStartRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = OAuthStartResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required for reauthentication", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn start_oauth(
     State(state): State<AppState>,
     Path(provider): Path<String>,
@@ -171,6 +210,22 @@ async fn start_oauth(
 }
 
 #[allow(clippy::too_many_lines)]
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/oauth/{provider}/callback",
+    operation_id = "oauth_oauth_callback",
+    tag = "oauth",
+    summary = "Oauth callback",
+    description = "Validate provider callback, state and browser-binding cookie. Redirect to the appropriate application page; provider tokens are never returned.",
+    security(("oauthFlowCookie" = [])),
+    params(("provider" = String, Path, description = "google or github", pattern = "^(google|github)$"), OAuthCallbackQuery),
+    responses(
+        (status = 303, description = "Redirect to application", headers(("Location" = String, description = "Application redirect target"))),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn oauth_callback(
     State(state): State<AppState>,
     Path(provider): Path<String>,
@@ -334,6 +389,20 @@ async fn oauth_callback(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/oauth/link",
+    operation_id = "oauth_pending_link_status",
+    tag = "oauth",
+    summary = "Pending link status",
+    description = "Read pending OAuth linking information using the short-lived oauth_link cookie.",
+    security(("oauthLinkCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = PendingOAuthLinkResponse),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn pending_link_status(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -362,6 +431,24 @@ async fn pending_link_status(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/oauth/link",
+    operation_id = "oauth_confirm_link",
+    tag = "oauth",
+    summary = "Confirm link",
+    description = "Explicitly link the pending provider identity to the signed-in account. Requires the oauth_link cookie and x-csrf-token from the pending-link response. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [], "oauthLinkCookie" = [])),
+    params(("x-csrf-token" = String, Header, description = "Confirmation token returned by pending_link_status")),
+    responses(
+        (status = 200, description = "Successful operation", body = MessageResponse),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn confirm_link(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -415,6 +502,21 @@ async fn confirm_link(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/auth/oauth/link",
+    operation_id = "oauth_cancel_link",
+    tag = "oauth",
+    summary = "Cancel link",
+    description = "Cancel the pending provider link and clear its short-lived cookie.",
+    security(("oauthLinkCookie" = [])),
+    responses(
+        (status = 204, description = "Successful operation"),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn cancel_link(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -434,6 +536,22 @@ async fn cancel_link(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/privacy-consents",
+    operation_id = "oauth_list_privacy_consents",
+    tag = "oauth",
+    summary = "List privacy consents",
+    description = "List privacy consents. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = Vec<PrivacyConsentResponse>),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_privacy_consents(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -604,6 +722,7 @@ fn mask_email(email: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use axum::routing::{get, post};
     use std::collections::HashMap as TestHashMap;
     use std::path::PathBuf;
     use std::sync::Arc;

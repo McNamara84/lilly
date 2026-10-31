@@ -1,6 +1,7 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
-use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
@@ -8,14 +9,22 @@ use crate::db::{issues, series};
 use crate::error::AppError;
 use crate::models::series::{IssueResponse, SeriesResponse};
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/series", get(list_series))
-        .route("/api/v1/series/{slug}/issues", get(list_series_issues))
-        .route("/api/v1/issues/{id}", get(get_issue))
+    openapi_router().into()
 }
 
-#[derive(Debug, Deserialize)]
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(list_series))
+        .routes(utoipa_axum::routes!(list_series_issues))
+        .routes(utoipa_axum::routes!(get_issue))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = series::PaginationParams)]
+#[into_params(parameter_in = Query)]
 struct PaginationParams {
     #[serde(default = "default_page")]
     page: u32,
@@ -31,7 +40,8 @@ const fn default_per_page() -> u32 {
     50
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = series::PaginatedResponse)]
 struct PaginatedResponse<T: Serialize> {
     data: Vec<T>,
     page: u32,
@@ -39,12 +49,43 @@ struct PaginatedResponse<T: Serialize> {
     total: u32,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/series",
+    operation_id = "series_list_series",
+    tag = "series",
+    summary = "List series",
+    description = "List series.",
+    security(),
+    responses(
+        (status = 200, description = "Successful operation", body = Vec<SeriesResponse>),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_series(State(state): State<AppState>) -> Result<Json<Vec<SeriesResponse>>, AppError> {
     let all_series = series::find_all_series(&state.inner.pool, true).await?;
     let response: Vec<SeriesResponse> = all_series.iter().map(SeriesResponse::from).collect();
     Ok(Json(response))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/series/{slug}/issues",
+    operation_id = "series_list_series_issues",
+    tag = "series",
+    summary = "List series issues",
+    description = "List series issues.",
+    security(),
+    params(("slug" = String, Path, description = "slug"), PaginationParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedResponse<IssueResponse>),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_series_issues(
     State(state): State<AppState>,
     Path(slug): Path<String>,
@@ -73,6 +114,23 @@ async fn list_series_issues(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/issues/{id}",
+    operation_id = "series_get_issue",
+    tag = "series",
+    summary = "Get issue",
+    description = "Get issue.",
+    security(),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = IssueResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_issue(
     State(state): State<AppState>,
     Path(id): Path<u32>,

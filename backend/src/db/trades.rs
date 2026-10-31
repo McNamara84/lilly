@@ -31,7 +31,7 @@ pub async fn find_trade_list_entries(
                     SELECT 1 FROM issue_persons ip
                     JOIN persons p ON p.id = ip.person_id
                     WHERE ip.issue_id = i.id AND ip.role = 'author'
-                      AND p.name LIKE CONCAT('%', ?, '%')
+                      AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%')
                 ))
          ORDER BY s.name ASC, i.issue_number ASC, ce.copy_number ASC, ce.id ASC
          LIMIT ? OFFSET ?",
@@ -69,7 +69,7 @@ pub async fn count_trade_list_entries(
                     SELECT 1 FROM issue_persons ip
                     JOIN persons p ON p.id = ip.person_id
                     WHERE ip.issue_id = i.id AND ip.role = 'author'
-                      AND p.name LIKE CONCAT('%', ?, '%')
+                      AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%')
                 ))",
     )
     .bind(user_id)
@@ -114,7 +114,7 @@ pub async fn find_wanted_candidates(
                     SELECT 1 FROM issue_persons ip
                     JOIN persons p ON p.id = ip.person_id
                     WHERE ip.issue_id = i.id AND ip.role = 'author'
-                      AND p.name LIKE CONCAT('%', ?, '%')
+                      AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%')
                 ))
          ORDER BY i.issue_number ASC, i.id ASC
          LIMIT ? OFFSET ?",
@@ -153,7 +153,7 @@ pub async fn count_wanted_candidates(
                     SELECT 1 FROM issue_persons ip
                     JOIN persons p ON p.id = ip.person_id
                     WHERE ip.issue_id = i.id AND ip.role = 'author'
-                      AND p.name LIKE CONCAT('%', ?, '%')
+                      AND p.name COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', ?, '%')
                 ))",
     )
     .bind(series_slug)
@@ -441,21 +441,23 @@ mod tests {
         let inactive_issue_id = insert_issue(&pool, inactive_series_id, 1, "Inactive Target").await;
 
         let author_id: u32 = sqlx::query("INSERT INTO persons (name) VALUES (?)")
-            .bind(format!("Author {suffix}"))
+            .bind(format!("ÁUTHOR {suffix}"))
             .execute(&pool)
             .await
             .expect("author fixture must be inserted")
             .last_insert_id()
             .try_into()
             .expect("author fixture ID must fit into u32");
-        sqlx::query(
-            "INSERT INTO issue_persons (issue_id, person_id, role) VALUES (?, ?, 'author')",
-        )
-        .bind(offer_issue_id)
-        .bind(author_id)
-        .execute(&pool)
-        .await
-        .expect("author relation fixture must be inserted");
+        for issue_id in [offer_issue_id, missing_issue_id] {
+            sqlx::query(
+                "INSERT INTO issue_persons (issue_id, person_id, role) VALUES (?, ?, 'author')",
+            )
+            .bind(issue_id)
+            .bind(author_id)
+            .execute(&pool)
+            .await
+            .expect("author relation fixture must be inserted");
+        }
 
         let offer_entry_id = insert_collection_entry(
             &pool,
@@ -500,16 +502,33 @@ mod tests {
         );
 
         let author_search = TradeListQueryParams {
-            q: Some(format!("Author {suffix}")),
+            series_slug: Some(format!("trade-test-{suffix}")),
+            q: Some(format!("author {suffix}")),
             page: 1,
             per_page: 50,
-            ..TradeListQueryParams::default()
         };
         assert_eq!(
             find_trade_list_entries(&pool, first_user_id, "duplicate", &author_search)
                 .await
                 .expect("offers must be searchable by author")
                 .len(),
+            1
+        );
+        assert_eq!(
+            count_trade_list_entries(&pool, first_user_id, "duplicate", &author_search)
+                .await
+                .expect("filtered offer count must ignore case and accents"),
+            1
+        );
+        let author_candidates = find_wanted_candidates(&pool, first_user_id, &author_search)
+            .await
+            .expect("wanted candidates must be searchable regardless of case and accents");
+        assert_eq!(author_candidates.len(), 1);
+        assert_eq!(author_candidates[0].issue_id, missing_issue_id);
+        assert_eq!(
+            count_wanted_candidates(&pool, first_user_id, &author_search)
+                .await
+                .expect("filtered candidate count must ignore case and accents"),
             1
         );
 

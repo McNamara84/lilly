@@ -18,9 +18,17 @@ pub(crate) fn validate_mediawiki_response(json: &serde_json::Value) -> Result<()
     let info = error["info"]
         .as_str()
         .map_or_else(|| error.to_string(), ToString::to_string);
-    Err(AdapterError::Parse(format!(
-        "MediaWiki API error '{code}': {info}"
-    )))
+    let message = format!("MediaWiki API error '{code}': {info}");
+    // Some MediaWiki installations return HTTP 200 for temporary database outages.
+    // Keep this allowlist narrow: malformed input and unknown errors are not retried.
+    if matches!(
+        code,
+        "internal_api_error_DBConnectionError" | "maxlag" | "readonly" | "ratelimited"
+    ) {
+        Err(AdapterError::TemporarilyUnavailable(message))
+    } else {
+        Err(AdapterError::Parse(message))
+    }
 }
 
 #[cfg(test)]
@@ -48,5 +56,28 @@ mod tests {
         assert!(
             validate_mediawiki_response(&serde_json::json!({ "query": { "pages": [] } })).is_ok()
         );
+    }
+
+    #[test]
+    fn classifies_only_known_temporary_source_failures_as_retryable() {
+        for code in [
+            "internal_api_error_DBConnectionError",
+            "maxlag",
+            "readonly",
+            "ratelimited",
+        ] {
+            assert!(matches!(
+                validate_mediawiki_response(
+                    &serde_json::json!({"error": {"code": code, "info": "temporary"}})
+                ),
+                Err(AdapterError::TemporarilyUnavailable(_))
+            ));
+        }
+        for code in ["badvalue", "missingtitle", "internal_api_error_Unknown", ""] {
+            assert!(matches!(
+                validate_mediawiki_response(&serde_json::json!({"error": {"code": code}})),
+                Err(AdapterError::Parse(_))
+            ));
+        }
     }
 }

@@ -6,7 +6,9 @@ use crate::models::profile::avatar_content_url;
 
 pub const MAX_MESSAGE_LENGTH: usize = 4_000;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = messaging::MessagePageParams)]
+#[into_params(parameter_in = Query)]
 pub struct MessagePageParams {
     pub before_id: Option<u32>,
     #[serde(default = "default_message_limit")]
@@ -23,9 +25,15 @@ impl MessagePageParams {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = messaging::SendMessageRequest)]
 pub struct SendMessageRequest {
+    /// UUID-shaped idempotency key; repeat sends with this key do not create duplicates.
+    #[schema(
+        pattern = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    )]
     pub client_message_id: String,
+    /// Trimmed; requires 1 to 4000 Unicode characters after trimming.
     pub content: String,
 }
 
@@ -57,7 +65,8 @@ fn is_uuid_shape(value: &str) -> bool {
             .all(|(index, byte)| [8, 13, 18, 23].contains(&index) || byte.is_ascii_hexdigit())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = messaging::MarkThreadReadRequest)]
 pub struct MarkThreadReadRequest {
     pub through_message_id: u32,
 }
@@ -74,13 +83,16 @@ pub struct MessageRecord {
     pub read_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = messaging::MessageResponse)]
 pub struct MessageResponse {
     pub id: u32,
     pub thread_id: u32,
     pub sender_id: Option<u32>,
     pub content: String,
+    #[schema(format = "local-date-time")]
     pub created_at: NaiveDateTime,
+    #[schema(format = "local-date-time")]
     pub read_at: Option<NaiveDateTime>,
     pub is_mine: bool,
 }
@@ -99,7 +111,8 @@ impl MessageResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = messaging::MessageListResponse)]
 pub struct MessageListResponse {
     pub data: Vec<MessageResponse>,
     pub next_before_id: Option<u32>,
@@ -121,15 +134,18 @@ pub struct ThreadListRow {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = messaging::ThreadSummaryResponse)]
 pub struct ThreadSummaryResponse {
     pub id: u32,
     pub trade_id: u32,
     pub trade_status: String,
     pub partner: TradePartnerResponse,
     pub last_message: Option<String>,
+    #[schema(format = "local-date-time")]
     pub last_message_at: Option<NaiveDateTime>,
     pub unread_count: u32,
+    #[schema(format = "local-date-time")]
     pub updated_at: NaiveDateTime,
 }
 
@@ -164,7 +180,8 @@ impl From<&ThreadListRow> for ThreadSummaryResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = messaging::PaginatedThreadsResponse)]
 pub struct PaginatedThreadsResponse {
     pub data: Vec<ThreadSummaryResponse>,
     pub page: u32,

@@ -1,9 +1,10 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::Response;
-use axum::routing::{get, patch, post};
-use axum::{Json, Router};
 
 use super::AppState;
 use crate::auth::middleware::{AuthUser, OptionalAuthUser};
@@ -16,36 +17,49 @@ use crate::models::profile::{
 };
 use crate::services::media::{StagedPhoto, process_deletion_key, process_photo};
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/api/v1/me/profile",
-            get(get_own_profile).patch(update_own_profile),
-        )
-        .route(
-            "/api/v1/me/profile/visibility",
-            patch(update_own_visibility),
-        )
-        .route(
-            "/api/v1/me/profile/avatar",
-            post(upload_avatar)
-                .delete(delete_avatar)
-                .layer(DefaultBodyLimit::max(
-                    super::media::HARD_MULTIPART_REQUEST_LIMIT,
-                )),
-        )
-        .route("/api/v1/users/{user_id}/profile", get(get_public_profile))
-        .route("/api/v1/users/{user_id}/avatar", get(avatar_content))
-        .route(
-            "/api/v1/users/{user_id}/collection",
-            get(get_public_collection),
-        )
-        .route(
-            "/api/v1/users/{user_id}/collection/stats",
-            get(get_public_collection_stats),
-        )
+    openapi_router().into()
 }
 
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    let mut avatar = utoipa_axum::routes!(upload_avatar, delete_avatar);
+    avatar.2 = avatar.2.layer(DefaultBodyLimit::max(
+        super::media::HARD_MULTIPART_REQUEST_LIMIT,
+    ));
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(get_own_profile, update_own_profile))
+        .routes(utoipa_axum::routes!(update_own_visibility))
+        .routes(avatar)
+        .routes(utoipa_axum::routes!(get_public_profile))
+        .routes(utoipa_axum::routes!(avatar_content))
+        .routes(utoipa_axum::routes!(get_public_collection))
+        .routes(utoipa_axum::routes!(get_public_collection_stats))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/me/profile",
+    operation_id = "profiles_update_own_profile",
+    tag = "profiles",
+    summary = "Update own profile",
+    description = "Update own profile. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body = UpdateProfileRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = OwnProfileResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn update_own_profile(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -66,6 +80,23 @@ async fn update_own_profile(
     get_own_profile(State(state), auth).await
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/profile",
+    operation_id = "profiles_get_own_profile",
+    tag = "profiles",
+    summary = "Get own profile",
+    description = "Get own profile. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = OwnProfileResponse),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_own_profile(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -76,6 +107,28 @@ async fn get_own_profile(
     Ok(Json(profile.into()))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/me/profile/visibility",
+    operation_id = "profiles_update_own_visibility",
+    tag = "profiles",
+    summary = "Update own visibility",
+    description = "Update own visibility. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body = UpdateVisibilityRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = VisibilityResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn update_own_visibility(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -99,6 +152,23 @@ async fn update_own_visibility(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{user_id}/profile",
+    operation_id = "profiles_get_public_profile",
+    tag = "profiles",
+    summary = "Get public profile",
+    description = "Return public identity only. Private, deleted and missing profiles return the same 404 response.",
+    security(),
+    params(("user_id" = u32, Path, description = "user id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = PublicProfileResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_public_profile(
     State(state): State<AppState>,
     Path(user_id): Path<u32>,
@@ -109,6 +179,26 @@ async fn get_public_profile(
     Ok(Json(profile.into()))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/profile/avatar",
+    operation_id = "profiles_upload_avatar",
+    tag = "profiles",
+    summary = "Upload avatar",
+    description = "Upload avatar. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body(content = crate::openapi::PhotoUpload, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "Successful operation", body = OwnProfileResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn upload_avatar(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -171,6 +261,23 @@ async fn persist_avatar(
     Ok(())
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/me/profile/avatar",
+    operation_id = "profiles_delete_avatar",
+    tag = "profiles",
+    summary = "Delete avatar",
+    description = "Delete avatar. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 204, description = "Successful operation"),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn delete_avatar(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -194,6 +301,23 @@ async fn delete_avatar(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{user_id}/avatar",
+    operation_id = "profiles_avatar_content",
+    tag = "profiles",
+    summary = "Avatar content",
+    description = "Return the normalized JPEG for the owner or a publicly visible profile. Hidden or missing avatars return 404.",
+    security((), ("accessCookie" = [])),
+    params(("user_id" = u32, Path, description = "user id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", content_type = "image/jpeg", body = crate::openapi::BinaryImage),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn avatar_content(
     State(state): State<AppState>,
     OptionalAuthUser(auth): OptionalAuthUser,
@@ -225,6 +349,23 @@ async fn avatar_content(
         .map_err(|error| AppError::InternalError(error.into()))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{user_id}/collection",
+    operation_id = "profiles_get_public_collection",
+    tag = "profiles",
+    summary = "Get public collection",
+    description = "Browse a public collection with pagination. Notes follow collection visibility; email and authentication data are never included.",
+    security(),
+    params(("user_id" = u32, Path, description = "user id", minimum = 1), CollectionQueryParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedPublicCollectionResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_public_collection(
     State(state): State<AppState>,
     Path(user_id): Path<u32>,
@@ -271,6 +412,23 @@ async fn get_public_collection(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{user_id}/collection/stats",
+    operation_id = "profiles_get_public_collection_stats",
+    tag = "profiles",
+    summary = "Get public collection stats",
+    description = "Get public collection stats.",
+    security(),
+    params(("user_id" = u32, Path, description = "user id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = CollectionStatsResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_public_collection_stats(
     State(state): State<AppState>,
     Path(user_id): Path<u32>,

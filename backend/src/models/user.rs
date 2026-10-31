@@ -39,15 +39,19 @@ impl User {
     }
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, utoipa::ToSchema)]
+#[schema(as = user::LoginRequest)]
 pub struct LoginRequest {
     #[validate(email(message = "Invalid email format"))]
+    #[schema(format = Email)]
     pub email: String,
     #[validate(length(min = 1, max = 128, message = "Password must be 1–128 characters"))]
+    #[schema(min_length = 1, max_length = 128)]
     pub password: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = user::LoginResponse)]
 pub struct LoginResponse {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,26 +63,33 @@ pub struct LoginResponse {
     pub scheduled_for: Option<chrono::NaiveDateTime>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, utoipa::ToSchema)]
+#[schema(as = user::RegisterRequest)]
 pub struct RegisterRequest {
     #[validate(length(min = 2, max = 100, message = "Display name must be 2–100 characters"))]
+    #[schema(min_length = 2, max_length = 100)]
     pub display_name: String,
     #[validate(email(message = "Invalid email format"))]
+    #[schema(format = Email)]
     pub email: String,
     #[validate(length(min = 8, max = 128, message = "Password must be 8–128 characters"))]
+    #[schema(min_length = 8, max_length = 128)]
     pub password: String,
     pub password_confirmation: String,
     pub privacy_consent: bool,
     #[validate(length(min = 1, max = 64, message = "Privacy policy version is required"))]
+    #[schema(min_length = 1, max_length = 64)]
     pub privacy_policy_version: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = user::RegisterResponse)]
 pub struct RegisterResponse {
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = user::MeResponse)]
 pub struct MeResponse {
     pub id: u32,
     pub email: String,
@@ -87,39 +98,50 @@ pub struct MeResponse {
     pub role: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = user::MessageResponse)]
 pub struct MessageResponse {
     pub message: String,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, utoipa::ToSchema)]
+#[schema(as = user::ResendVerificationRequest)]
 pub struct ResendVerificationRequest {
     #[validate(email(message = "Invalid email format"))]
+    #[schema(format = Email)]
     pub email: String,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, utoipa::ToSchema)]
+#[schema(as = user::PasswordResetRequest)]
 pub struct PasswordResetRequest {
     #[validate(email(message = "Invalid email format"))]
+    #[schema(format = Email)]
     pub email: String,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, utoipa::ToSchema)]
+#[schema(as = user::PasswordResetConfirmRequest)]
 pub struct PasswordResetConfirmRequest {
     #[validate(length(min = 43, max = 128, message = "Reset token is invalid"))]
+    #[schema(min_length = 43, max_length = 128)]
     pub token: String,
     #[validate(length(min = 8, max = 128, message = "Password must be 8–128 characters"))]
+    #[schema(min_length = 8, max_length = 128)]
     pub password: String,
     pub password_confirmation: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = user::VerifyQuery)]
+#[into_params(parameter_in = Query)]
 pub struct VerifyQuery {
     pub token: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[allow(dead_code)]
+#[schema(as = user::ErrorResponse)]
 pub struct ErrorResponse {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]

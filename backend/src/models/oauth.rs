@@ -38,8 +38,9 @@ impl FromStr for OAuthProvider {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
+#[schema(as = oauth::OAuthIntent)]
 pub enum OAuthIntent {
     Login,
     Register,
@@ -70,7 +71,8 @@ impl FromStr for OAuthIntent {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = oauth::OAuthStartRequest)]
 pub struct OAuthStartRequest {
     pub intent: OAuthIntent,
     #[serde(default)]
@@ -78,30 +80,36 @@ pub struct OAuthStartRequest {
     pub privacy_policy_version: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = oauth::OAuthStartResponse)]
 pub struct OAuthStartResponse {
     pub authorization_url: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = oauth::AuthOptionsResponse)]
 pub struct AuthOptionsResponse {
     pub privacy_policy: PrivacyPolicyOption,
     pub oauth: OAuthAvailability,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = oauth::PrivacyPolicyOption)]
 pub struct PrivacyPolicyOption {
     pub version: String,
     pub url: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = oauth::OAuthAvailability)]
 pub struct OAuthAvailability {
     pub google: bool,
     pub github: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[schema(as = oauth::OAuthCallbackQuery)]
+#[into_params(parameter_in = Query)]
 pub struct OAuthCallbackQuery {
     pub code: Option<String>,
     pub state: Option<String>,
@@ -137,7 +145,8 @@ pub struct PendingOAuthLinkRow {
     pub expires_at: NaiveDateTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = oauth::PendingOAuthLinkResponse)]
 pub struct PendingOAuthLinkResponse {
     pub pending: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -145,14 +154,17 @@ pub struct PendingOAuthLinkResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub masked_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(format = "local-date-time")]
     pub expires_at: Option<NaiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confirmation_token: Option<String>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[schema(as = oauth::PrivacyConsentResponse)]
 pub struct PrivacyConsentResponse {
     pub policy_version: String,
+    #[schema(format = "local-date-time")]
     pub consented_at: NaiveDateTime,
     pub registration_method: String,
 }

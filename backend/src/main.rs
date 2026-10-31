@@ -5,26 +5,27 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use axum::{Router, middleware};
 use sqlx::mysql::MySqlPoolOptions;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
-use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
 use crate::models::user::normalize_email;
 use crate::services::admin_roles::{PromotionResult, RoleChangeMethod};
 
+mod api;
 mod auth;
 mod config;
 mod db;
 mod error;
 mod models;
+mod openapi;
 mod routes;
 mod services;
 
 #[derive(Debug, PartialEq, Eq)]
 enum StartupCommand {
     Serve,
+    ExportOpenApi,
     PromoteAdmin { email: String },
     ReplayErasureLedger,
 }
@@ -39,6 +40,7 @@ fn parse_startup_command(args: impl IntoIterator<Item = String>) -> Result<Start
     let args = args.into_iter().collect::<Vec<_>>();
     match args.as_slice() {
         [] => Ok(StartupCommand::Serve),
+        [openapi, export] if openapi == "openapi" && export == "export" => Ok(StartupCommand::ExportOpenApi),
         [admin, promote, email_flag, email]
             if admin == "admin" && promote == "promote" && email_flag == "--email" =>
         {
@@ -50,7 +52,7 @@ fn parse_startup_command(args: impl IntoIterator<Item = String>) -> Result<Start
             Ok(StartupCommand::ReplayErasureLedger)
         }
         _ => Err(
-            "Usage: lilly-backend [admin promote --email user@example.org | privacy replay-erasure-ledger]"
+            "Usage: lilly-backend [admin promote --email user@example.org | privacy replay-erasure-ledger | openapi export]"
                 .to_string(),
         ),
     }
@@ -69,6 +71,13 @@ async fn main() {
         eprintln!("{message}");
         std::process::exit(EXIT_INVALID_INPUT);
     });
+    if command == StartupCommand::ExportOpenApi {
+        print!(
+            "{}",
+            openapi::export().expect("OpenAPI serialization must succeed")
+        );
+        return;
+    }
     if let StartupCommand::PromoteAdmin { email } = &command {
         let exit_code = run_admin_promotion(email).await;
         std::process::exit(exit_code);
@@ -195,36 +204,7 @@ async fn main() {
     .expect("Invalid import scheduler configuration");
     services::account_erasure::spawn_worker(app_state.inner.clone());
 
-    let rate_limited_api = Router::new()
-        .merge(routes::auth::router())
-        .merge(routes::account_erasure::router())
-        .merge(routes::oauth::router())
-        .merge(routes::series::router())
-        .merge(routes::collection::router())
-        .merge(routes::profiles::router())
-        .merge(routes::trades::router())
-        .merge(routes::messages::router())
-        .merge(routes::media::router())
-        .merge(routes::notifications::router())
-        .merge(routes::admin::router())
-        .layer(middleware::from_fn_with_state(
-            app_state.clone(),
-            services::rate_limit::enforce_general_api_rate_limit,
-        ))
-        .layer(middleware::from_fn_with_state(
-            app_state.clone(),
-            services::browser_security::enforce_same_origin,
-        ));
-
-    let app = Router::new()
-        .merge(routes::health::router())
-        .merge(rate_limited_api)
-        .with_state(app_state)
-        .layer(middleware::from_fn(
-            services::browser_security::add_security_headers,
-        ))
-        .layer(TraceLayer::new_for_http())
-        .layer(cors_layer());
+    let app = api::application(app_state, config.api_docs_enabled);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.backend_port));
     tracing::info!("Backend listening on {}", addr);
@@ -395,6 +375,14 @@ mod tests {
         assert_eq!(
             parse_startup_command(Vec::new()).unwrap(),
             StartupCommand::Serve
+        );
+    }
+
+    #[test]
+    fn startup_command_exports_openapi_without_server_configuration() {
+        assert_eq!(
+            parse_startup_command(["openapi".to_string(), "export".to_string()]).unwrap(),
+            StartupCommand::ExportOpenApi
         );
     }
 

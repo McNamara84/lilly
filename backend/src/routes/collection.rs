@@ -1,7 +1,8 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, patch, post};
-use axum::{Json, Router};
 use sha2::{Digest, Sha256};
 
 use super::AppState;
@@ -19,28 +20,44 @@ use crate::models::collection::{
 };
 use crate::services::trade_matching;
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/me/collection", get(list_collection))
-        .route("/api/v1/me/collection", post(add_to_collection))
-        .route(
-            "/api/v1/me/collection/offline-snapshot",
-            get(offline_snapshot),
-        )
-        .route("/api/v1/me/collection/sync", post(sync_collection))
-        .route("/api/v1/me/collection/{id}", patch(update_entry))
-        .route("/api/v1/me/collection/{id}", delete(delete_entry))
-        .route(
-            "/api/v1/me/collection/by-issue/{issue_id}",
-            get(get_entry_by_issue),
-        )
-        .route("/api/v1/me/collection/stats", get(collection_stats))
+    openapi_router().into()
+}
+
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(list_collection, add_to_collection))
+        .routes(utoipa_axum::routes!(offline_snapshot))
+        .routes(utoipa_axum::routes!(sync_collection))
+        .routes(utoipa_axum::routes!(update_entry, delete_entry))
+        .routes(utoipa_axum::routes!(get_entry_by_issue))
+        .routes(utoipa_axum::routes!(collection_stats))
 }
 
 // ---------------------------------------------------------------------------
 // GET /api/v1/me/collection
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/collection",
+    operation_id = "collection_list_collection",
+    tag = "collection",
+    summary = "List collection",
+    description = "List collection. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(CollectionQueryParams),
+    responses(
+        (status = 200, description = "Successful operation", body = PaginatedCollectionResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_collection(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -110,6 +127,22 @@ async fn list_collection(
 // GET /api/v1/me/collection/offline-snapshot
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/collection/offline-snapshot",
+    operation_id = "collection_offline_snapshot",
+    tag = "collection",
+    summary = "Offline snapshot",
+    description = "Read the authenticated user's collection and active catalogue as an offline snapshot. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = OfflineCollectionSnapshotResponse),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn offline_snapshot(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -152,6 +185,27 @@ async fn offline_snapshot(
 // POST /api/v1/me/collection/sync
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/collection/sync",
+    operation_id = "collection_sync_collection",
+    tag = "collection",
+    summary = "Sync collection",
+    description = "Apply up to 100 durable offline mutations. Mutation IDs make retries idempotent; stale revisions return per-item conflicts without discarding local changes. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body = CollectionSyncRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = CollectionSyncResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn sync_collection(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -530,6 +584,29 @@ fn validate_collection_query(params: &CollectionQueryParams) -> Result<(), AppEr
 // POST /api/v1/me/collection
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/collection",
+    operation_id = "collection_add_to_collection",
+    tag = "collection",
+    summary = "Add to collection",
+    description = "Add to collection. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    request_body = AddCollectionEntryRequest,
+    responses(
+        (status = 201, description = "Successful operation", body = CollectionEntryResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn add_to_collection(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -634,6 +711,30 @@ async fn add_to_collection_in_transaction(
 // PATCH /api/v1/me/collection/:id
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/me/collection/{id}",
+    operation_id = "collection_update_entry",
+    tag = "collection",
+    summary = "Update entry",
+    description = "Update entry. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    request_body = UpdateCollectionEntryRequest,
+    responses(
+        (status = 200, description = "Successful operation", body = CollectionEntryResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 415, description = "Unsupported content type", body = crate::openapi::ApiError),
+        (status = 422, description = "Invalid request shape", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn update_entry(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -774,6 +875,26 @@ async fn process_collection_photo_deletions(
 // DELETE /api/v1/me/collection/:id
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/me/collection/{id}",
+    operation_id = "collection_delete_entry",
+    tag = "collection",
+    summary = "Delete entry",
+    description = "Delete entry. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("id" = u32, Path, description = "id", minimum = 1)),
+    responses(
+        (status = 204, description = "Successful operation"),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn delete_entry(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -816,6 +937,24 @@ async fn delete_entry(
 // GET /api/v1/me/collection/by-issue/:issue_id
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/collection/by-issue/{issue_id}",
+    operation_id = "collection_get_entry_by_issue",
+    tag = "collection",
+    summary = "Get entry by issue",
+    description = "Return the selected entry for an issue, or JSON null if the user has no entry. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("issue_id" = u32, Path, description = "issue id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = Option<CollectionEntryResponse>),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn get_entry_by_issue(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -832,6 +971,22 @@ async fn get_entry_by_issue(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::similar_names)]
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/collection/stats",
+    operation_id = "collection_collection_stats",
+    tag = "collection",
+    summary = "Collection stats",
+    description = "Collection stats. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    responses(
+        (status = 200, description = "Successful operation", body = CollectionStatsResponse),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn collection_stats(
     State(state): State<AppState>,
     auth: AuthUser,

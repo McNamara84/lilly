@@ -5,7 +5,8 @@ pub const ACCOUNT_DELETION_CONFIRMATION: &str = "KONTO LÖSCHEN";
 pub const ACCOUNT_DELETION_GRACE_DAYS: i64 = 7;
 pub const RECENT_AUTH_SECONDS: i64 = 10 * 60;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = account_erasure::RequestAccountDeletion)]
 pub struct RequestAccountDeletion {
     pub confirmation: String,
 }
@@ -20,12 +21,14 @@ impl RequestAccountDeletion {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = account_erasure::PasswordReauthenticationRequest)]
 pub struct PasswordReauthenticationRequest {
     pub password: String,
 }
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[schema(as = account_erasure::AccountDeletionStatusResponse)]
 pub struct AccountDeletionStatusResponse {
     pub status: String,
     #[serde(serialize_with = "super::serde_datetime::serialize_utc_naive")]
@@ -35,8 +38,9 @@ pub struct AccountDeletionStatusResponse {
     pub can_cancel: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[allow(clippy::struct_excessive_bools)]
+#[schema(as = account_erasure::AccountDeletionOptionsResponse)]
 pub struct AccountDeletionOptionsResponse {
     pub recent_authentication: bool,
     pub password: bool,
@@ -64,7 +68,8 @@ pub struct AccountErasureJobRow {
     pub last_error_category: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[schema(as = account_erasure::AdminAccountErasureJobResponse)]
 pub struct AdminAccountErasureJobResponse {
     pub id: u64,
     pub status: String,

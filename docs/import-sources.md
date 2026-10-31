@@ -22,11 +22,19 @@ Serien und Hefte erhalten neben der klickbaren Quell-URL immer `source_key` und 
 | Quell-ID | stabiler Redirect `Quelle:MX{n}` | vollständiger kanonischer Seitentitel, z. B. `JS 1000 - Das Schwert des Salomo` |
 | Quell-URL | Zielseite aus der Parse-Antwort | URL des kanonischen Seitentitels |
 
-Pflichtfelder sind Heftnummer, Titel, mindestens ein Autor und vollständige Provenienz. Das Ersterscheinungsdatum ist optional, weil es in den Wikis teilweise (noch) nicht gepflegt ist; ein Heft ohne Datum wird ohne `published_at` importiert und bei einem späteren Lauf nachgezogen. Listen werden getrimmt, geleert, dedupliziert und deterministisch sortiert. Ungültige Teilpositionen oder fehlende Pflichtfelder erzeugen einen recordbezogenen Fehler; ein bereits gespeicherter Stand bleibt dabei unverändert.
+Pflichtfelder sind Heftnummer, Titel, mindestens ein Autor und vollständige Provenienz. Das Ersterscheinungsdatum ist optional, weil es in den Wikis teilweise (noch) nicht gepflegt ist; ein Heft ohne Datum wird ohne `published_at` importiert und bei einem späteren Lauf nachgezogen. Leere Angaben und die ausdrücklichen Unbekannt-Marker aus einem oder mehreren Fragezeichen (`?`, `??????`), `-`, `–`, `—` und `unbekannt` gelten als fehlend. Andere vorhandene Angaben müssen ein gültiges Kalenderdatum ergeben; sie dürfen nicht stillschweigend zu `null` werden. Ein ungültiger Wert in der John-Sinclair-Übersicht blockiert die Quellliste, ein ungültiger Detailwert das betroffene Heft. Listen werden getrimmt, geleert, dedupliziert und deterministisch sortiert. Ungültige Teilpositionen oder fehlende Pflichtfelder erzeugen einen recordbezogenen Fehler; ein bereits gespeicherter Stand bleibt dabei unverändert.
 
 ## Vollständige Synchronisation
 
 Jeder manuelle und geplante Lauf liest die aktuelle Quellliste vollständig und vergleicht jedes gemeldete Heft kanonisch mit MariaDB. Das Ergebnis ist genau eine der Kategorien `created`, `updated`, `unchanged`, `skipped` oder `failed`. Zukünftige Hefte werden zentral als `skipped` gezählt. Hefte, die nur lokal vorkommen, werden protokolliert, aber weder gelöscht noch deaktiviert.
+
+Die Reihenfolge von Autoren, Coverzeichnern, Schlagworten und Notizen beeinflusst diesen
+Vergleich nicht. Ihre Schreibweisen einschließlich Großschreibung und Akzenten bleiben
+jedoch exakt erhalten. Die Migration `20261031000001_preserve_source_metadata_spelling`
+stellt dafür die Eindeutigkeit der Wörterbuchfelder auf binären Vergleich um; vorhandene
+Heft-IDs und Verknüpfungen bleiben erhalten. Ein anschließender Vollimport korrigiert
+Schreibweisen, die zuvor durch die sprachabhängige Eindeutigkeitsprüfung zusammengefasst
+wurden. Sammlungssuche und alphabetische Darstellung behalten ihren sprachabhängigen Vergleich.
 
 Cover werden bei jedem Vollabgleich über strukturierte MediaWiki-Daten geprüft. Die lokal
 gespeicherte technische Dateiidentität besteht aus Dateiname, MediaWiki-SHA-1 und
@@ -48,6 +56,11 @@ mit einer Coverwarnung weiter importiert. Ein nicht mehr vorhandener Kandidat en
 alte Referenz, während bei mehreren widersprüchlichen Kandidaten das zuletzt funktionierende
 Cover erhalten bleibt.
 
+Verkürzte John-Sinclair-Übersichtszeilen bleiben Teil der Quellliste: Fehlende nachfolgende
+Spalten für Autoren, Coverzeichner, Teilposition oder Datum werden zunächst als unbekannt
+behandelt und aus der Detailseite ergänzt. Nummer und kanonischer Seitenlink sind für die
+Entdeckung erforderlich; die vollständigen Pflichtmetadaten werden am Detaildatensatz geprüft.
+
 In der John-Sinclair-Übersicht sind ASCII-Bindestrich (`-`), Gedankenstrich (`–`) und
 Geviertstrich (`—`) als Trenner zwischen Nummer und Titel erlaubt. Die angezeigte Nummer
 muss weiterhin exakt zur Nummer im kanonischen Linkziel passen. Fehlende kanonische Links,
@@ -55,10 +68,17 @@ Nummerabweichungen und mehrdeutige Zeilen bleiben blockierende Listenfehler.
 
 Beide Adapter warten standardmäßig 500 ms zwischen Wiki-Zugriffen. Transiente
 Transportfehler sowie HTTP 408, 429 und 5xx werden sowohl bei der vollständigen Quellliste
-als auch bei Heftdetails höchstens dreimal versucht; erst der letzte fehlgeschlagene
+als auch bei Heftdetails und Coverabrufen höchstens achtmal versucht; erst der letzte fehlgeschlagene
 Listenversuch beendet den Lauf und wird als Fehler der Phase `list` gespeichert. Andere
 HTTP-4xx-, Parse-, Validierungs- und sonstige nicht transiente Fehler werden nicht
-wiederholt.
+wiederholt. Ausdrückliche temporäre MediaWiki-Fehler im JSON (`maxlag`, `readonly`,
+`ratelimited`, `internal_api_error_DBConnectionError`) sind auch bei HTTP 200 wiederholbar.
+Zwischen Versuchen steigen die Pausen von einer auf zwei und höchstens vier Sekunden;
+die Adapterpausen bleiben zusätzlich bestehen. Unbekannte API-Fehler bleiben dauerhaft;
+nach ausgeschöpften Versuchen werden Fehler
+weiterhin protokolliert und bestehende Cover erhalten. Die Wiederholung ersetzt keine
+erfolgreiche Vollimport-Abnahme. Die Anleitung steht unter
+[Lokale Vollimport-Abnahme](mvp-import-acceptance.md).
 
 ## Betrieb und Recovery
 

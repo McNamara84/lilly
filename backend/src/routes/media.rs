@@ -1,9 +1,10 @@
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::Response;
-use axum::routing::{delete, get, post};
-use axum::{Json, Router};
 
 use super::AppState;
 use crate::auth::middleware::{AuthUser, OptionalAuthUser};
@@ -14,24 +15,38 @@ use crate::services::media::{MediaError, StagedPhoto, process_deletion_key, proc
 
 pub(super) const HARD_MULTIPART_REQUEST_LIMIT: usize = 5 * 1024 * 1024 + 64 * 1024;
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/v1/me/collection/{entry_id}/photos", get(list_photos))
-        .route(
-            "/api/v1/me/collection/{entry_id}/photos",
-            post(upload_photo).layer(DefaultBodyLimit::max(HARD_MULTIPART_REQUEST_LIMIT)),
-        )
-        .route(
-            "/api/v1/me/collection/{entry_id}/photos/{photo_id}",
-            delete(delete_photo),
-        )
-        .route(
-            "/api/v1/collection-photos/{photo_id}/content",
-            get(photo_content),
-        )
-        .route("/api/v1/media/photo-policy", get(photo_policy))
+    openapi_router().into()
 }
 
+pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
+    let mut upload = utoipa_axum::routes!(upload_photo);
+    upload.2 = upload
+        .2
+        .layer(DefaultBodyLimit::max(HARD_MULTIPART_REQUEST_LIMIT));
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(list_photos))
+        .routes(upload)
+        .routes(utoipa_axum::routes!(delete_photo))
+        .routes(utoipa_axum::routes!(photo_content))
+        .routes(utoipa_axum::routes!(photo_policy))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/media/photo-policy",
+    operation_id = "media_photo_policy",
+    tag = "media",
+    summary = "Photo policy",
+    description = "Photo policy.",
+    security(),
+    responses(
+        (status = 200, description = "Successful operation", body = PhotoPolicyResponse),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+    )
+)]
 async fn photo_policy(State(state): State<AppState>) -> Json<PhotoPolicyResponse> {
     let config = &state.inner.photo_upload_config;
     Json(PhotoPolicyResponse {
@@ -42,6 +57,25 @@ async fn photo_policy(State(state): State<AppState>) -> Json<PhotoPolicyResponse
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/collection/{entry_id}/photos",
+    operation_id = "media_list_photos",
+    tag = "media",
+    summary = "List photos",
+    description = "List photos. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("entry_id" = u32, Path, description = "entry id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", body = Vec<CollectionPhotoResponse>),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn list_photos(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -55,6 +89,28 @@ async fn list_photos(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/collection/{entry_id}/photos",
+    operation_id = "media_upload_photo",
+    tag = "media",
+    summary = "Upload photo",
+    description = "Upload photo. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("entry_id" = u32, Path, description = "entry id", minimum = 1)),
+    request_body(content = crate::openapi::PhotoUpload, content_type = "multipart/form-data"),
+    responses(
+        (status = 201, description = "Successful operation", body = CollectionPhotoResponse),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 409, description = "State conflict", body = crate::openapi::ApiError),
+        (status = 413, description = "Request too large", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn upload_photo(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -164,6 +220,25 @@ async fn persist_photo(
         })
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/me/collection/{entry_id}/photos/{photo_id}",
+    operation_id = "media_delete_photo",
+    tag = "media",
+    summary = "Delete photo",
+    description = "Delete photo. Requires an active account; resource ownership and visibility are checked by the backend.",
+    security(("accessCookie" = [])),
+    params(("entry_id" = u32, Path, description = "entry id", minimum = 1), ("photo_id" = u32, Path, description = "photo id", minimum = 1)),
+    responses(
+        (status = 204, description = "Successful operation"),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required", body = crate::openapi::ApiError),
+        (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn delete_photo(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -188,6 +263,23 @@ async fn delete_photo(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/collection-photos/{photo_id}/content",
+    operation_id = "media_photo_content",
+    tag = "media",
+    summary = "Photo content",
+    description = "Return a normalized JPEG only when the caller owns the photo or the associated collection is public. Other access is indistinguishable from a missing photo.",
+    security((), ("accessCookie" = [])),
+    params(("photo_id" = u32, Path, description = "photo id", minimum = 1)),
+    responses(
+        (status = 200, description = "Successful operation", content_type = "image/jpeg", body = crate::openapi::BinaryImage),
+        (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
+        (status = 429, description = "Rate limit exceeded", body = crate::openapi::ApiError, headers(("Retry-After" = u64, description = "Seconds until retry"))),
+        (status = 500, description = "Internal server error", body = crate::openapi::ApiError)
+    )
+)]
 async fn photo_content(
     State(state): State<AppState>,
     OptionalAuthUser(auth): OptionalAuthUser,
