@@ -411,6 +411,7 @@ async fn upgrade_password_hash(state: &AppState, user_id: u32, current_hash: &st
     responses(
         (status = 200, description = "Successful operation", body = LoginResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Invalid email or password", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
         (status = 409, description = "State conflict", body = crate::openapi::ApiError),

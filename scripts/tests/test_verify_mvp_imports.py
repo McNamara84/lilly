@@ -1,5 +1,5 @@
 import copy
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import importlib.util
 import io
 import json
@@ -170,6 +170,44 @@ class PaginationTests(unittest.TestCase):
 
 
 class CommandTests(unittest.TestCase):
+    def test_command_uses_berlin_publication_day_and_keeps_report_timestamp_in_utc(self):
+        instants = [
+            (datetime(2026, 1, 31, 22, 59, tzinfo=timezone.utc), date(2026, 1, 31)),
+            (datetime(2026, 1, 31, 23, 0, tzinfo=timezone.utc), date(2026, 2, 1)),
+            (datetime(2026, 6, 30, 21, 59, tzinfo=timezone.utc), date(2026, 6, 30)),
+            (datetime(2026, 6, 30, 22, 0, tzinfo=timezone.utc), date(2026, 7, 1)),
+        ]
+        for instant, publication_day in instants:
+            with self.subTest(instant=instant), tempfile.TemporaryDirectory(prefix="lilly-verifier-") as directory:
+                job, summary, items, issues = fixture()
+                issues[-1]["published_at"] = publication_day.isoformat()
+                items[-1]["published_at"] = publication_day.isoformat()
+                items.append({"issue_number": 556, "outcome": "skipped",
+                              "published_at": (publication_day + timedelta(days=1)).isoformat()})
+                job.update(total_issues=len(items), skipped_issues=1)
+                summary["outcomes"].update(total=len(items), skipped=1)
+                output = Path(directory) / "report.json"
+                root = "/api/v1/admin/import/1"
+                responses = {
+                    "/api/v1/auth/login": {}, "/api/v1/auth/me": {"role": "admin"},
+                    root: job, root + "/review/summary": summary,
+                    root + "/review/items": {"items": items, "page": 1, "total": len(items)},
+                    root + "/series-issues": {"data": issues, "page": 1, "total": len(issues)},
+                    "/api/v1/series/maddrax/issues": {"data": issues, "page": 1, "total": len(issues)},
+                    "/api/v1/me/collection": {"data": [], "page": 1, "total": 0},
+                }
+                with patch.object(verifier, "Client") as factory, \
+                     patch.object(verifier, "datetime") as clock, \
+                     patch.dict(os.environ, {"LILLY_ACCEPTANCE_EMAIL": "test@example.test", "LILLY_ACCEPTANCE_PASSWORD": "private-password"}), \
+                     patch("sys.argv", ["verify", "--jobs", "1", "--output", str(output)]), \
+                     patch("sys.stdout", new_callable=io.StringIO), patch("sys.stderr", new_callable=io.StringIO):
+                    clock.now.side_effect = lambda zone: instant.astimezone(zone)
+                    factory.return_value.call.side_effect = lambda path, data=None: responses[path.split("?")[0]]
+                    self.assertEqual(verifier.main(), 0)
+                report = json.loads(output.read_text(encoding="utf-8"))
+                self.assertEqual(report["captured_at"], instant.isoformat())
+                self.assertEqual(report["runs"][0]["outcomes"]["skipped"], 1)
+
     def test_client_uses_cookie_session_json_and_same_origin(self):
         client = verifier.Client("http://localhost:18080/")
         with patch.object(client.opener, "open", return_value=io.BytesIO(b'{"ok":true}')) as request:

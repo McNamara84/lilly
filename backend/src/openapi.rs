@@ -308,6 +308,120 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_password_logins_match_the_contract() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = sqlx::mysql::MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = crate::auth::oauth::random_urlsafe_token().to_lowercase();
+        let password_email = format!("contract-password-{suffix}@example.test");
+        let oauth_email = format!("contract-oauth-{suffix}@example.test");
+        let missing_email = format!("contract-missing-{suffix}@example.test");
+        let hash = crate::auth::password::hash_password("correct-password").unwrap();
+        sqlx::query(
+            "INSERT INTO users (email, password_hash, display_name, email_verified) \
+             VALUES (?, ?, 'Password account', TRUE), (?, NULL, 'OAuth only', TRUE)",
+        )
+        .bind(&password_email)
+        .bind(hash)
+        .bind(&oauth_email)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut state = test_state();
+        std::sync::Arc::get_mut(&mut state.inner).unwrap().pool = pool.clone();
+        let app = crate::api::application(state, false);
+        let mut responses = Vec::new();
+        for email in [&password_email, &oauth_email, &missing_email] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/auth/login")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header(header::ORIGIN, "http://localhost")
+                        .body(Body::from(
+                            json!({"email": email, "password": "wrong-password"}).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let value: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap())
+                    .unwrap();
+            responses.push((status, value));
+        }
+        sqlx::query("DELETE FROM users WHERE email IN (?, ?)")
+            .bind(password_email)
+            .bind(oauth_email)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let spec = serde_json::to_value(crate::api::specification()).unwrap();
+        for (status, value) in responses {
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(value, json!({"error": "Invalid email or password"}));
+            assert_schema(&spec, "/api/v1/auth/login", "post", 401, &value);
+        }
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_oauth_reauthentication_matches_the_contract() {
+        let mut state = test_state();
+        let credentials = crate::config::OAuthCredentials {
+            client_id: "contract-client".to_string(),
+            client_secret: "contract-secret".to_string(),
+        };
+        std::sync::Arc::get_mut(&mut state.inner)
+            .unwrap()
+            .oauth_service = crate::services::oauth::OAuthService::production(
+            Some(credentials.clone()),
+            Some(credentials),
+        );
+        let app = crate::api::application(state, false);
+        let spec = serde_json::to_value(crate::api::specification()).unwrap();
+        for provider in ["google", "github"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/v1/auth/oauth/{provider}/start"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header(header::ORIGIN, "http://localhost")
+                        .body(Body::from(r#"{"intent":"reauth"}"#))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            let value: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap())
+                    .unwrap();
+            assert_eq!(
+                value,
+                json!({"error": "Authentication required for reauthentication"})
+            );
+            assert_schema(
+                &spec,
+                "/api/v1/auth/oauth/{provider}/start",
+                "post",
+                401,
+                &value,
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn real_public_and_admin_responses_match_the_contract() {
         let spec = serde_json::to_value(crate::api::specification()).unwrap();
         let app = crate::api::application(test_state(), false);

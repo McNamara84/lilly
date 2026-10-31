@@ -93,6 +93,7 @@ async fn options(State(state): State<AppState>) -> Json<AuthOptionsResponse> {
     responses(
         (status = 200, description = "Successful operation", body = OAuthStartResponse),
         (status = 400, description = "Invalid request", body = crate::openapi::ApiError),
+        (status = 401, description = "Authentication required for reauthentication", body = crate::openapi::ApiError),
         (status = 403, description = "Operation forbidden", body = crate::openapi::ApiError),
         (status = 404, description = "Resource not found or not visible", body = crate::openapi::ApiError),
         (status = 409, description = "State conflict", body = crate::openapi::ApiError),

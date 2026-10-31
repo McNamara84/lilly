@@ -6,6 +6,11 @@ Ergebnisse gelten für den protokollierten Quellenstand; laufende Serien können
 
 ## Umgebung vorbereiten
 
+Das Prüfskript benötigt Python ab Version 3.9 und IANA-Zeitzonendaten. Unter Windows
+die Python-Abhängigkeit mit `python -m pip install -r scripts/requirements.txt` in der
+verwendeten Python-Umgebung installieren. Auf Systemen mit vorhandener IANA-Datenbank
+verwendet `zoneinfo` die Betriebssystemdaten ([Python-Dokumentation](https://docs.python.org/3/library/zoneinfo.html#data-sources)).
+
 1. `.env.acceptance.example` nach `.env.acceptance.local` kopieren und alle `CHANGE_ME`-Werte
    ersetzen. Für Datenbankkennwörter URL-taugliche Zufallswerte verwenden und denselben Wert
    in `DATABASE_URL` und `MARIADB_PASSWORD` eintragen. Die lokale Datei ist Git-ignoriert.
@@ -58,8 +63,10 @@ Die Dateinamen und Job-IDs sind Beispiele. Snapshots außerhalb von Git bzw. im 
 `LILLY_ACCEPTANCE_PASSWORD` möglich; Passwörter gehören nicht in Befehlsargumente.
 
 Das Prüfskript liest alle Seiten, kontrolliert vollständige Verarbeitung, eindeutige
-Heftnummern/IDs, Titel, Autoren, Quellenidentitäten und gültige Datumsangaben. Bei den beiden
-Startserien prüft es die Nummernfolge ab Heft 1; ungeklärte Lücken verhindern die Abnahme
+Heftnummern/IDs, Titel, Autoren, Quellenidentitäten und gültige Datumsangaben. Für die
+Veröffentlichungsprüfung gilt wie beim Importer der Kalendertag in `Europe/Berlin`,
+einschließlich Sommerzeit. Berichtzeitstempel bleiben in UTC. Bei den beiden Startserien
+prüft es die Nummernfolge ab Heft 1; ungeklärte Lücken verhindern die Abnahme
 auch dann, wenn alle vom Importer erfassten Ergebniszähler übereinstimmen. Zusätzlich
 vergleicht es die sechs fest vorgegebenen Referenzen unabhängig vom Server, prüft den öffentlichen Katalog
 und erkennt bei Wiederholung zusätzliche Hefte, geänderte IDs, Metadaten/Cover,

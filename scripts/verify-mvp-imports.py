@@ -17,6 +17,7 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPCookieProcessor, Request, build_opener
+from zoneinfo import ZoneInfo
 
 REFERENCES = {
     "maddrax": {
@@ -183,7 +184,7 @@ def main():
             summary = client.call(root + "/review/summary")
             items = paginate(client.call, root + "/review/items", "items")
             issues = paginate(client.call, root + "/series-issues")
-            run = audit(job, summary, items, issues, datetime.now(timezone.utc).date())
+            run = audit(job, summary, items, issues, datetime.now(ZoneInfo("Europe/Berlin")).date())
             public = paginate(client.call, f"/api/v1/series/{job['adapter_name']}/issues")
             require({row["id"] for row in public} == {row["id"] for row in issues}, "Public catalog differs from reviewed catalog")
             report["runs"].append(run)
