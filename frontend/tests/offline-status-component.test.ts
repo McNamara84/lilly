@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 		lastSyncedAt: null as string | null,
 		syncError: null as string | null
 	},
-	pwa: { canInstall: false, updateAvailable: false },
+	pwa: { canInstall: false, updateAvailable: false, updateError: null as string | null },
 	getCachedProfile: vi.fn(),
 	listConflicts: vi.fn(),
 	acceptConflictServerVersion: vi.fn(),
@@ -115,7 +115,7 @@ describe('OfflineStatus', () => {
 			lastSyncedAt: null,
 			syncError: null
 		});
-		Object.assign(mocks.pwa, { canInstall: false, updateAvailable: false });
+		Object.assign(mocks.pwa, { canInstall: false, updateAvailable: false, updateError: null });
 		mocks.getCachedProfile.mockResolvedValue({ id: 1 });
 		mocks.listConflicts.mockResolvedValue([]);
 		mocks.acceptConflictServerVersion.mockResolvedValue(undefined);
@@ -127,6 +127,14 @@ describe('OfflineStatus', () => {
 	});
 
 	afterEach(cleanup);
+
+	it('announces an update failure while keeping the retry action available', () => {
+		mocks.pwa.updateAvailable = true;
+		mocks.pwa.updateError = 'Update interrupted. Please retry.';
+		render(OfflineStatus);
+		expect(screen.getByRole('alert')).toHaveTextContent('Update interrupted. Please retry.');
+		expect(screen.getByRole('button', { name: 'Jetzt aktualisieren' })).toBeEnabled();
+	});
 
 	it('offers installation, activation and manual synchronization actions', async () => {
 		Object.assign(mocks.pwa, { canInstall: true, updateAvailable: true });

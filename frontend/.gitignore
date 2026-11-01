@@ -10,6 +10,9 @@ node_modules
 /playwright-report
 /test-results
 /.lighthouseci
+/.pwa-builds
+/test-results-mobile
+/test-results-update
 /.auth
 
 # OS

@@ -52,6 +52,7 @@
 	{#if pwa.updateAvailable}
 		<div class="glass-elevated rounded-lg p-3 text-sm" data-testid="pwa-update-notice">
 			<p>Eine neue App-Version ist verfügbar.</p>
+			{#if pwa.updateError}<p role="alert">{pwa.updateError}</p>{/if}
 			<button class="mt-2 cursor-pointer underline" onclick={activateWaitingServiceWorker}>
 				Jetzt aktualisieren
 			</button>

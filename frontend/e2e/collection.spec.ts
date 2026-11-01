@@ -132,13 +132,13 @@ test.describe('Add to Collection', () => {
 
 	test('series cards are displayed after loading', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
-		await expect(page.getByTestId('series-card').first()).toBeVisible();
+		await expect(page.getByTestId('series-card').filter({ hasText: 'Maddrax' })).toBeVisible();
 	});
 
 	test('selecting a series shows the four-state grid and updates heading', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCard = page.getByTestId('series-card').first();
+		const firstCard = page.getByTestId('series-card').filter({ hasText: 'Maddrax' });
 		await expect(firstCard).toBeVisible();
 
 		const seriesName = await firstCard.locator('h2').textContent();
@@ -162,7 +162,7 @@ test.describe('Add to Collection', () => {
 	test('back button returns to series selection', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCard = page.getByTestId('series-card').first();
+		const firstCard = page.getByTestId('series-card').filter({ hasText: 'Maddrax' });
 		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
@@ -176,7 +176,7 @@ test.describe('Add to Collection', () => {
 		page
 	}) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
-		await page.getByTestId('series-card').first().click();
+		await page.getByTestId('series-card').filter({ hasText: 'Maddrax' }).click();
 		await expect(page.getByTestId('series-status-grid')).toBeVisible();
 
 		for (const width of [375, 768, 1280]) {
@@ -191,7 +191,7 @@ test.describe('Add to Collection', () => {
 	test('selecting a grid cell opens details without changing its status', async ({ page }) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCard = page.getByTestId('series-card').first();
+		const firstCard = page.getByTestId('series-card').filter({ hasText: 'Maddrax' });
 		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
@@ -213,7 +213,7 @@ test.describe('Add to Collection', () => {
 	}) => {
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCard = page.getByTestId('series-card').first();
+		const firstCard = page.getByTestId('series-card').filter({ hasText: 'Maddrax' });
 		await expect(firstCard).toBeVisible();
 
 		await firstCard.click();
@@ -343,7 +343,7 @@ test.describe('Collection End-to-End Workflow', () => {
 		await page.goto('/collection/add');
 		await expect(page.getByTestId('loading-indicator')).toBeHidden({ timeout: 10000 });
 
-		const firstCard = page.getByTestId('series-card').first();
+		const firstCard = page.getByTestId('series-card').filter({ hasText: 'Maddrax' });
 		await expect(firstCard).toBeVisible();
 
 		// Step 2: Select a series
@@ -461,12 +461,15 @@ test.describe('Collection End-to-End Workflow', () => {
 			await page.getByTestId(`status-${status}`).click();
 			await page.getByTestId('save-button').click();
 			await expect(page.getByTestId('issue-detail-sheet')).toBeHidden({ timeout: 5000 });
+			await expect(page.getByTestId('offline-status')).toHaveText('Synchronisiert', {
+				timeout: 10000
+			});
 		}
 
 		try {
 			await changeFirstEntryStatus('wanted');
 			await page.goto('/');
-			const wantedProgress = page.getByTestId('series-progress-bar').first();
+			const wantedProgress = page.getByTestId('series-progress-bar').filter({ hasText: 'Maddrax' });
 			await expect(wantedProgress).toContainText('1 Doppelte');
 			const wantedBar = wantedProgress.getByRole('progressbar');
 			const wantedLabel = await wantedBar.getAttribute('aria-label');
@@ -480,7 +483,9 @@ test.describe('Collection End-to-End Workflow', () => {
 
 			await changeFirstEntryStatus('duplicate');
 			await page.goto('/');
-			const duplicateProgress = page.getByTestId('series-progress-bar').first();
+			const duplicateProgress = page
+				.getByTestId('series-progress-bar')
+				.filter({ hasText: 'Maddrax' });
 			await expect(duplicateProgress).toContainText('2 Doppelte');
 			const duplicateBar = duplicateProgress.getByRole('progressbar');
 			const progressLabel = await duplicateBar.getAttribute('aria-label');

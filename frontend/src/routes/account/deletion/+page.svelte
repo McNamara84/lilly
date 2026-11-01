@@ -33,7 +33,7 @@
 		error = null;
 		try {
 			await cancelAccountDeletion();
-			await initAuth();
+			await initAuth(true);
 			await goto(resolve('profile?deletion_cancelled=true'));
 		} catch (cause) {
 			error =

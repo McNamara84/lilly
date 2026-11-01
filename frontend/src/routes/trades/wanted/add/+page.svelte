@@ -256,7 +256,12 @@
 
 		<ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="candidate-list">
 			{#each candidates as candidate (candidate.issue_id)}
-				<li class="glass-elevated rounded-lg p-4" data-testid="candidate-item">
+				<!-- The flat list background needs no separate backdrop layer for each result. -->
+				<li
+					class="glass-elevated rounded-lg p-4"
+					style="backdrop-filter: none;"
+					data-testid="candidate-item"
+				>
 					<label class="flex cursor-pointer items-start gap-3">
 						<input
 							type="checkbox"

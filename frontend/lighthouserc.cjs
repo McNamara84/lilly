@@ -1,17 +1,20 @@
 // Lighthouse CI loads its configuration through CommonJS.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { chromium } = require('@playwright/test');
+// @ts-expect-error Playwright exports its browser registry without a TypeScript declaration.
+const { registry } = require('playwright-core/lib/coreBundle'); // eslint-disable-line @typescript-eslint/no-require-imports
 
 const baseUrl = process.env.LIGHTHOUSE_BASE_URL || 'http://localhost';
 
 module.exports = {
 	ci: {
 		collect: {
-			url: [`${baseUrl}/privacy`, `${baseUrl}/collection`],
+			url: [`${baseUrl}/`, `${baseUrl}/collection`],
 			numberOfRuns: 5,
-			chromePath: process.env.CHROME_PATH || chromium.executablePath(),
-			puppeteerScript: './scripts/lighthouse-auth.cjs',
+			// Use the same installed headless engine as Playwright; resolve its platform-specific path.
+			chromePath:
+				process.env.CHROME_PATH ||
+				registry.registry.findExecutable('chromium-headless-shell').executablePath(),
 			puppeteerLaunchOptions: {
+				headless: process.env.CHROME_PATH ? true : 'shell',
 				args: ['--no-sandbox', '--disable-dev-shm-usage']
 			},
 			settings: {

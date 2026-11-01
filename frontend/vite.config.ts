@@ -8,6 +8,9 @@ export default defineConfig({
 		tailwindcss(),
 		sveltekit({
 			adapter: adapter(),
+			...(process.env.LILLY_BUILD_VERSION
+				? { version: { name: process.env.LILLY_BUILD_VERSION } }
+				: {}),
 			// SvelteKit adds per-response nonces (or hashes for prerendered pages) to its own inline
 			// bootstrap script, so `script-src` needs no `'unsafe-inline'`. Inline `style` attributes are
 			// used throughout the UI, which is why `style-src` still allows them; that cannot execute code.

@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import IssueDetailSheet from '../src/lib/components/collection/IssueDetailSheet.svelte';
 import type { Issue } from '#lib/api/series.js';
 import type { CollectionEntry } from '#lib/api/collection.js';
+import { activateWaitingServiceWorker } from '#lib/offline/pwa.svelte.js';
+import { mockWaitingUpdate } from './fixtures/pwa-update';
 
 const sampleIssue: Issue = {
 	id: 42,
@@ -43,6 +45,95 @@ const sampleEntry: CollectionEntry = {
 };
 
 describe('IssueDetailSheet', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
+	});
+
+	it.each(['notes', 'edition', 'status', 'condition'])(
+		'protects unsaved %s changes from a same-tab update',
+		async (field) => {
+			const update = mockWaitingUpdate();
+			render(IssueDetailSheet, {
+				props: { issue: sampleIssue, collection_entry: sampleEntry, onclose, onsave }
+			});
+			const user = userEvent.setup();
+			if (field === 'notes') await user.type(screen.getByTestId('notes-textarea'), ' unsaved');
+			else if (field === 'edition')
+				await user.type(screen.getByTestId('edition-input'), ' unsaved');
+			else if (field === 'status') await user.click(screen.getByTestId('status-owned'));
+			else await user.click(screen.getByTestId('condition-chip-Z1'));
+			await activateWaitingServiceWorker();
+			expect(update.confirm).toHaveBeenCalledOnce();
+			expect(update.postMessage).not.toHaveBeenCalled();
+		}
+	);
+
+	it('keeps a submitted editor dirty until persisted props arrive', async () => {
+		const update = mockWaitingUpdate();
+		const view = render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: sampleEntry, onclose, onsave }
+		});
+		await fireEvent.input(screen.getByTestId('notes-textarea'), {
+			target: { value: 'Unsaved note' }
+		});
+		await userEvent.click(screen.getByTestId('save-button'));
+		await activateWaitingServiceWorker();
+		expect(update.postMessage).not.toHaveBeenCalled();
+		expect(screen.getByTestId('notes-textarea')).toHaveValue('Unsaved note');
+		await view.rerender({
+			collection_entry: { ...sampleEntry, notes: 'Unsaved note' },
+			error: null
+		});
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
+
+	it.each(['missing', 'wanted'] as const)(
+		'treats empty optional fields on a %s entry as clean until edited',
+		async (status) => {
+			const update = mockWaitingUpdate();
+			render(IssueDetailSheet, {
+				props: {
+					issue: sampleIssue,
+					collection_entry: {
+						...sampleEntry,
+						status,
+						condition_grade: null,
+						notes: null,
+						edition_label: null
+					},
+					onclose,
+					onsave
+				}
+			});
+			await activateWaitingServiceWorker();
+			expect(update.confirm).not.toHaveBeenCalled();
+			expect(update.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+			update.postMessage.mockClear();
+			await fireEvent.input(screen.getByTestId('edition-input'), {
+				target: { value: 'Special edition' }
+			});
+			await activateWaitingServiceWorker();
+			expect(update.confirm).toHaveBeenCalledOnce();
+			expect(update.postMessage).not.toHaveBeenCalled();
+		}
+	);
+
+	it('releases update protection when a dirty sheet is closed', async () => {
+		const update = mockWaitingUpdate();
+		const view = render(IssueDetailSheet, {
+			props: { issue: sampleIssue, collection_entry: null, onclose, onsave }
+		});
+		await userEvent.click(screen.getByTestId('status-wanted'));
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		await view.rerender({ issue: null });
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
 	let onclose: () => void;
 	let onsave: (data: {
 		issue_id: number;

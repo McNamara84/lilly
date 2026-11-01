@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import CollectionPage from '../src/routes/collection/+page.svelte';
+import { activateWaitingServiceWorker } from '#lib/offline/pwa.svelte.js';
+import { mockWaitingUpdate } from './fixtures/pwa-update';
 
 const mockGetAuthState = vi.fn();
 
@@ -88,6 +90,35 @@ const sampleIssue = {
 };
 
 describe('Collection Page', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
+	});
+
+	it('keeps editor changes protected through a failed save and releases them after a successful retry', async () => {
+		const update = mockWaitingUpdate();
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockResolvedValue({ data: [sampleEntry], page: 1, per_page: 20, total: 1 });
+		mockFetchIssue.mockResolvedValue(sampleIssue);
+		mockUpdateCollectionEntry
+			.mockRejectedValueOnce(new Error('Save failed'))
+			.mockResolvedValueOnce(sampleEntry);
+		render(CollectionPage);
+		await fireEvent.click(await screen.findByTestId('cover-card'));
+		const notes = await screen.findByTestId('notes-textarea');
+		await fireEvent.input(notes, { target: { value: 'Unpersisted note' } });
+		await fireEvent.click(screen.getByTestId('save-button'));
+		await screen.findByText('Save failed');
+		expect(notes).toHaveValue('Unpersisted note');
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).not.toHaveBeenCalled();
+		await fireEvent.click(screen.getByTestId('save-button'));
+		await waitFor(() => expect(screen.queryByTestId('issue-detail-sheet')).not.toBeInTheDocument());
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockFetchSeries.mockResolvedValue([]);

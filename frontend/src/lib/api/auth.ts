@@ -125,6 +125,8 @@ export async function startOAuth(
 		body: JSON.stringify({ intent, ...consent })
 	});
 	const result = await handleResponse<{ authorization_url: string }>(response);
+	if (intent === 'login' || intent === 'register')
+		sessionStorage.setItem('lilly-interactive-oauth', String(Date.now()));
 	return result.authorization_url;
 }
 
@@ -179,10 +181,11 @@ export async function refreshToken(): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-	await fetch(`${API_BASE}/auth/logout`, {
+	const response = await fetch(`${API_BASE}/auth/logout`, {
 		method: 'POST',
 		credentials: 'same-origin'
 	});
+	if (!response.ok) await handleResponse<void>(response);
 }
 
 export async function resendVerification(email: string): Promise<void> {

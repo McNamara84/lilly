@@ -11,18 +11,87 @@ function setServiceWorker(value?: object) {
 }
 
 describe('PWA lifecycle', () => {
+	it('uses the registered editor state until successful persistence and ignores detached editors', async () => {
+		const waiting = { postMessage: vi.fn() };
+		setServiceWorker({
+			ready: Promise.resolve({ waiting }),
+			addEventListener: vi.fn((_type, callback) => callback())
+		});
+		const module = await import('#lib/offline/pwa.svelte.js');
+		const editor = document.createElement('section');
+		document.body.append(editor);
+		const tracking = module.trackUnsavedChanges(editor, () => true);
+		const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).not.toHaveBeenCalled();
+		tracking.update(() => false);
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).toHaveBeenCalledOnce();
+		tracking.update(() => true);
+		editor.remove();
+		await module.activateWaitingServiceWorker();
+		expect(confirm).toHaveBeenCalledOnce();
+		tracking.destroy();
+	});
 	beforeEach(() => {
 		vi.resetModules();
 		setServiceWorker();
+		vi.spyOn(window, 'addEventListener');
 	});
 
 	afterEach(() => {
+		for (const [type, listener, options] of vi.mocked(window.addEventListener).mock.calls)
+			window.removeEventListener(type, listener, options);
+		vi.useRealTimers();
 		vi.restoreAllMocks();
 		if (originalServiceWorker) {
 			Object.defineProperty(navigator, 'serviceWorker', originalServiceWorker);
 		} else {
 			Reflect.deleteProperty(navigator, 'serviceWorker');
 		}
+	});
+
+	it('ignores input outside forms and allows an update after the dirty form is removed', async () => {
+		const waiting = { postMessage: vi.fn() };
+		setServiceWorker({
+			ready: Promise.resolve({ waiting, addEventListener: vi.fn() }),
+			addEventListener: vi.fn((_type, callback) => callback())
+		});
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		window.dispatchEvent(new Event('input'));
+		document.body.dispatchEvent(new Event('input', { bubbles: true }));
+		window.dispatchEvent(new Event('submit'));
+		const form = document.createElement('form');
+		document.body.append(form);
+		form.dispatchEvent(new Event('input', { bubbles: true }));
+		form.remove();
+		const confirm = vi.spyOn(window, 'confirm');
+		await module.activateWaitingServiceWorker();
+		expect(confirm).not.toHaveBeenCalled();
+		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
+
+	it('tolerates registration failure and reports an untyped activation error', async () => {
+		const ready = Promise.withResolvers<ServiceWorkerRegistration>();
+		setServiceWorker({ ready: ready.promise });
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		const activation = module.activateWaitingServiceWorker();
+		ready.reject('registration unavailable');
+		await activation;
+		expect(module.getPwaState().updateAvailable).toBe(false);
+		expect(module.getPwaState().updateError).toBe('Die Aktualisierung ist fehlgeschlagen.');
+	});
+
+	it('ignores updatefound if the installing worker already disappeared', async () => {
+		const registration = Object.assign(new EventTarget(), { waiting: null, installing: null });
+		setServiceWorker({ ready: Promise.resolve(registration) });
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		await Promise.resolve();
+		registration.dispatchEvent(new Event('updatefound'));
+		expect(module.getPwaState().updateAvailable).toBe(false);
 	});
 
 	it('captures, invokes and clears the browser install prompt', async () => {
@@ -82,6 +151,8 @@ describe('PWA lifecycle', () => {
 		module.initializePwaLifecycle();
 		await vi.waitFor(() => expect(updateFound).toBeTypeOf('function'));
 		updateFound?.();
+		stateChanged?.();
+		expect(module.getPwaState().updateAvailable).toBe(false);
 		installing.state = 'installed';
 		stateChanged?.();
 
@@ -118,5 +189,48 @@ describe('PWA lifecycle', () => {
 			{ once: true }
 		);
 		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
+
+	it('keeps unsaved inputs protected after submission until the form is discarded', async () => {
+		const waiting = { postMessage: vi.fn() };
+		setServiceWorker({
+			ready: Promise.resolve({ waiting, addEventListener: vi.fn() }),
+			addEventListener: vi.fn((_type, callback) => callback())
+		});
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		const form = document.createElement('form');
+		const input = document.createElement('input');
+		form.append(input);
+		document.body.append(form);
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		vi.spyOn(window, 'confirm').mockReturnValue(false);
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).not.toHaveBeenCalled();
+		form.dispatchEvent(new Event('submit', { bubbles: true }));
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).not.toHaveBeenCalled();
+		form.remove();
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
+
+	it('reports a stalled update and removes its event listener without reloading', async () => {
+		vi.useFakeTimers();
+		const serviceWorker = {
+			ready: Promise.resolve({ waiting: { postMessage: vi.fn() } }),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn()
+		};
+		setServiceWorker(serviceWorker);
+		const module = await import('#lib/offline/pwa.svelte.js');
+		const activation = module.activateWaitingServiceWorker();
+		await vi.advanceTimersByTimeAsync(15000);
+		await activation;
+		expect(module.getPwaState().updateError).toContain('erneut');
+		expect(serviceWorker.removeEventListener).toHaveBeenCalledWith(
+			'controllerchange',
+			expect.any(Function)
+		);
 	});
 });

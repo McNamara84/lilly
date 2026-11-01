@@ -100,7 +100,7 @@
 				await goto(resolve('account/deletion'));
 				return;
 			}
-			await initAuth();
+			await initAuth(true);
 			const returnTo = page.url.searchParams.get('return_to');
 			await goto(resolve(returnTo === '/oauth/link' ? '/oauth/link' : '/'));
 		} catch (err) {

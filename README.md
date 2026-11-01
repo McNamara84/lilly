@@ -179,7 +179,7 @@ The following scale is the established standard in the German _Heftroman_ collec
 
 The application is designed for **self-hosting** on your own server or VPS. All components run in Docker containers, orchestrated via Docker Compose. Caddy provides automatic HTTPS via Let's Encrypt.
 
-The installable PWA is **offline-capable**: its service worker caches only the app shell and shared reference covers, while user-scoped IndexedDB stores the catalogue, personal collection, durable mutation queue, and explicit conflicts. Offline creates and edits synchronize idempotently after reconnect; logout removes that user's private local data. Photos, messaging, and live trade matching remain online-only. The UI follows a **mobile-first** approach and is fully usable on all screen sizes.
+The installable PWA is **offline-capable**: its service worker caches only the app shell and shared reference covers, while user-scoped IndexedDB stores the catalogue, personal collection, durable mutation queue, and explicit conflicts. Offline creates and edits are committed atomically, sent in batches of at most 100, and synchronized idempotently after reconnect. An attempted mutation keeps its original payload; later edits are queued as dependent changes. Tabs coordinate synchronization through an expiring IndexedDB lease. Logout warns about unsent changes, removes that user's private local data across tabs, and blocks stale session responses. Photos, messaging, and live trade matching remain online-only. The UI follows a **mobile-first** approach and is fully usable on all screen sizes.
 
 ---
 
@@ -354,12 +354,30 @@ npm run test:e2e         # Chromium only (requires Docker stack running)
 npm run test:e2e:all     # Chromium, Firefox, and WebKit
 npm run test:e2e:mobile  # Mobile Chrome emulation
 npm run test:e2e:ui      # Chromium in interactive UI mode
-npm run test:lighthouse  # Five mobile runs for /privacy and authenticated /collection
+npm run test:lighthouse  # Five cold mobile runs each for anonymous / and authenticated /collection
 
 # From the repository root after the tests:
 cd ..
 docker compose -f docker-compose.yml -f docker-compose.e2e.yml down
 ```
+
+### PWA updates and cold performance measurements
+
+With the isolated E2E Compose stack running, execute from `frontend/`:
+
+```bash
+npm run test:pwa:update
+npx playwright test --project=mobile-chrome e2e/pwa-offline.spec.ts e2e/pwa-resilience.spec.ts
+npm run test:lighthouse
+```
+
+The update runner builds A and B, serves them behind one temporary loopback origin, and tests Chromium, Firefox and WebKit with the same browser storage across the update. It checks queued changes, an open tab with unsaved inputs, cache retirement, and a failed update followed by a retry. These tests run through the dedicated command; ordinary E2E runs skip them because a single build cannot provide this evidence.
+
+The performance runner uses Playwright's installed Chromium Headless Shell, a fresh Lighthouse process and exactly one browser tab for each measurement. Install it with `npx playwright install chromium`; `CHROME_PATH` can explicitly override the executable. Invalid reports are retained and fail the series.
+
+Lighthouse measures anonymous `/` (including its transition to `/login`) and authenticated `/collection` five times each. Every run starts a separate browser process with empty storage; authenticated runs only import cookies from an API login. The E2E seed supplies a private account with 200 entries, two series, all conditions/statuses and 200 local JPEG covers. Both routes must independently reach median FCP ≤ 3,000 ms and performance ≥ 90. Invalid routes, missing content, browser errors or missing measurements fail the run. JSON/HTML reports and `summary.json` are written to `frontend/.lighthouseci/`, with authentication cookie values redacted.
+
+Set `PLAYWRIGHT_BASE_URL`, `LIGHTHOUSE_BASE_URL`, and `MAILPIT_API_URL` for a stack on alternate ports. Run performance measurements without concurrent builds or test suites. The mobile profile and acceptance results are documented in [PWA and performance acceptance](docs/pwa-performance-acceptance.md). Automated WebKit checks do not replace real Safari installation/offline-launch checks; Android and iOS device checks remain deferred.
 
 ### Backend Tests (Rust)
 
@@ -400,7 +418,7 @@ GitHub Actions workflows run automatically:
 - **On Pull Requests** (`.github/workflows/ci.yml`):
   - Frontend: lint, format check, type check, unit tests with coverage, build
   - Backend: rustfmt, clippy, unit tests (with MariaDB service)
-  - E2E: full Docker stack + Chromium Playwright tests and five-run Lighthouse median gates
+  - E2E: full Docker stack + Chromium, Firefox, and WebKit Playwright tests; mobile Chromium PWA emulation; real A/B production update tests; independent five-run cold Lighthouse gates
 
 - **On Push to Main** (`.github/workflows/main.yml`):
   - All PR checks + parallel Chromium, Firefox, and WebKit E2E jobs
@@ -449,6 +467,7 @@ Detailed planning documents are located in the [`docs/`](docs/) folder:
 | [api.md](docs/api.md)                                       | Shared REST API, generated OpenAPI contract, authentication, and compatibility rules |
 | [mvp-import-acceptance.md](docs/mvp-import-acceptance.md)     | Reproducible live import acceptance in an isolated local Docker environment |
 | [mvp-acceptance.md](docs/mvp-acceptance.md)                   | Implementation evidence, test coverage, and live acceptance results for issues #44, #19, and #74 |
+| [pwa-performance-acceptance.md](docs/pwa-performance-acceptance.md) | PWA resilience, browser coverage, cold performance gates, and deferred device checks for #111, #56, and #58 |
 | [uxdesign.md](docs/uxdesign.md)                             | UI/UX concept (design philosophy, components, screens, responsive strategy)            |
 | [design-tokens.json](docs/design-tokens.json)               | Machine-readable design tokens (colors, typography, spacing, animations)               |
 | [components.json](docs/components.json)                     | Machine-readable component specifications                                              |

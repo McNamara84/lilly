@@ -17,7 +17,7 @@ jobs:
   e2e:
     name: E2E (${{ inputs.browser }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -75,6 +75,21 @@ jobs:
         working-directory: frontend
         run: npm run test:lighthouse
 
+      - name: Run mobile Chromium PWA checks
+        if: ${{ inputs.browser == 'chromium' }}
+        working-directory: frontend
+        run: npx playwright test --project=mobile-chrome e2e/pwa-offline.spec.ts e2e/pwa-resilience.spec.ts --output=test-results-mobile
+
+      - name: Install browsers for production update checks
+        if: ${{ inputs.browser == 'chromium' }}
+        working-directory: frontend
+        run: npx playwright install --with-deps firefox webkit
+
+      - name: Check updates between two production builds in all browsers
+        if: ${{ inputs.browser == 'chromium' }}
+        working-directory: frontend
+        run: npm run test:pwa:update
+
       - name: Upload private Lighthouse reports
         # An earlier E2E failure skips Lighthouse and therefore produces no report.
         if: ${{ always() && inputs.browser == 'chromium' && steps.lighthouse.outcome != 'skipped' }}
@@ -100,6 +115,8 @@ jobs:
           path: |
             frontend/playwright-report/
             frontend/test-results/
+            frontend/test-results-mobile/
+            frontend/test-results-update/
           if-no-files-found: ignore
           retention-days: 7
 

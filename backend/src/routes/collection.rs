@@ -19,6 +19,7 @@ use crate::models::collection::{
     validate_mutation_id, validate_sort_direction, validate_status_condition,
 };
 use crate::services::trade_matching;
+use crate::services::transaction_retry::is_retryable_transaction_error as is_retryable_collection_transaction_error;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -230,7 +231,7 @@ async fn process_sync_mutation(
     auth: &AuthUser,
     mutation: CollectionSyncMutation,
 ) -> Result<CollectionSyncResult, AppError> {
-    const MAX_TRANSACTION_ATTEMPTS: u8 = 3;
+    const MAX_TRANSACTION_ATTEMPTS: u8 = 5;
 
     if let Err(message) = validate_mutation_id(mutation.mutation_id()) {
         return Ok(rejected_sync_result(
@@ -244,14 +245,17 @@ async fn process_sync_mutation(
         match process_sync_mutation_once(state, auth, &mutation).await {
             Err(error)
                 if attempt < MAX_TRANSACTION_ATTEMPTS
-                    && is_retryable_sync_transaction_error(&error) =>
+                    && is_retryable_collection_transaction_error(&error) =>
             {
                 tracing::warn!(
                     mutation_id = mutation.mutation_id(),
                     attempt,
                     "Collection sync transaction was rolled back; retrying"
                 );
-                tokio::time::sleep(std::time::Duration::from_millis(10 * u64::from(attempt))).await;
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    50 * 2_u64.pow(u32::from(attempt - 1)),
+                ))
+                .await;
             }
             result => return result,
         }
@@ -451,19 +455,6 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
     )
 }
 
-fn is_retryable_sync_transaction_error(error: &AppError) -> bool {
-    let AppError::InternalError(error) = error else {
-        return false;
-    };
-    let Some(sqlx::Error::Database(database_error)) = error.downcast_ref::<sqlx::Error>() else {
-        return false;
-    };
-
-    database_error
-        .code()
-        .is_some_and(|code| matches!(code.as_ref(), "1205" | "1213" | "40001"))
-}
-
 fn mutation_fingerprint(mutation: &CollectionSyncMutation) -> Result<String, AppError> {
     let payload = serde_json::to_vec(mutation).map_err(|error| {
         AppError::InternalError(anyhow::anyhow!(
@@ -612,8 +603,31 @@ async fn add_to_collection(
     auth: AuthUser,
     Json(body): Json<AddCollectionEntryRequest>,
 ) -> Result<(StatusCode, Json<CollectionEntryResponse>), AppError> {
+    for attempt in 1..=5_u8 {
+        match add_to_collection_once(&state, &auth, &body).await {
+            Err(error) if attempt < 5 && is_retryable_collection_transaction_error(&error) => {
+                tracing::warn!(
+                    attempt,
+                    "Collection creation transaction was rolled back; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    50 * 2_u64.pow(u32::from(attempt - 1)),
+                ))
+                .await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the bounded transaction retry loop always returns")
+}
+
+async fn add_to_collection_once(
+    state: &AppState,
+    auth: &AuthUser,
+    body: &AddCollectionEntryRequest,
+) -> Result<(StatusCode, Json<CollectionEntryResponse>), AppError> {
     let mut transaction = state.inner.pool.begin().await?;
-    let entry = add_to_collection_in_transaction(&mut transaction, &auth, &body).await?;
+    let entry = add_to_collection_in_transaction(&mut transaction, auth, body).await?;
     transaction.commit().await?;
 
     Ok((StatusCode::CREATED, Json(entry)))
@@ -634,6 +648,18 @@ async fn add_to_collection_in_transaction(
         ));
     }
 
+    let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
+    let edition_label =
+        normalize_edition_label(body.edition_label.as_deref()).map_err(AppError::BadRequest)?;
+
+    // Acquire issue/user locks before the first consistent read. Otherwise a
+    // transaction waiting for another create can retain a stale allocation snapshot.
+    crate::db::trade_matching::lock_reconciliation_users_for_issues(
+        transaction,
+        auth.user_id,
+        &[body.issue_id],
+    )
+    .await?;
     // Ensure the issue exists and belongs to an active series
     if !collection::is_issue_in_active_series_on_connection(transaction, body.issue_id).await? {
         return Err(AppError::NotFound(format!(
@@ -642,23 +668,16 @@ async fn add_to_collection_in_transaction(
         )));
     }
 
-    let notes = normalize_collection_note(body.notes.as_deref()).map_err(AppError::BadRequest)?;
-    let edition_label =
-        normalize_edition_label(body.edition_label.as_deref()).map_err(AppError::BadRequest)?;
-
-    if matches!(status, "duplicate" | "wanted") {
-        crate::db::trade_matching::lock_reconciliation_users_for_issues(
-            transaction,
-            auth.user_id,
-            &[body.issue_id],
-        )
-        .await?;
-    }
     let copy_number = match body.copy_number {
         Some(copy_number) => copy_number,
         None => {
             collection::next_copy_number_on_connection(transaction, auth.user_id, body.issue_id)
-                .await?
+                .await
+                .map_err(|error| {
+                    AppError::InternalError(
+                        anyhow::Error::new(error).context("Allocating a collection copy"),
+                    )
+                })?
                 .ok_or_else(|| AppError::ConflictWithCode {
                     message: "No free copy number is available for this issue".to_string(),
                     code: "collection_capacity_exceeded".to_string(),
@@ -687,7 +706,7 @@ async fn add_to_collection_in_transaction(
                 "Duplicate entry: this issue with the same copy number already exists in your collection".to_string(),
             );
         }
-        AppError::from(e)
+        AppError::InternalError(anyhow::Error::new(e).context("Inserting a collection copy"))
     })?;
 
     let row = collection::find_entry_row_by_id_and_user_on_connection(
@@ -701,7 +720,13 @@ async fn add_to_collection_in_transaction(
     })?;
 
     if matches!(status, "duplicate" | "wanted") {
-        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id).await?;
+        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id)
+            .await
+            .map_err(|error| {
+                AppError::InternalError(
+                    anyhow::Error::new(error).context("Reconciling collection matches"),
+                )
+            })?;
     }
 
     Ok(CollectionEntryResponse::from(&row))
@@ -741,9 +766,17 @@ async fn update_entry(
     Path(entry_id): Path<u32>,
     Json(body): Json<UpdateCollectionEntryRequest>,
 ) -> Result<Json<CollectionEntryResponse>, AppError> {
-    let mut transaction = state.inner.pool.begin().await?;
-    let updated = update_entry_in_transaction(&mut transaction, &auth, entry_id, &body).await?;
-    transaction.commit().await?;
+    let updated = crate::services::transaction_retry::retry_transaction(
+        "updating collection entry",
+        || async {
+            let mut transaction = state.inner.pool.begin().await?;
+            let updated =
+                update_entry_in_transaction(&mut transaction, &auth, entry_id, &body).await?;
+            transaction.commit().await?;
+            Ok(updated)
+        },
+    )
+    .await?;
 
     process_collection_photo_deletions(&state, entry_id, updated.photo_storage_keys).await;
 
@@ -844,7 +877,13 @@ async fn update_entry_in_transaction(
         || (body.condition_grade.is_some()
             && matches!(existing.status.as_str(), "duplicate" | "wanted"))
     {
-        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id).await?;
+        crate::db::trade_matching::reconcile_user_matches(transaction, auth.user_id)
+            .await
+            .map_err(|error| {
+                AppError::InternalError(
+                    anyhow::Error::new(error).context("Reconciling collection matches"),
+                )
+            })?;
     }
 
     Ok(UpdatedCollectionEntry {
@@ -899,6 +938,30 @@ async fn delete_entry(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(entry_id): Path<u32>,
+) -> Result<StatusCode, AppError> {
+    for attempt in 1..=5_u8 {
+        match delete_entry_once(&state, &auth, entry_id).await {
+            Err(error) if attempt < 5 && is_retryable_collection_transaction_error(&error) => {
+                tracing::warn!(
+                    entry_id,
+                    attempt,
+                    "Collection deletion transaction was rolled back; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    50 * 2_u64.pow(u32::from(attempt - 1)),
+                ))
+                .await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the bounded transaction retry loop always returns")
+}
+
+async fn delete_entry_once(
+    state: &AppState,
+    auth: &AuthUser,
+    entry_id: u32,
 ) -> Result<StatusCode, AppError> {
     let mut transaction = state.inner.pool.begin().await?;
     trade_matching::prepare_entry_mutation_in_transaction(&mut transaction, auth.user_id, entry_id)
@@ -1558,6 +1621,328 @@ mod tests {
             .await
             .expect("series fixture must be deleted");
         let _ = tokio::fs::remove_dir_all(media_root).await;
+    }
+
+    #[tokio::test]
+    async fn concurrent_collection_creates_and_deletions_preserve_consistency() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(8)
+            .connect(&url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let series_id = inserted_id(
+            &sqlx::query("INSERT INTO series (name, slug, active) VALUES (?, ?, TRUE)")
+                .bind(format!("Concurrent deletes {suffix}"))
+                .bind(format!("concurrent-deletes-{suffix}"))
+                .execute(&pool)
+                .await
+                .unwrap(),
+        );
+        let issue_id = insert_issue(&pool, series_id, 1, "Delete fixture").await;
+        let root = std::env::temp_dir().join(format!("lilly-concurrent-deletes-{suffix}"));
+        let state = test_state(pool.clone(), root.clone());
+        let mut users = Vec::new();
+        let mut targets = Vec::new();
+        let mut creates = tokio::task::JoinSet::new();
+        for index in 0..2 {
+            let user_id = inserted_id(&sqlx::query("INSERT INTO users (email, display_name) VALUES (?, 'Concurrent delete tester')")
+                .bind(format!("delete-{suffix}-{index}@example.test")).execute(&pool).await.unwrap());
+            users.push(user_id);
+            let auth = AuthUser {
+                user_id,
+                display_name: "Delete tester".into(),
+                role: "user".into(),
+                auth_time: 0,
+                session_version: 0,
+            };
+            for _ in 1..=8 {
+                let state = state.clone();
+                let auth = auth.clone();
+                creates.spawn(async move {
+                    let (_, Json(entry)) = add_to_collection(
+                        State(state),
+                        auth.clone(),
+                        Json(AddCollectionEntryRequest {
+                            issue_id,
+                            copy_number: None,
+                            edition_label: None,
+                            condition_grade: Some("Z2".into()),
+                            status: Some(if index == 0 { "duplicate" } else { "wanted" }.into()),
+                            notes: None,
+                        }),
+                    )
+                    .await
+                    .unwrap();
+                    (auth, entry.id)
+                });
+            }
+        }
+        while let Some(result) = creates.join_next().await {
+            targets.push(result.unwrap());
+        }
+        assert_eq!(targets.len(), 16);
+        let barrier = Arc::new(tokio::sync::Barrier::new(targets.len()));
+        let mut tasks = tokio::task::JoinSet::new();
+        for (auth, id) in targets {
+            let state = state.clone();
+            let barrier = barrier.clone();
+            tasks.spawn(async move {
+                barrier.wait().await;
+                delete_entry(State(state), auth, Path(id)).await
+            });
+        }
+        while let Some(result) = tasks.join_next().await {
+            assert_eq!(result.unwrap().unwrap(), StatusCode::NO_CONTENT);
+        }
+        let remaining: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM collection_entries WHERE issue_id = ?")
+                .bind(issue_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining, 0);
+        for user in users {
+            sqlx::query("DELETE FROM users WHERE id = ?")
+                .bind(user)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query("DELETE FROM series WHERE id = ?")
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::too_many_lines)]
+    async fn patch_retries_reconciliation_and_deletes_photos_only_after_commit() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let _lock = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let mut cleanup = crate::db::test_cleanup::DatabaseTestCleanup::new(pool.clone());
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mut users = Vec::new();
+        for index in 0..2 {
+            let id = inserted_id(
+                &sqlx::query(
+                    "INSERT INTO users (email, display_name) VALUES (?, 'PATCH retry fixture')",
+                )
+                .bind(format!("patch-retry-{suffix}-{index}@example.test"))
+                .execute(&pool)
+                .await
+                .unwrap(),
+            );
+            cleanup.defer("DELETE FROM users WHERE id = ?", &[id]);
+            users.push(id);
+        }
+        let (owner, partner) = (users[0], users[1]);
+        let series = inserted_id(
+            &sqlx::query(
+                "INSERT INTO series (name, slug, active) VALUES ('PATCH retries', ?, TRUE)",
+            )
+            .bind(format!("patch-retries-{suffix}"))
+            .execute(&pool)
+            .await
+            .unwrap(),
+        );
+        cleanup.defer("DELETE FROM series WHERE id = ?", &[series]);
+        let first = insert_issue(&pool, series, 1, "PATCH photo fixture").await;
+        let second = insert_issue(&pool, series, 2, "Reciprocal offer").await;
+        let mut entries = Vec::new();
+        for (user, issue, status) in [
+            (owner, first, "owned"),
+            (partner, first, "duplicate"),
+            (owner, second, "duplicate"),
+            (partner, second, "wanted"),
+        ] {
+            entries.push(inserted_id(&sqlx::query("INSERT INTO collection_entries (user_id, issue_id, copy_number, condition_grade, status) VALUES (?, ?, 1, 'Z2', ?)")
+                .bind(user).bind(issue).bind(status).execute(&pool).await.unwrap()));
+        }
+        let entry_id = entries[0];
+        let media_root = std::env::temp_dir().join(format!("lilly-patch-retry-{suffix}"));
+        let state = test_state(pool.clone(), media_root.clone());
+        let staged = state
+            .inner
+            .media_storage
+            .stage(b"photo must survive rollback")
+            .await
+            .unwrap();
+        state.inner.media_storage.commit(&staged).await.unwrap();
+        cleanup.defer_text(
+            "DELETE FROM media_deletion_jobs WHERE storage_key = ?",
+            &staged.storage_key,
+        );
+        let photo_id = crate::db::media::insert_photo(
+            &mut pool.acquire().await.unwrap(),
+            entry_id,
+            &staged.storage_key,
+            "image/jpeg",
+            27,
+            1,
+            1,
+            0,
+        )
+        .await
+        .unwrap();
+        let auth = AuthUser {
+            user_id: owner,
+            display_name: "PATCH tester".into(),
+            role: "user".into(),
+            auth_time: 0,
+            session_version: 0,
+        };
+        let update = || UpdateCollectionEntryRequest {
+            condition_grade: None,
+            status: Some("wanted".into()),
+            notes: Some("saved once".into()),
+            edition_label: None,
+            base_revision: Some(1),
+        };
+        // Reconciliation creates the reciprocal match after updating the entry and queuing its photo.
+        // Session variables survive rollback and keep this injection isolated from other tests.
+        cleanup.defer("DROP TRIGGER IF EXISTS lilly_test_patch_retry", &[]);
+        sqlx::query("DROP TRIGGER IF EXISTS lilly_test_patch_retry")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TRIGGER lilly_test_patch_retry BEFORE INSERT ON trade_matches FOR EACH ROW
+            BEGIN
+              IF @lilly_patch_remaining > 0 THEN
+                SET @lilly_patch_remaining = @lilly_patch_remaining - 1;
+                IF @lilly_patch_errno = 1064 THEN
+                  SIGNAL SQLSTATE '42000' SET MYSQL_ERRNO = 1064, MESSAGE_TEXT = 'Injected permanent error';
+                ELSE
+                  SIGNAL SQLSTATE '40001' SET MYSQL_ERRNO = 1213, MESSAGE_TEXT = 'Injected PATCH deadlock';
+                END IF;
+              END IF;
+            END").execute(&pool).await.unwrap();
+
+        for (code, attempts, remaining) in [(1213, 5, 0), (1064, 2, 1)] {
+            sqlx::query("SET @lilly_patch_errno = ?, @lilly_patch_remaining = ?")
+                .bind(code)
+                .bind(attempts)
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert!(matches!(
+                update_entry(
+                    State(state.clone()),
+                    auth.clone(),
+                    Path(entry_id),
+                    Json(update())
+                )
+                .await,
+                Err(AppError::InternalError(_))
+            ));
+            let left: i64 = sqlx::query_scalar("SELECT @lilly_patch_remaining")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(left, remaining);
+            let unchanged = collection::find_entry_by_id_and_user(&pool, entry_id, owner)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(unchanged.status, "owned");
+            assert_eq!(unchanged.revision, 1);
+            assert!(unchanged.notes.is_none());
+            assert!(
+                crate::db::media::find_photo(&pool, photo_id)
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            assert_eq!(
+                state
+                    .inner
+                    .media_storage
+                    .read(&staged.storage_key)
+                    .await
+                    .unwrap(),
+                b"photo must survive rollback"
+            );
+            let jobs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM media_deletion_jobs WHERE storage_key = ?",
+            )
+            .bind(&staged.storage_key)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(jobs, 0);
+        }
+        let mut conflict = update();
+        conflict.base_revision = Some(0);
+        assert!(matches!(
+            update_entry(
+                State(state.clone()),
+                auth.clone(),
+                Path(entry_id),
+                Json(conflict)
+            )
+            .await,
+            Err(AppError::ConflictWithCode { .. })
+        ));
+        let left: i64 = sqlx::query_scalar("SELECT @lilly_patch_remaining")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 1);
+
+        sqlx::query("SET @lilly_patch_errno = 1213, @lilly_patch_remaining = 2")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let Json(saved) = update_entry(State(state.clone()), auth, Path(entry_id), Json(update()))
+            .await
+            .unwrap();
+        assert_eq!(saved.status, "wanted");
+        assert_eq!(saved.revision, Some(2));
+        assert_eq!(saved.notes.as_deref(), Some("saved once"));
+        assert!(
+            crate::db::media::find_photo(&pool, photo_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            state
+                .inner
+                .media_storage
+                .read(&staged.storage_key)
+                .await
+                .is_err()
+        );
+        let job: (i64, i64) = sqlx::query_as("SELECT COUNT(*), CAST(SUM(attempts) AS SIGNED) FROM media_deletion_jobs WHERE storage_key = ? AND processed_at IS NOT NULL")
+            .bind(&staged.storage_key).fetch_one(&pool).await.unwrap();
+        assert_eq!(job, (1, 1));
+        let matches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trade_matches WHERE user_low_id = LEAST(?, ?) AND user_high_id = GREATEST(?, ?)")
+            .bind(owner).bind(partner).bind(owner).bind(partner).fetch_one(&pool).await.unwrap();
+        assert_eq!(matches, 1);
+        cleanup.finish().await.unwrap();
+        // This path is constructed exclusively below the OS temporary directory.
+        assert!(media_root.starts_with(std::env::temp_dir()));
+        tokio::fs::remove_dir_all(media_root).await.unwrap();
     }
 
     fn test_state(pool: sqlx::MySqlPool, media_root: PathBuf) -> AppState {

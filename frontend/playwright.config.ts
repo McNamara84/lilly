@@ -17,7 +17,10 @@ export default defineConfig({
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
 	workers: configuredWorkers(),
-	reporter: process.env.CI ? [['dot'], ['html', { open: 'never' }]] : [['html', { open: 'never' }]],
+	// Keep the running test's name in CI logs even when a runner stops before the final summary.
+	reporter: process.env.CI
+		? [['line'], ['html', { open: 'never' }]]
+		: [['html', { open: 'never' }]],
 	use: {
 		baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:80',
 		// A failed attempt can leave server state that changes the retry's failure.

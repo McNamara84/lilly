@@ -1,16 +1,27 @@
 import { fetchMe, logout as apiLogout, refreshToken } from '#lib/api/auth.js';
 import type { MeResponse } from '#lib/api/auth.js';
+import { SvelteURLSearchParams } from 'svelte/reactivity';
 import { refreshOfflineSnapshot, syncPendingCollectionChanges } from '#lib/api/collection.js';
 import {
 	clearOfflineUserData,
+	clearBlockedOfflineUsers,
 	getCachedProfile,
 	saveConfirmedProfile
 } from '#lib/offline/database.js';
 import { isNetworkFailure } from '#lib/offline/network.js';
+import { listMutations, listConflicts } from '#lib/offline/database.js';
+import {
+	changeOfflineSession,
+	acceptOfflineSessionEnd,
+	offlineSessionVersion,
+	isCurrentOfflineSession,
+	isOfflineUserBlocked
+} from '#lib/offline/session.js';
 
 let user = $state<MeResponse | null>(null);
 let isLoading = $state(true);
 let isOfflineSession = $state(false);
+let logoutError = $state<string | null>(null);
 let authBroadcastInitialized = false;
 
 function initializeAuthBroadcast(): void {
@@ -18,12 +29,21 @@ function initializeAuthBroadcast(): void {
 	authBroadcastInitialized = true;
 	const channel = new BroadcastChannel('lilly-offline');
 	channel.addEventListener('message', (event) => {
-		if (event.data?.type !== 'account-deletion') return;
-		const deletedUserId = event.data.user_id as number | undefined;
-		if (deletedUserId !== undefined) {
-			void clearOfflineUserData(deletedUserId).catch(() => undefined);
-		}
-		if (deletedUserId === undefined || user?.id === deletedUserId) {
+		if (!['account-deletion', 'logout'].includes(event.data?.type)) return;
+		const {
+			user_id: deletedUserId,
+			previous_version: previousVersion,
+			session_version: version
+		} = event.data;
+		if (
+			typeof deletedUserId !== 'number' ||
+			typeof previousVersion !== 'string' ||
+			typeof version !== 'string' ||
+			!acceptOfflineSessionEnd(deletedUserId, previousVersion, version)
+		)
+			return;
+		void clearOfflineUserData(deletedUserId, version).catch(() => undefined);
+		if (user?.id === deletedUserId) {
 			user = null;
 			isOfflineSession = false;
 		}
@@ -31,21 +51,37 @@ function initializeAuthBroadcast(): void {
 }
 
 function warmOfflineData(): void {
+	const version = offlineSessionVersion();
 	void syncPendingCollectionChanges()
 		.catch(() => undefined)
-		.finally(() => refreshOfflineSnapshot().catch(() => undefined));
+		.finally(() => {
+			if (isCurrentOfflineSession(version)) return refreshOfflineSnapshot().catch(() => undefined);
+		});
 }
 
-async function confirmOnlineUser(profile: MeResponse): Promise<void> {
+async function confirmOnlineUser(
+	profile: MeResponse,
+	version: string,
+	interactive: boolean
+): Promise<void> {
+	if (!isCurrentOfflineSession(version)) return;
+	if (isOfflineUserBlocked(profile.id) && !interactive) {
+		user = null;
+		return;
+	}
+	if (!version.startsWith(`active:${profile.id}:`)) changeOfflineSession(profile.id, false);
+	const confirmedVersion = offlineSessionVersion();
 	user = profile;
 	isOfflineSession = false;
+	logoutError = null;
 	await saveConfirmedProfile(profile).catch(() => undefined);
-	warmOfflineData();
+	if (isCurrentOfflineSession(confirmedVersion)) warmOfflineData();
 }
 
 async function restoreOfflineUser(): Promise<boolean> {
+	const version = offlineSessionVersion();
 	const cached = await getCachedProfile().catch(() => null);
-	if (!cached) return false;
+	if (!cached || !isCurrentOfflineSession(version) || isOfflineUserBlocked(cached.id)) return false;
 	user = cached;
 	isOfflineSession = true;
 	return true;
@@ -53,6 +89,9 @@ async function restoreOfflineUser(): Promise<boolean> {
 
 export function getAuthState() {
 	return {
+		get logoutError() {
+			return logoutError;
+		},
 		get user() {
 			return user;
 		},
@@ -71,13 +110,32 @@ export function getAuthState() {
 	};
 }
 
-export async function initAuth(): Promise<void> {
+export async function initAuth(interactive = false): Promise<void> {
 	initializeAuthBroadcast();
+	if (typeof sessionStorage !== 'undefined' && typeof location !== 'undefined') {
+		const started = Number(sessionStorage.getItem('lilly-interactive-oauth') ?? 0);
+		if (
+			['success', 'registered'].includes(
+				new SvelteURLSearchParams(location.search).get('oauth') ?? ''
+			) &&
+			started > Date.now() - 600_000
+		) {
+			interactive = true;
+			sessionStorage.removeItem('lilly-interactive-oauth');
+		}
+	}
 	isLoading = true;
+	const version = offlineSessionVersion();
 	try {
-		await confirmOnlineUser(await fetchMe());
+		await clearBlockedOfflineUsers().catch(() => undefined);
+		if (!isCurrentOfflineSession(version)) return;
+		await confirmOnlineUser(await fetchMe(), version, interactive);
 	} catch (initialError) {
-		if (hasAccountDeletionCode(initialError)) await clearCurrentOfflineData();
+		if (!isCurrentOfflineSession(version)) return;
+		if (hasAccountDeletionCode(initialError)) {
+			await clearCurrentOfflineData(version);
+			return;
+		}
 		if (isNetworkFailure(initialError) && (await restoreOfflineUser())) {
 			isLoading = false;
 			return;
@@ -85,9 +143,13 @@ export async function initAuth(): Promise<void> {
 		// Try refreshing the token once
 		try {
 			await refreshToken();
-			await confirmOnlineUser(await fetchMe());
+			await confirmOnlineUser(await fetchMe(), version, interactive);
 		} catch (refreshError) {
-			if (hasAccountDeletionCode(refreshError)) await clearCurrentOfflineData();
+			if (!isCurrentOfflineSession(version)) return;
+			if (hasAccountDeletionCode(refreshError)) {
+				await clearCurrentOfflineData(version);
+				return;
+			}
 			if (!isNetworkFailure(refreshError) || !(await restoreOfflineUser())) {
 				user = null;
 				isOfflineSession = false;
@@ -103,17 +165,29 @@ function hasAccountDeletionCode(cause: unknown): boolean {
 	return code === 'ACCOUNT_DELETION_PENDING' || code === 'ACCOUNT_DELETION_WINDOW_EXPIRED';
 }
 
-async function clearCurrentOfflineData(): Promise<void> {
+async function clearCurrentOfflineData(version: string): Promise<void> {
 	const userId = user?.id ?? (await getCachedProfile().catch(() => null))?.id;
-	if (userId !== undefined) await clearOfflineUserData(userId).catch(() => undefined);
+	if (!isCurrentOfflineSession(version)) return;
+	if (userId !== undefined) {
+		changeOfflineSession(userId, true);
+		const endedVersion = offlineSessionVersion();
+		user = null;
+		isOfflineSession = false;
+		await clearOfflineUserData(userId, endedVersion).catch(() => undefined);
+	}
 }
 
 export async function deactivateAccountLocally(): Promise<void> {
 	const userId = user?.id ?? (await getCachedProfile().catch(() => null))?.id;
+	const previousVersion = offlineSessionVersion();
+	if (userId !== undefined) changeOfflineSession(userId, true);
+	const version = offlineSessionVersion();
+	user = null;
+	isOfflineSession = false;
 	let offlineCleanupFailed = false;
 	if (userId !== undefined) {
 		try {
-			await clearOfflineUserData(userId);
+			await clearOfflineUserData(userId, version);
 		} catch {
 			offlineCleanupFailed = true;
 		}
@@ -121,13 +195,19 @@ export async function deactivateAccountLocally(): Promise<void> {
 	if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
 		void navigator.serviceWorker.ready
 			.then((registration) => {
-				registration.active?.postMessage({ type: 'PURGE_PRIVATE_DATA' });
+				if (isCurrentOfflineSession(version))
+					registration.active?.postMessage({ type: 'PURGE_PRIVATE_DATA' });
 			})
 			.catch(() => undefined);
 	}
 	if (typeof BroadcastChannel !== 'undefined') {
 		const channel = new BroadcastChannel('lilly-offline');
-		channel.postMessage({ type: 'account-deletion', user_id: userId });
+		channel.postMessage({
+			type: 'account-deletion',
+			user_id: userId,
+			previous_version: previousVersion,
+			session_version: version
+		});
 		channel.close();
 	}
 	if (offlineCleanupFailed) {
@@ -135,27 +215,70 @@ export async function deactivateAccountLocally(): Promise<void> {
 			'Lokale Kontodaten konnten nicht vollständig gelöscht werden. Bitte versuche es erneut.'
 		);
 	}
-	user = null;
-	isOfflineSession = false;
 }
 
-export async function performLogout(): Promise<void> {
+export async function performLogout(): Promise<boolean> {
+	logoutError = null;
 	const userId = user?.id;
+	const previousVersion = offlineSessionVersion();
+	if (userId !== undefined) {
+		const [pending, conflicts] = await Promise.all([
+			listMutations(userId).catch(() => []),
+			listConflicts(userId).catch(() => [])
+		]);
+		if (!isCurrentOfflineSession(previousVersion)) return false;
+		if (
+			(pending.length || conflicts.length) &&
+			!window.confirm(
+				'Es gibt noch nicht übertragene Änderungen oder ungelöste Konflikte. Beim Abmelden werden diese lokalen Daten gelöscht. Trotzdem abmelden?'
+			)
+		)
+			return false;
+		changeOfflineSession(userId, true);
+	}
+	const version = offlineSessionVersion();
+	user = null;
+	isOfflineSession = false;
+	if (typeof BroadcastChannel !== 'undefined') {
+		const channel = new BroadcastChannel('lilly-offline');
+		channel.postMessage({
+			type: 'logout',
+			user_id: userId,
+			previous_version: previousVersion,
+			session_version: version
+		});
+		channel.close();
+	}
+	let remoteError: unknown;
 	try {
 		await apiLogout();
-	} finally {
-		user = null;
-		isOfflineSession = false;
-		if (userId !== undefined) await clearOfflineUserData(userId).catch(() => undefined);
-		if (typeof BroadcastChannel !== 'undefined') {
-			const channel = new BroadcastChannel('lilly-offline');
-			channel.postMessage({ type: 'logout', user_id: userId });
-			channel.close();
+	} catch (error) {
+		remoteError = error;
+	}
+	if (userId !== undefined) {
+		try {
+			await clearOfflineUserData(userId, version);
+		} catch {
+			const message =
+				'Du bist abgemeldet. Lokale Kontodaten konnten nicht vollständig gelöscht werden. Bitte lösche die Websitedaten dieses Browsers.';
+			if (isCurrentOfflineSession(version)) logoutError = message;
+			throw new Error(message);
 		}
 	}
+	if (remoteError) {
+		if (isCurrentOfflineSession(version))
+			logoutError =
+				'Du bist auf diesem Gerät abgemeldet. Die Abmeldung beim Server konnte nicht bestätigt werden.';
+		throw remoteError;
+	}
+	return true;
 }
 
 export function setUser(newUser: MeResponse | null): void {
+	if (newUser) {
+		changeOfflineSession(newUser.id, false);
+		logoutError = null;
+	}
 	user = newUser;
 	isOfflineSession = false;
 	if (newUser) void saveConfirmedProfile(newUser).catch(() => undefined);

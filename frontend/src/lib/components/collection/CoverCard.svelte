@@ -5,10 +5,11 @@
 		entry: CollectionEntry;
 		size?: 'sm' | 'md' | 'lg';
 		interactive?: boolean;
+		priority?: boolean;
 		onclick?: () => void;
 	}
 
-	let { entry, size = 'md', interactive = true, onclick }: Props = $props();
+	let { entry, size = 'md', interactive = true, priority = false, onclick }: Props = $props();
 
 	const sizeClasses = $derived(size === 'sm' ? 'w-24' : size === 'lg' ? 'w-48' : 'w-36');
 
@@ -75,7 +76,8 @@
 				src={entry.cover_local_path ?? entry.cover_url}
 				alt={coverAlt}
 				class="w-full h-full object-cover"
-				loading="lazy"
+				loading={priority ? 'eager' : 'lazy'}
+				fetchpriority={priority ? 'high' : undefined}
 			/>
 		{:else}
 			<div class="w-full h-full flex items-center justify-center text-sm" style="color: #cbd5e1;">

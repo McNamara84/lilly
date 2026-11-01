@@ -12,3 +12,4 @@ pub mod publication;
 pub mod rate_limit;
 pub mod trade_matching;
 pub mod trades;
+pub(crate) mod transaction_retry;

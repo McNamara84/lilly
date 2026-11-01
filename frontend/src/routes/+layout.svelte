@@ -36,7 +36,7 @@
 	}
 
 	async function handleLogout() {
-		await performLogout();
+		if ((await performLogout().catch(() => true)) === false) return;
 		await goto(resolve('login'));
 	}
 </script>
@@ -44,6 +44,12 @@
 <svelte:head>
 	<title>LILLY – Listing Inventory for Lovely Little Yellowbacks</title>
 </svelte:head>
+
+{#if auth.logoutError}
+	<p role="alert" class="fixed top-16 left-4 right-4 z-50 rounded-lg bg-red-950 p-4 text-white">
+		{auth.logoutError}
+	</p>
+{/if}
 
 <div
 	class="min-h-screen"

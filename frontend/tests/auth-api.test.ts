@@ -206,6 +206,14 @@ describe('Auth API Client', () => {
 	});
 
 	describe('OAuth and privacy', () => {
+		it('does not mark reauthentication as an interactive login', async () => {
+			sessionStorage.removeItem('lilly-interactive-oauth');
+			mockFetch.mockResolvedValue(
+				Response.json({ authorization_url: 'https://provider.example/reauth' })
+			);
+			await expect(startOAuth('github', 'reauth')).resolves.toBe('https://provider.example/reauth');
+			expect(sessionStorage.getItem('lilly-interactive-oauth')).toBeNull();
+		});
 		it('loads provider availability and the current privacy version', async () => {
 			mockFetch.mockResolvedValue({
 				ok: true,
@@ -354,14 +362,35 @@ describe('Auth API Client', () => {
 
 	describe('logout', () => {
 		it('sends POST request with credentials', async () => {
-			mockFetch.mockResolvedValue({ ok: true });
+			mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
 
-			await logout();
+			await expect(logout()).resolves.toBeUndefined();
 
 			expect(mockFetch).toHaveBeenCalledWith('/api/v1/auth/logout', {
 				method: 'POST',
 				credentials: 'same-origin'
 			});
+		});
+
+		it.each([401, 503])('rejects an unconfirmed logout with HTTP %s', async (status) => {
+			mockFetch.mockResolvedValue(
+				Response.json({ error: 'Logout failed', code: 'LOGOUT_FAILED' }, { status })
+			);
+			await expect(logout()).rejects.toMatchObject({
+				message: 'Logout failed',
+				code: 'LOGOUT_FAILED'
+			});
+		});
+
+		it('rejects a non-JSON proxy error instead of confirming logout', async () => {
+			mockFetch.mockResolvedValue(new Response('Service unavailable', { status: 503 }));
+			await expect(logout()).rejects.toThrow('An unexpected error occurred');
+		});
+
+		it('propagates a failed logout request', async () => {
+			const error = new TypeError('Network unavailable');
+			mockFetch.mockRejectedValue(error);
+			await expect(logout()).rejects.toBe(error);
 		});
 	});
 

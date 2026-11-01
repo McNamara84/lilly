@@ -14,6 +14,7 @@
 	} from '#lib/collection/editions.js';
 	import ConditionChips from './ConditionChips.svelte';
 	import PhotoUploader from '#lib/components/media/PhotoUploader.svelte';
+	import { trackUnsavedChanges } from '#lib/offline/pwa.svelte.js';
 
 	interface Props {
 		issue: Issue | null;
@@ -65,6 +66,15 @@
 	const needsCondition = $derived(status !== 'wanted' || collection_entry?.condition_grade != null);
 	const noteLength = $derived(countCollectionNoteCharacters(notes));
 	const editionLabelLength = $derived(countEditionLabelCharacters(editionLabel));
+	const unsavedChanges = $derived(
+		status !==
+			(collection_entry && collection_entry.status !== 'missing'
+				? collection_entry.status
+				: 'owned') ||
+			(needsCondition && conditionGrade !== (collection_entry?.condition_grade ?? 'Z2')) ||
+			notes !== (collection_entry?.notes ?? '') ||
+			editionLabel !== (collection_entry?.edition_label ?? '')
+	);
 
 	function handleSave() {
 		if (!issue) return;
@@ -107,6 +117,7 @@
 	<!-- Sheet -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 	<aside
+		use:trackUnsavedChanges={() => unsavedChanges}
 		class="fixed z-50 overflow-y-auto
 			bottom-0 left-0 right-0 max-h-[85vh] rounded-t-2xl
 			md:top-0 md:right-0 md:bottom-0 md:left-auto md:w-[420px] md:max-h-full md:rounded-t-none md:rounded-l-2xl"

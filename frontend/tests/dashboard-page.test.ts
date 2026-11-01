@@ -30,6 +30,21 @@ vi.mock('$app/paths', () => ({
 }));
 
 describe('Dashboard Page', () => {
+	it.each(['cancelled', 'failed'] as const)('handles a %s logout', async (outcome) => {
+		const { goto } = await import('$app/navigation');
+		mockGetAuthState.mockReturnValue({
+			isAuthenticated: true,
+			user: { id: 1, display_name: 'Collector' },
+			isLoading: false
+		});
+		if (outcome === 'cancelled') mockPerformLogout.mockResolvedValue(false);
+		else mockPerformLogout.mockRejectedValue(new Error('offline'));
+		render(DashboardPage);
+		await userEvent.click(screen.getByTestId('logout-button'));
+		if (outcome === 'cancelled') expect(goto).not.toHaveBeenCalled();
+		else expect(goto).toHaveBeenCalledWith('/login');
+	});
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockPerformLogout.mockResolvedValue(undefined);

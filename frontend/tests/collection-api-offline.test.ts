@@ -32,6 +32,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 describe('collection API offline integration', () => {
 	beforeEach(async () => {
 		mockFetch.mockReset();
+		localStorage.clear();
 		await resetOfflineDatabaseForTests();
 		await saveConfirmedProfile(profile(1));
 		await replaceOfflineSnapshot(snapshot(1));
@@ -61,8 +62,11 @@ describe('collection API offline integration', () => {
 		});
 	});
 
-	it('persists an offline create and sends it once after reconnect', async () => {
-		mockFetch.mockRejectedValueOnce(new TypeError('Network unavailable'));
+	it.each([
+		new TypeError('Network unavailable'),
+		new DOMException('Response timed out', 'TimeoutError')
+	])('preserves a create after %s and retries the same mutation', async (failure) => {
+		mockFetch.mockRejectedValueOnce(failure);
 		const optimistic = await addToCollection({
 			issue_id: 20,
 			condition_grade: 'Z1',
@@ -94,14 +98,15 @@ describe('collection API offline integration', () => {
 		expect(stored.some((item) => item.id === optimistic.id)).toBe(false);
 		expect(stored.find((item) => item.id === 99)?.condition_grade).toBe('Z1');
 		expect(mockFetch).toHaveBeenCalledTimes(2);
+		expect(JSON.parse(String(mockFetch.mock.calls[1][1].body)).mutations[0].mutation_id).toBe(
+			pending.mutation_id
+		);
 	});
 
-	it('returns the optimistic create when synchronization has no matching result', async () => {
+	it('reports an incomplete response while retaining the optimistic create', async () => {
 		mockFetch.mockResolvedValueOnce(jsonResponse({ results: [] }));
-
-		const optimistic = await addToCollection({ issue_id: 20, status: 'wanted' });
-
-		expect(optimistic.id).toBeLessThan(0);
+		await expect(addToCollection({ issue_id: 20, status: 'wanted' })).rejects.toThrow('nicht alle');
+		expect(await listMutations(1)).toHaveLength(1);
 	});
 
 	it('surfaces rejected and non-network create failures', async () => {
@@ -159,12 +164,10 @@ describe('collection API offline integration', () => {
 
 		await replaceOfflineSnapshot(snapshot(1));
 		mockFetch.mockResolvedValueOnce(jsonResponse({ results: [] }));
-		await expect(updateCollectionEntry(entry.id, { notes: 'optimistisch' })).resolves.toMatchObject(
-			{
-				notes: 'optimistisch',
-				sync_state: 'pending'
-			}
+		await expect(updateCollectionEntry(entry.id, { notes: 'optimistisch' })).rejects.toThrow(
+			'nicht alle'
 		);
+		expect(await listMutations(1)).toHaveLength(1);
 	});
 
 	it('keeps cached updates on network failure and surfaces rejected updates', async () => {
@@ -208,4 +211,65 @@ describe('collection API offline integration', () => {
 		await refreshOfflineSnapshot();
 		expect((await listStoredCollectionEntries(1))[0].id).toBe(88);
 	});
+	it('keeps optimistic content visible when a successful list refresh arrives before sync', async () => {
+		const { queueCollectionUpdate } = await import('#lib/offline/queue.js');
+		await queueCollectionUpdate(1, entry.id, { notes: 'unsent' });
+		mockFetch.mockResolvedValue(jsonResponse({ data: [entry], page: 1, per_page: 50, total: 1 }));
+		expect((await fetchCollection()).data[0].notes).toBe('unsent');
+	});
+
+	it('also rejects a session change while an online response is being cached', async () => {
+		const database = await import('#lib/offline/database.js');
+		const { changeOfflineSession } = await import('#lib/offline/session.js');
+		const merge = vi.spyOn(database, 'mergeCollectionEntries').mockImplementationOnce(async () => {
+			changeOfflineSession(1, true);
+			changeOfflineSession(2, false);
+		});
+		mockFetch.mockResolvedValue(jsonResponse({ data: [entry], total: 1, page: 1, per_page: 50 }));
+		try {
+			await expect(fetchCollection()).rejects.toThrow('Sitzung');
+		} finally {
+			merge.mockRestore();
+		}
+	});
+
+	it.each(['list', 'snapshot', 'sync'] as const)(
+		'discards a late %s response across logout and another login',
+		async (kind) => {
+			const { changeOfflineSession } = await import('#lib/offline/session.js');
+			const { sendCollectionSync } = await import('#lib/api/collection.js');
+			changeOfflineSession(1, false);
+			let complete!: (value: Response) => void;
+			mockFetch.mockReturnValueOnce(
+				new Promise((resolve) => {
+					complete = resolve;
+				})
+			);
+			const pending =
+				kind === 'list'
+					? fetchCollection()
+					: kind === 'snapshot'
+						? refreshOfflineSnapshot()
+						: sendCollectionSync([]);
+			const observed = pending.then(
+				() => 'resolved',
+				() => 'rejected'
+			);
+			changeOfflineSession(1, true);
+			changeOfflineSession(2, false);
+			await saveConfirmedProfile(profile(2));
+			complete(
+				jsonResponse(
+					kind === 'list'
+						? { data: [entry], page: 1, per_page: 50, total: 1 }
+						: kind === 'snapshot'
+							? snapshot(1)
+							: { results: [] }
+				)
+			);
+			expect(await observed).toBe(kind === 'snapshot' ? 'resolved' : 'rejected');
+			expect(await listStoredCollectionEntries(2)).toEqual([]);
+			expect(await listStoredCollectionEntries(1)).toEqual([]);
+		}
+	);
 });

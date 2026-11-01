@@ -9,6 +9,7 @@ const worker = self as unknown as ServiceWorkerGlobalScope;
 const APP_CACHE = `lilly-app-${version}`;
 const COVER_CACHE = `lilly-covers-${version}`;
 const ALLOWED_CACHES = new Set([APP_CACHE, COVER_CACHE]);
+const clientVersions = new Map<string, string>();
 const PRECACHE_ASSETS = [...new Set(assets.map(({ path }) => asset(path)))].filter(
 	(path) => !path.startsWith('/api/') && !path.startsWith('/media/')
 );
@@ -65,6 +66,12 @@ async function cacheFirstAppAsset(request: Request): Promise<Response> {
 	const cache = await caches.open(APP_CACHE);
 	const cached = await cache.match(request);
 	if (cached) return cached;
+	// Existing tabs may still execute the preceding build after an update is activated.
+	for (const name of await caches.keys()) {
+		if (!name.startsWith('lilly-app-') || name === APP_CACHE) continue;
+		const previous = await (await caches.open(name)).match(request);
+		if (previous) return previous;
+	}
 	const response = await fetch(request);
 	if (response.ok) await cache.put(request, response.clone());
 	return response;
@@ -73,7 +80,7 @@ async function cacheFirstAppAsset(request: Request): Promise<Response> {
 worker.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches.open(APP_CACHE).then(async (cache) => {
-			await cache.addAll(PRECACHE_ASSETS);
+			await cache.addAll([...new Set([...PRECACHE_ASSETS, ...BUILD_ASSETS])]);
 			try {
 				const root = await fetch('/');
 				if (root.ok) await cache.put('/', root);
@@ -84,14 +91,20 @@ worker.addEventListener('install', (event) => {
 	);
 });
 
+async function cleanObsoleteCaches(): Promise<void> {
+	const clients = await worker.clients.matchAll({ type: 'window', includeUncontrolled: true });
+	if (clients.some((client) => clientVersions.get(client.id) !== version)) return;
+	await Promise.all(
+		(await caches.keys())
+			.filter((key) => key.startsWith('lilly-') && !ALLOWED_CACHES.has(key))
+			.map((key) => caches.delete(key))
+	);
+}
+
 worker.addEventListener('activate', (event) => {
 	event.waitUntil(
 		(async () => {
-			await Promise.all(
-				(await caches.keys())
-					.filter((key) => key.startsWith('lilly-') && !ALLOWED_CACHES.has(key))
-					.map((key) => caches.delete(key))
-			);
+			await cleanObsoleteCaches();
 			await worker.clients.claim();
 		})()
 	);
@@ -124,6 +137,10 @@ worker.addEventListener('fetch', (event) => {
 });
 
 worker.addEventListener('message', (event) => {
+	if (event.data?.type === 'CLIENT_VERSION' && event.source && 'id' in event.source) {
+		clientVersions.set(event.source.id, event.data.version);
+		event.waitUntil(cleanObsoleteCaches());
+	}
 	if (event.data === 'SKIP_WAITING') void worker.skipWaiting();
 	if (event.data?.type === 'PURGE_PRIVATE_DATA') {
 		event.waitUntil(

@@ -50,6 +50,25 @@ describe('offline database', () => {
 		expect(await listStoredCollectionEntries(2)).toEqual([]);
 	});
 
+	it('reconciles repeated snapshots, catalog corrections and removed records', async () => {
+		await replaceOfflineSnapshot(snapshot(1));
+		await replaceOfflineSnapshot(snapshot(1));
+		expect(await listStoredCollectionEntries(1)).toEqual([entry]);
+		const corrected = {
+			...snapshot(1, [{ ...entry, notes: 'Server correction' }]),
+			series: [{ ...series, name: 'Corrected series' }],
+			issues: [{ ...issue, title: 'Corrected title' }]
+		};
+		await replaceOfflineSnapshot(corrected);
+		expect(await listStoredSeries(1)).toEqual(corrected.series);
+		expect(await listStoredIssues(1)).toEqual(corrected.issues);
+		expect(await listStoredCollectionEntries(1)).toEqual(corrected.collection_entries);
+		await replaceOfflineSnapshot({ ...snapshot(1, []), series: [], issues: [] });
+		expect(await listStoredSeries(1)).toEqual([]);
+		expect(await listStoredIssues(1)).toEqual([]);
+		expect(await listStoredCollectionEntries(1)).toEqual([]);
+	});
+
 	it('persists mutations in creation order', async () => {
 		const later: CollectionMutation = {
 			mutation_id: '11111111-1111-4111-8111-111111111111',

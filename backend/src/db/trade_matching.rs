@@ -822,6 +822,7 @@ mod tests {
         crate::db::migrate_test_database(&pool)
             .await
             .expect("test migrations must succeed");
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
 
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1404,6 +1405,7 @@ mod tests {
         crate::db::migrate_test_database(&pool)
             .await
             .expect("test migrations must succeed");
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
 
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1519,6 +1521,197 @@ mod tests {
             .execute(&pool)
             .await
             .expect("series fixture must be deleted");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::too_many_lines)]
+    async fn trade_transactions_retry_deadlocks_without_partial_or_duplicate_writes() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        // Session variables survive rollback; one connection makes fault injection deterministic.
+        let pool = MySqlPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let mut cleanup = crate::db::test_cleanup::DatabaseTestCleanup::new(pool.clone());
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let owner = insert_user(
+            &pool,
+            &format!("retry-owner-{suffix}@example.test"),
+            "Retry Owner",
+        )
+        .await;
+        cleanup.defer("DELETE FROM users WHERE id = ?", &[owner]);
+        let partner = insert_user(
+            &pool,
+            &format!("retry-partner-{suffix}@example.test"),
+            "Retry Partner",
+        )
+        .await;
+        cleanup.defer("DELETE FROM users WHERE id = ?", &[partner]);
+        let series = insert_series(&pool, suffix).await;
+        cleanup.defer("DELETE FROM series WHERE id = ?", &[series]);
+        let first = insert_issue(&pool, series, 1, "First Retry Issue").await;
+        let second = insert_issue(&pool, series, 2, "Second Retry Issue").await;
+        let offer = insert_entry(&pool, owner, first, "duplicate", Some("Z1")).await;
+        let partner_wish = insert_entry(&pool, partner, first, "wanted", None).await;
+        let partner_offer = insert_entry(&pool, partner, second, "duplicate", Some("Z2")).await;
+        let wish = insert_entry(&pool, owner, second, "wanted", None).await;
+        reconcile(&pool, owner).await;
+        let matches = matching_service::list_matches(
+            &pool,
+            owner,
+            &PageParams {
+                page: 1,
+                per_page: 20,
+            },
+        )
+        .await
+        .unwrap();
+        let match_id = matches.data[0].id;
+        cleanup.defer("DELETE FROM trades WHERE match_id = ?", &[match_id]);
+        let request = CreateTradeProposalRequest {
+            offered_entry_ids: vec![offer],
+            requested_entry_ids: vec![partner_offer],
+        };
+        // Fail after the trade, items, thread or collection changes have already been written.
+        // Other tests use different sessions and cannot activate this trigger's failure branch.
+        cleanup.defer("DROP TRIGGER IF EXISTS lilly_test_trade_retry", &[]);
+        sqlx::query("DROP TRIGGER IF EXISTS lilly_test_trade_retry")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER lilly_test_trade_retry BEFORE INSERT ON notifications FOR EACH ROW
+             BEGIN
+               IF NEW.kind = @lilly_retry_kind AND @lilly_retry_remaining > 0 THEN
+                 SET @lilly_retry_remaining = @lilly_retry_remaining - 1;
+                 SIGNAL SQLSTATE '40001' SET MYSQL_ERRNO = 1213, MESSAGE_TEXT = 'Injected trade deadlock';
+               END IF;
+             END"
+        ).execute(&pool).await.unwrap();
+
+        arm_trade_deadlock(&pool, "trade_proposed", 1).await;
+        let proposed = trades::create_proposal(&pool, owner, match_id, &request)
+            .await
+            .unwrap();
+        assert_eq!(proposed.status, "proposed");
+        assert_eq!(
+            trade_notification_count(&pool, partner, proposed.id, "trade_proposed").await,
+            1
+        );
+        let proposal_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM trades WHERE match_id = ?")
+                .bind(match_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(proposal_count, 1);
+
+        arm_trade_deadlock(&pool, "trade_accepted", 1).await;
+        assert!(matches!(
+            trades::accept_trade(&pool, owner, proposed.id).await,
+            Err(AppError::Forbidden { .. })
+        ));
+        let accepted = trades::accept_trade(&pool, partner, proposed.id)
+            .await
+            .unwrap();
+        assert_eq!(accepted.status, "accepted");
+        trades::accept_trade(&pool, partner, proposed.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            trade_notification_count(&pool, owner, proposed.id, "trade_accepted").await,
+            1
+        );
+
+        // Exhaustion propagates the error and leaves the entire accepted trade unchanged.
+        arm_trade_deadlock(&pool, "trade_cancelled", 5).await;
+        assert!(matches!(
+            trades::cancel_trade(&pool, owner, proposed.id).await,
+            Err(AppError::InternalError(_))
+        ));
+        let remaining: i64 = sqlx::query_scalar("SELECT @lilly_retry_remaining")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(remaining, 0);
+        assert_eq!(trade_status(&pool, proposed.id).await, "accepted");
+        assert_eq!(
+            trade_notification_count(&pool, partner, proposed.id, "trade_cancelled").await,
+            0
+        );
+
+        arm_trade_deadlock(&pool, "trade_cancelled", 1).await;
+        trades::cancel_trade(&pool, owner, proposed.id)
+            .await
+            .unwrap();
+        trades::cancel_trade(&pool, owner, proposed.id)
+            .await
+            .unwrap();
+        assert_eq!(trade_status(&pool, proposed.id).await, "cancelled");
+        assert_eq!(
+            trade_notification_count(&pool, partner, proposed.id, "trade_cancelled").await,
+            1
+        );
+
+        let next = trades::create_proposal(&pool, owner, match_id, &request)
+            .await
+            .unwrap();
+        trades::accept_trade(&pool, partner, next.id).await.unwrap();
+        arm_trade_deadlock(&pool, "trade_completion_confirmed", 1).await;
+        let waiting = trades::complete_trade(&pool, owner, next.id).await.unwrap();
+        assert_eq!(waiting.trade.status, "accepted");
+        assert_eq!(completion_confirmation_count(&pool, next.id).await, 1);
+        arm_trade_deadlock(&pool, "trade_completed", 1).await;
+        let completed = trades::complete_trade(&pool, partner, next.id)
+            .await
+            .unwrap();
+        assert_eq!(completed.trade.status, "completed");
+        assert_eq!(completion_confirmation_count(&pool, next.id).await, 2);
+        assert_eq!(collection_entry_count(&pool, offer).await, 0);
+        assert_eq!(collection_entry_count(&pool, partner_offer).await, 0);
+        for entry_id in [wish, partner_wish] {
+            let status: String =
+                sqlx::query_scalar("SELECT status FROM collection_entries WHERE id = ?")
+                    .bind(entry_id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(status, "owned");
+        }
+        assert_eq!(
+            trade_notification_count(&pool, owner, next.id, "trade_completed").await,
+            1
+        );
+        let repeated = trades::complete_trade(&pool, partner, next.id)
+            .await
+            .unwrap();
+        assert_eq!(repeated.trade.status, "completed");
+        assert_eq!(repeated.photo_storage_keys, Vec::<String>::new());
+        let totals: (i64, i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), (SELECT COUNT(*) FROM message_threads mt JOIN trades t ON t.id = mt.trade_id WHERE t.match_id = ?),
+             (SELECT COUNT(*) FROM trade_items ti JOIN trades t ON t.id = ti.trade_id WHERE t.match_id = ?) FROM trades WHERE match_id = ?"
+        ).bind(match_id).bind(match_id).bind(match_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(totals, (2, 2, 4));
+
+        cleanup.finish().await.unwrap();
+    }
+
+    async fn arm_trade_deadlock(pool: &MySqlPool, kind: &str, attempts: i32) {
+        sqlx::query("SET @lilly_retry_kind = ?, @lilly_retry_remaining = ?")
+            .bind(kind)
+            .bind(attempts)
+            .execute(pool)
+            .await
+            .unwrap();
     }
 
     async fn reconcile(pool: &MySqlPool, user_id: u32) -> ReconciliationStats {
