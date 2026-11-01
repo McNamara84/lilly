@@ -21,8 +21,8 @@ pub mod users;
 #[cfg(test)]
 static TEST_MIGRATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-// Import lifecycle tests intentionally exercise global reconciliation queries. Serialize
-// them so a parallel test cannot interrupt a job that belongs to another test case.
+// Import and matching tests exercise global reconciliation queries and shared catalogs.
+// Serialize their fixtures; intentional concurrency is exercised within individual tests.
 #[cfg(test)]
 pub static IMPORT_SYNC_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 

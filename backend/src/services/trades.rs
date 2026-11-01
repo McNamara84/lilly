@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::json;
 use sqlx::MySqlPool;
 
+use super::transaction_retry::retry_transaction;
 use crate::db::{collection, media, notifications, trade_matching, trade_workflow};
 use crate::error::AppError;
 use crate::models::trade_matching::{
@@ -16,6 +17,19 @@ pub async fn create_proposal(
     match_id: u32,
     request: &CreateTradeProposalRequest,
 ) -> Result<TradeResponse, AppError> {
+    let trade_id = retry_transaction("create trade proposal", || {
+        create_proposal_once(pool, user_id, match_id, request)
+    })
+    .await?;
+    get_trade(pool, user_id, trade_id).await
+}
+
+async fn create_proposal_once(
+    pool: &MySqlPool,
+    user_id: u32,
+    match_id: u32,
+    request: &CreateTradeProposalRequest,
+) -> Result<u32, AppError> {
     let (offered_entry_ids, requested_entry_ids) =
         request.normalize().map_err(AppError::BadRequest)?;
     let offered_ids = offered_entry_ids.into_iter().collect::<BTreeSet<_>>();
@@ -106,7 +120,7 @@ pub async fn create_proposal(
     )
     .await?;
     transaction.commit().await?;
-    get_trade(pool, user_id, trade_id).await
+    Ok(trade_id)
 }
 
 pub async fn accept_trade(
@@ -114,6 +128,14 @@ pub async fn accept_trade(
     user_id: u32,
     trade_id: u32,
 ) -> Result<TradeResponse, AppError> {
+    retry_transaction("accept trade", || {
+        accept_trade_once(pool, user_id, trade_id)
+    })
+    .await?;
+    get_trade(pool, user_id, trade_id).await
+}
+
+async fn accept_trade_once(pool: &MySqlPool, user_id: u32, trade_id: u32) -> Result<(), AppError> {
     let mut transaction = pool.begin().await?;
     let trade = trade_workflow::lock_trade_for_participant(&mut transaction, trade_id, user_id)
         .await?
@@ -127,7 +149,7 @@ pub async fn accept_trade(
     match trade.status.as_str() {
         "accepted" => {
             transaction.commit().await?;
-            return get_trade(pool, user_id, trade_id).await;
+            return Ok(());
         }
         "proposed" => {}
         _ => {
@@ -160,10 +182,17 @@ pub async fn accept_trade(
     )
     .await?;
     transaction.commit().await?;
-    get_trade(pool, user_id, trade_id).await
+    Ok(())
 }
 
 pub async fn cancel_trade(pool: &MySqlPool, user_id: u32, trade_id: u32) -> Result<(), AppError> {
+    retry_transaction("cancel trade", || {
+        cancel_trade_once(pool, user_id, trade_id)
+    })
+    .await
+}
+
+async fn cancel_trade_once(pool: &MySqlPool, user_id: u32, trade_id: u32) -> Result<(), AppError> {
     let mut transaction = pool.begin().await?;
     let trade = trade_workflow::lock_trade_for_participant(&mut transaction, trade_id, user_id)
         .await?
@@ -206,12 +235,27 @@ pub struct CompletionResult {
     pub photo_storage_keys: Vec<String>,
 }
 
-#[allow(clippy::too_many_lines)]
 pub async fn complete_trade(
     pool: &MySqlPool,
     user_id: u32,
     trade_id: u32,
 ) -> Result<CompletionResult, AppError> {
+    let photo_storage_keys = retry_transaction("complete trade", || {
+        complete_trade_once(pool, user_id, trade_id)
+    })
+    .await?;
+    Ok(CompletionResult {
+        trade: get_trade(pool, user_id, trade_id).await?,
+        photo_storage_keys,
+    })
+}
+
+#[allow(clippy::too_many_lines)]
+async fn complete_trade_once(
+    pool: &MySqlPool,
+    user_id: u32,
+    trade_id: u32,
+) -> Result<Vec<String>, AppError> {
     let mut transaction = pool.begin().await?;
     let trade = trade_workflow::lock_trade_for_participant(&mut transaction, trade_id, user_id)
         .await?
@@ -219,10 +263,7 @@ pub async fn complete_trade(
 
     if trade.status == "completed" {
         transaction.commit().await?;
-        return Ok(CompletionResult {
-            trade: get_trade(pool, user_id, trade_id).await?,
-            photo_storage_keys: Vec::new(),
-        });
+        return Ok(Vec::new());
     }
     if trade.status != "accepted" {
         return Err(conflict(
@@ -258,10 +299,7 @@ pub async fn complete_trade(
         )
         .await?;
         transaction.commit().await?;
-        return Ok(CompletionResult {
-            trade: get_trade(pool, user_id, trade_id).await?,
-            photo_storage_keys: Vec::new(),
-        });
+        return Ok(Vec::new());
     }
 
     let issue_ids = trade_workflow::find_trade_issue_ids(&mut transaction, trade_id).await?;
@@ -387,10 +425,7 @@ pub async fn complete_trade(
     .await?;
     transaction.commit().await?;
 
-    Ok(CompletionResult {
-        trade: get_trade(pool, user_id, trade_id).await?,
-        photo_storage_keys,
-    })
+    Ok(photo_storage_keys)
 }
 
 fn validate_completion_item(item: &trade_workflow::CompletionItemRow) -> Result<(), AppError> {

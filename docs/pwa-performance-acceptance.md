@@ -163,6 +163,70 @@ eintreffende Logout-Nachrichten erzeugen keine zweite Sitzungsversion, die eine 
 Anmeldung abbrechen könnte. Der Test prüft die tatsächlich gespeicherten Benutzer-IDs
 und anschließend die Offline-Anzeige des neuen Kontos.
 
+## CI-Nachprüfung vom 01.11.2026
+
+Der [CI-Lauf 159](https://github.com/McNamara84/lilly/actions/runs/41272229978)
+zu `f693ffc` fand einen Fehler, den die ursprüngliche lokale Browserabnahme nicht
+ausgelöst hatte: Beim Annehmen und anschließenden Aufräumen eines Tauschs scheiterten
+Transaktionen mit MariaDB-Deadlock `1213 / 40001`. Die Sammlung wiederholte solche
+Transaktionen bereits, die Tauschabläufe noch nicht. Der verbliebene offene Tausch
+blockierte anschließend die Testwiederholungen.
+
+Vorschlag, Annahme, Abbruch und Abschluss wiederholen nun ausschließlich vollständig
+zurückgerollte Transaktionen bei vorübergehenden Datenbankkonflikten, mit insgesamt
+höchstens fünf Versuchen.
+Die Fehlerklassifikation wird mit der Sammlung geteilt. Antwortabfragen nach dem Commit
+und externe Fotooperationen liegen außerhalb der Wiederholung. Fachliche Konflikte,
+fehlende Berechtigungen und Verbindungsfehler werden nicht pauschal wiederholt.
+
+Ein MariaDB-Regressionstest injiziert den Fehler nach bereits erfolgten Schreibvorgängen.
+Er scheiterte vor der Korrektur mit demselben Fehlercode und besteht danach einschließlich
+Wiederholungsgrenze, Rollback, einmaliger Benachrichtigungen und unveränderter
+Tausch-/Sammlungskonsistenz. Die PWA-Fixture erzeugt ihre Bilder vor dem Öffnen der
+Datenbanktransaktion; auch deren Datenbankteil kann begrenzt wiederholt werden.
+Tests mit gemeinsamen globalen Katalogabgleichen verwenden die vorhandene Testsperre;
+beabsichtigte Parallelität innerhalb eines Tests bleibt erhalten.
+
+Der WebKit-Job endete separat mit einem Runner-Shutdown und Exitcode 143. Sein Log
+enthält keinen vollständigen Fehlerbericht; daraus lässt sich keine konkrete
+Anwendungsursache ableiten. CI protokolliert jetzt den Namen jedes gestarteten Tests,
+damit ein abgebrochener Lauf mehr Informationen hinterlässt. Firefox, Frontend-/Backend-
+Prüfungen und Security waren im ursprünglichen GitHub-Lauf bereits erfolgreich.
+
+Die zusätzliche Linux-Prüfung reproduzierte einen WebKit-Hänger in der Wunschliste:
+50 Kandidatenkarten mit je einem Hintergrund-Weichzeichner ließen den Speicherbedarf
+des isolierten Browser-Testcontainers auf über 7 GiB wachsen; bereits das Anklicken einer Checkbox
+hing. Ein kontrollierter Vergleich ohne diese Filter bestand denselben Ablauf dreimal
+in 25,1 Sekunden. Die Karten verwenden deshalb auf dem flachen Listenhintergrund keinen
+eigenen Hintergrundfilter mehr; Farben, Rahmen und Schatten bleiben erhalten. Der
+Browsertest prüft ausdrücklich die Bedienbarkeit einer vollen Seite mit 50 Karten.
+Ein Fehler beim Aufräumen eines Tests verdeckt außerdem nicht länger den ursprünglichen
+Browserfehler. Ob dieser Speicherbedarf den GitHub-Runner-Shutdown verursacht hat,
+bleibt ohne vollständige Runnerdiagnose unbewiesen.
+
+Bei der lokalen Nachprüfung bestehen alle 917 Frontend- und 432 Rust-Tests; die
+Datenbanktests verwenden echte MariaDB. Formatierung, Typprüfung, ESLint, Rustfmt
+und Clippy mit `-D warnings` sind ebenfalls erfolgreich.
+Die zusätzliche Browsernachprüfung unter Linux mit Playwright 1.64.1, Node 26.13.0
+und npm 12.2.1 besteht 311 Tests in Chromium, Firefox und WebKit ohne Testwiederholungen
+(6,1 Minuten). Sie verwendet die produktive Darstellungskorrektur ohne CSS-Eingriffe
+im Test. Die sieben bestehenden Ausnahmen sind sechs separat ausgeführte A/B-Updates
+und ein vollständig netzloser WebKit-Neuladetest. Auch die zehn mobilen PWA-Tests
+und die sechs separat ausgeführten Produktionsupdates bestehen ohne
+Testwiederholungen. Insgesamt bestehen damit 327 Browser-/PWA-Tests unter Linux.
+
+Die zehn kalten mobilen Lighthouse-Messungen bestehen ebenfalls. Die Mediane sind
+99 Punkte / 758,6 ms FCP für die öffentliche Seite und 96 Punkte / 759,0 ms FCP für
+die angemeldete Sammlung. Die Grenzen bleiben mindestens 90 Punkte und höchstens
+3.000 ms FCP pro Route. Alle fünf Sammlungsläufe bestätigen 200 Einträge und geladene
+Cover. [Die Linux-Messreihe](pwa-performance-results-linux.json) dokumentiert sämtliche
+Einzelwerte, Werkzeuge und das Profil. Ihr Commitfeld nennt den Ausgangsstand `f693ffc`;
+`workingTreeDirty: true` kennzeichnet die hier geprüften, noch nicht committeten
+Korrekturen. Die ursprüngliche Messreihe vom 31.10. bleibt separat erhalten.
+
+Dies sind lokale Linux-Nachweise; ein neuer GitHub-CI-Lauf nach dem Push steht noch aus.
+Der Implementierungsplan bleibt außerhalb des Korrekturcommits.
+
 ## Browsergrenzen und spätere Geräteprüfung
 
 Playwright-WebKit kann beim vollständig netzlosen Neuladen einer vom Service Worker

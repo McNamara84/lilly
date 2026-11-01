@@ -1,5 +1,12 @@
 //! Deterministic, private PWA/performance accounts, enabled only by the E2E demo seed.
+use crate::error::AppError;
+use crate::services::transaction_retry::retry_transaction;
 use sqlx::MySqlPool;
+
+const SERIES: [(&str, &str); 2] = [
+    ("maddrax", "Maddrax – Die dunkle Zukunft der Erde"),
+    ("john-sinclair", "Geisterjäger John Sinclair"),
+];
 
 pub async fn seed(
     pool: &MySqlPool,
@@ -10,6 +17,24 @@ pub async fn seed(
     tokio::fs::create_dir_all(&covers).await?;
     let hash = crate::auth::password::hash_password("e2e-pwa-password")
         .map_err(|error| anyhow::anyhow!("{error}"))?;
+    // Prepare filesystem fixtures before opening a transaction or taking database locks.
+    for (slug, _) in SERIES {
+        for number in 1..=100 {
+            let image = image::RgbImage::from_fn(320, 480, |x, y| {
+                image::Rgb([
+                    (x + number * 13).to_le_bytes()[0],
+                    (y + number * 7).to_le_bytes()[0],
+                    (x ^ y ^ number).to_le_bytes()[0],
+                ])
+            });
+            image.save(covers.join(format!("{slug}-{number}.jpg")))?;
+        }
+    }
+    retry_transaction("seed PWA fixtures", || seed_database(pool, workers, &hash)).await?;
+    Ok(())
+}
+
+async fn seed_database(pool: &MySqlPool, workers: u16, hash: &str) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     let mut accounts = vec!["e2e-performance@lilly.app".to_string()];
     for browser in ["chromium", "firefox", "webkit", "mobile-chrome"] {
@@ -19,7 +44,7 @@ pub async fn seed(
     }
     for email in &accounts {
         sqlx::query("INSERT INTO users (email, password_hash, display_name, role, email_verified) VALUES (?, ?, 'PWA Test', 'user', TRUE) ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), email_verified = TRUE")
-            .bind(email).bind(&hash).execute(&mut *tx).await?;
+            .bind(email).bind(hash).execute(&mut *tx).await?;
     }
     let performance_user: u32 = sqlx::query_scalar("SELECT id FROM users WHERE email = ?")
         .bind(&accounts[0])
@@ -29,10 +54,7 @@ pub async fn seed(
         .bind(performance_user)
         .execute(&mut *tx)
         .await?;
-    for (slug, name) in [
-        ("maddrax", "Maddrax – Die dunkle Zukunft der Erde"),
-        ("john-sinclair", "Geisterjäger John Sinclair"),
-    ] {
+    for (slug, name) in SERIES {
         sqlx::query("INSERT INTO series (name, slug, total_issues, status, active) VALUES (?, ?, 100, 'running', TRUE) ON DUPLICATE KEY UPDATE active = TRUE")
             .bind(name).bind(slug).execute(&mut *tx).await?;
         let series_id: u32 = sqlx::query_scalar("SELECT id FROM series WHERE slug = ?")
@@ -40,16 +62,7 @@ pub async fn seed(
             .fetch_one(&mut *tx)
             .await?;
         for number in 1..=100 {
-            // Distinct, deterministic local JPEGs exercise image loading without wiki traffic.
-            let image = image::RgbImage::from_fn(320, 480, |x, y| {
-                image::Rgb([
-                    (x + number * 13).to_le_bytes()[0],
-                    (y + number * 7).to_le_bytes()[0],
-                    (x ^ y ^ number).to_le_bytes()[0],
-                ])
-            });
             let filename = format!("{slug}-{number}.jpg");
-            image.save(covers.join(&filename))?;
             sqlx::query(
                 "INSERT IGNORE INTO issues (series_id, issue_number, title) VALUES (?, ?, ?)",
             )

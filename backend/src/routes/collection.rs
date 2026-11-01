@@ -19,6 +19,7 @@ use crate::models::collection::{
     validate_mutation_id, validate_sort_direction, validate_status_condition,
 };
 use crate::services::trade_matching;
+use crate::services::transaction_retry::is_retryable_transaction_error as is_retryable_collection_transaction_error;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -452,21 +453,6 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
         sqlx::Error::Database(database_error)
             if database_error.kind() == sqlx::error::ErrorKind::UniqueViolation
     )
-}
-
-fn is_retryable_collection_transaction_error(error: &AppError) -> bool {
-    let AppError::InternalError(error) = error else {
-        return false;
-    };
-    let Some(sqlx::Error::Database(database_error)) = error.downcast_ref::<sqlx::Error>() else {
-        return false;
-    };
-
-    // SQLx exposes SQLSTATE through code(); MariaDB's numeric codes are separate.
-    database_error
-        .try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>()
-        .is_some_and(|error| matches!(error.number(), 1020 | 1205 | 1213))
-        || database_error.code().is_some_and(|code| code == "40001")
 }
 
 fn mutation_fingerprint(mutation: &CollectionSyncMutation) -> Result<String, AppError> {

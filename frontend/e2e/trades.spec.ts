@@ -70,24 +70,19 @@ async function firstMaddraxIssueId(page: Page): Promise<number> {
 	});
 }
 
-async function ensureOwned(page: Page, issueId: number) {
-	await page.evaluate(async (id) => {
-		const currentResponse = await fetch(`/api/v1/me/collection/by-issue/${id}`);
-		if (!currentResponse.ok) throw new Error('Could not inspect the demo collection entry');
-		const current = (await currentResponse.json()) as { id: number } | null;
-		const response = current
-			? await fetch(`/api/v1/me/collection/${current.id}`, {
-					method: 'PATCH',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ status: 'owned', condition_grade: 'Z2' })
+async function ensureOwned(request: APIRequestContext, issueId: number) {
+	const currentResponse = await request.get(`/api/v1/me/collection/by-issue/${issueId}`);
+	await requireSuccessful(currentResponse);
+	const current = (await currentResponse.json()) as { id: number } | null;
+	await requireSuccessful(
+		current
+			? await request.patch(`/api/v1/me/collection/${current.id}`, {
+					data: { status: 'owned', condition_grade: 'Z2' }
 				})
-			: await fetch('/api/v1/me/collection', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ issue_id: id, status: 'owned', condition_grade: 'Z2' })
-				});
-		if (!response.ok) throw new Error('Could not restore the demo collection entry');
-	}, issueId);
+			: await request.post('/api/v1/me/collection', {
+					data: { issue_id: issueId, status: 'owned', condition_grade: 'Z2' }
+				})
+	);
 }
 
 async function removeCollectionEntry(page: Page, issueId: number) {
@@ -107,10 +102,11 @@ test.describe('Trade lists', () => {
 	});
 
 	test('duplicate offer and wanted issue workflows stay synchronized with the collection', async ({
-		page
+		page,
+		request
 	}) => {
 		const issueId = await firstMaddraxIssueId(page);
-		await ensureOwned(page, issueId);
+		await ensureOwned(request, issueId);
 
 		try {
 			await page.goto('/collection/add');
@@ -134,6 +130,8 @@ test.describe('Trade lists', () => {
 			await page.goto('/trades/wanted/add');
 			await expect(page.getByTestId('series-select')).toBeVisible();
 			await page.getByTestId('series-select').selectOption('maddrax');
+			// A full page of cards must remain interactive, including in software-rendered WebKit.
+			await expect(page.getByTestId('candidate-item')).toHaveCount(50);
 			const candidate = page
 				.getByTestId('candidate-item')
 				.filter({ hasText: 'Der Gott aus dem Eis' });
@@ -150,7 +148,11 @@ test.describe('Trade lists', () => {
 			await wanted.getByRole('button', { name: 'Entfernen' }).click();
 			await expect(wanted).toHaveCount(0);
 		} finally {
-			await ensureOwned(page, issueId);
+			// Restore through an independent API context even if the browser timed out or closed.
+			const [restoration] = await Promise.allSettled([ensureOwned(request, issueId)]);
+			expect.soft(restoration, 'The demo collection entry must be restored').toMatchObject({
+				status: 'fulfilled'
+			});
 		}
 	});
 
