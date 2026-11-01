@@ -73,6 +73,7 @@ async function confirmOnlineUser(
 	const confirmedVersion = offlineSessionVersion();
 	user = profile;
 	isOfflineSession = false;
+	logoutError = null;
 	await saveConfirmedProfile(profile).catch(() => undefined);
 	if (isCurrentOfflineSession(confirmedVersion)) warmOfflineData();
 }
@@ -258,21 +259,26 @@ export async function performLogout(): Promise<boolean> {
 		try {
 			await clearOfflineUserData(userId, version);
 		} catch {
-			logoutError =
+			const message =
 				'Du bist abgemeldet. Lokale Kontodaten konnten nicht vollständig gelöscht werden. Bitte lösche die Websitedaten dieses Browsers.';
-			throw new Error(logoutError);
+			if (isCurrentOfflineSession(version)) logoutError = message;
+			throw new Error(message);
 		}
 	}
 	if (remoteError) {
-		logoutError =
-			'Du bist auf diesem Gerät abgemeldet. Die Abmeldung beim Server konnte nicht bestätigt werden.';
+		if (isCurrentOfflineSession(version))
+			logoutError =
+				'Du bist auf diesem Gerät abgemeldet. Die Abmeldung beim Server konnte nicht bestätigt werden.';
 		throw remoteError;
 	}
 	return true;
 }
 
 export function setUser(newUser: MeResponse | null): void {
-	if (newUser) changeOfflineSession(newUser.id, false);
+	if (newUser) {
+		changeOfflineSession(newUser.id, false);
+		logoutError = null;
+	}
 	user = newUser;
 	isOfflineSession = false;
 	if (newUser) void saveConfirmedProfile(newUser).catch(() => undefined);

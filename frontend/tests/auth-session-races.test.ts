@@ -9,6 +9,75 @@ vi.mock('#lib/api/collection.js', () => ({
 }));
 
 describe('logout and in-flight authentication', () => {
+	it.each(['confirmation', 'direct', 'oauth', 'refresh'] as const)(
+		'clears a previous logout error after a successful %s login',
+		async (path) => {
+			const auth = await import('#lib/stores/auth.svelte.js');
+			const api = await import('#lib/api/auth.js');
+			await auth.initAuth();
+			vi.mocked(api.logout).mockRejectedValueOnce(new Error('server unavailable'));
+			await expect(auth.performLogout()).rejects.toThrow('server unavailable');
+			expect(auth.getAuthState().logoutError).toContain('nicht bestätigt');
+			if (path === 'direct') auth.setUser(profile(7));
+			else if (path === 'oauth') {
+				sessionStorage.setItem('lilly-interactive-oauth', String(Date.now()));
+				window.history.replaceState({}, '', '/?oauth=success');
+				await auth.initAuth();
+			} else {
+				if (path === 'refresh') vi.mocked(api.fetchMe).mockRejectedValueOnce(new Error('expired'));
+				await auth.initAuth(true);
+			}
+			expect(auth.getAuthState().user).toEqual(profile(7));
+			expect(auth.getAuthState().logoutError).toBeNull();
+		}
+	);
+
+	it('preserves the logout error until a new login actually succeeds', async () => {
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const api = await import('#lib/api/auth.js');
+		await auth.initAuth();
+		vi.mocked(api.logout).mockRejectedValueOnce(new Error('server unavailable'));
+		await expect(auth.performLogout()).rejects.toThrow();
+		const error = auth.getAuthState().logoutError;
+		auth.setUser(null);
+		vi.mocked(api.fetchMe).mockRejectedValueOnce(new Error('login failed'));
+		vi.mocked(api.refreshToken).mockRejectedValueOnce(new Error('refresh failed'));
+		await auth.initAuth(true);
+		expect(auth.getAuthState().isAuthenticated).toBe(false);
+		expect(auth.getAuthState().logoutError).toBe(error);
+	});
+
+	it('does not restore an old logout error when the request fails after a new login', async () => {
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const api = await import('#lib/api/auth.js');
+		await auth.initAuth();
+		const remote = Promise.withResolvers<void>();
+		vi.mocked(api.logout).mockReturnValueOnce(remote.promise);
+		const pending = auth.performLogout();
+		await vi.waitFor(() => expect(api.logout).toHaveBeenCalledOnce());
+		await auth.initAuth(true);
+		remote.reject(new Error('old logout failed'));
+		await expect(pending).rejects.toThrow('old logout failed');
+		expect(auth.getAuthState().user).toEqual(profile(7));
+		expect(auth.getAuthState().logoutError).toBeNull();
+	});
+
+	it('does not show a late cleanup error in a newer authenticated session', async () => {
+		// Delay this tab's logout cleanup, independently of the broadcast receiver.
+		vi.stubGlobal('BroadcastChannel', undefined);
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const database = await import('#lib/offline/database.js');
+		await auth.initAuth();
+		const cleanup = Promise.withResolvers<void>();
+		const clear = vi.spyOn(database, 'clearOfflineUserData').mockReturnValueOnce(cleanup.promise);
+		const pending = auth.performLogout();
+		await vi.waitFor(() => expect(clear).toHaveBeenCalledOnce());
+		await auth.initAuth(true);
+		cleanup.reject(new Error('old cleanup failed'));
+		await expect(pending).rejects.toThrow('Websitedaten');
+		expect(auth.getAuthState().user).toEqual(profile(7));
+		expect(auth.getAuthState().logoutError).toBeNull();
+	});
 	it('does not clear a fresh login when an older remote logout finishes late', async () => {
 		const auth = await import('#lib/stores/auth.svelte.js');
 		const api = await import('#lib/api/auth.js');

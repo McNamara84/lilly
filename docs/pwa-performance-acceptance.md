@@ -367,6 +367,56 @@ beide FCP-Mediane liegen unter 800 ms. Die Grenzwerte bleiben 90 Punkte und 3.00
 alle Einzelwerte und die Werkzeugversionen. `commit: 911837d…` bezeichnet den
 Ausgangsstand, `workingTreeDirty: true` die geprüften Korrekturen vor dem Commit.
 
+## Dritte Review-Runde vom 01.11.2026
+
+Die drei Hinweise sind berechtigt und behoben:
+
+- Der Deadlock-Test registriert Trigger und Datenbank-Fixtures sofort zur
+  Bereinigung. Ein Guard entfernt sie auch beim Unwinding nach fehlgeschlagenen
+  Assertions und beim Abbruch eines Tokio-Tasks, bevor der Datenbank-Testmutex
+  freigegeben wird. Die Notfallbereinigung wartet auf eine unabhängige Verbindung;
+  ausstehende Transaktions-Rollbacks können dabei weiterlaufen. Drei MariaDB-Tests
+  prüfen Erfolg, Panic und Task-Abbruch einschließlich einer noch offenen
+  Transaktion. Die Fehlerauslösung des ursprünglichen Triggers war bereits durch
+  verbindungslokale Variablen isoliert; sein Verbleib im gemeinsamen Schema und
+  die fehlende Fixture-Bereinigung waren trotzdem Fehler. Bei hartem Prozessabbruch
+  oder unerreichbarer Datenbank kann ein Guard keine Bereinigung garantieren.
+- PATCH wiederholt die vollständige Transaktion mit derselben Fehlerklassifizierung
+  und maximal fünf Versuchen wie die übrigen abgesicherten Schreibvorgänge.
+  Fotolöschungen bleiben außerhalb der Wiederholung und erfolgen erst nach dem
+  Commit. Ein MariaDB-Regressionstest injiziert Fehler in die Tauschabstimmung:
+  Er prüft ausgeschöpfte Wiederholungen, einen dauerhaften SQL-Fehler, einen
+  Revisionskonflikt und schließlich den Erfolg nach zwei Deadlocks. Fehlgeschlagene
+  Versuche erhalten Revision, Notizen, Fotodatensatz und Fotodatei. Der Erfolg
+  erhöht die Revision genau einmal und verarbeitet genau einen Löschauftrag.
+- Erfolgreiche Anmeldung setzt den alten Logout-Fehler zurück, auch über OAuth,
+  Token-Erneuerung und direktes Setzen des angemeldeten Nutzers. Fehlgeschlagene
+  Anmeldung erhält den Hinweis. Verspätete Fehler eines überholten Logout- oder
+  Bereinigungsaufrufs dürfen ihn in einer neueren Sitzung nicht wieder einblenden.
+
+Die Browserprüfung deckte zusätzlich auf, dass der Logout-API-Client HTTP-Fehler
+bisher als Erfolg behandelte. Er prüft jetzt auch den Antwortstatus. Zusätzliche
+Tests prüfen 401, 503, nicht als JSON lesbare Proxyfehler, Netzwerkfehler und eine
+erfolgreiche leere 204-Antwort. Der Browser-Regressionstest simuliert eine
+503-Antwort und bedient anschließend das echte Anmeldeformular zunächst mit einem
+falschen, dann mit dem richtigen Passwort.
+
+Die vollständigen Prüfungen bestehen **436 Rust-Tests mit angebundener MariaDB**
+und **1.026 Frontend-Tests in 72 Dateien**. Die vier neuen Rust-Tests und elf neuen
+Frontend-Tests sichern die oben beschriebenen Abläufe ab. Der LCOV-Abgleich gegen
+`28adf4b` ergibt **542 von 542 vollständig abgedeckten geänderten Frontend-Zeilen
+(100 % Patch-Abdeckung)**. Insgesamt werden 98,71 % Statements, 90,38 % Branches
+und 99,41 % Lines erreicht. Rustfmt, Clippy mit `-D warnings`, Prettier, ESLint,
+Svelte-/TypeScript-Prüfung und Frontend-Produktionsbuild bestehen. Prüfschwellen
+und Coverage-Konfiguration bleiben unverändert.
+
+Die abschließende Browserprüfung besteht **36 PWA-Resilienztests ohne automatische
+Wiederholungen** in Chromium, Firefox, WebKit und mobilem Chrome. Im ersten Lauf
+scheiterte der neue Logout-Test in allen vier Projekten am unbeachteten HTTP-Fehler;
+nach der Statusprüfung bestehen diese vier Fälle ebenso wie die 32 bestehenden
+Prüfungen. Lighthouse und die separate A/B-Updatereihe wurden in dieser Runde
+nicht erneut ausgeführt; ihre zuletzt dokumentierten Messungen bleiben unverändert.
+
 ## Browsergrenzen und spätere Geräteprüfung
 
 Playwright-WebKit kann beim vollständig netzlosen Neuladen einer vom Service Worker

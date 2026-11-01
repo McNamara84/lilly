@@ -19,6 +19,9 @@ pub mod trades;
 pub mod users;
 
 #[cfg(test)]
+pub(crate) mod test_cleanup;
+
+#[cfg(test)]
 static TEST_MIGRATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 // Import and matching tests exercise global reconciliation queries and shared catalogs.

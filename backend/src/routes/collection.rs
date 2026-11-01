@@ -766,9 +766,17 @@ async fn update_entry(
     Path(entry_id): Path<u32>,
     Json(body): Json<UpdateCollectionEntryRequest>,
 ) -> Result<Json<CollectionEntryResponse>, AppError> {
-    let mut transaction = state.inner.pool.begin().await?;
-    let updated = update_entry_in_transaction(&mut transaction, &auth, entry_id, &body).await?;
-    transaction.commit().await?;
+    let updated = crate::services::transaction_retry::retry_transaction(
+        "updating collection entry",
+        || async {
+            let mut transaction = state.inner.pool.begin().await?;
+            let updated =
+                update_entry_in_transaction(&mut transaction, &auth, entry_id, &body).await?;
+            transaction.commit().await?;
+            Ok(updated)
+        },
+    )
+    .await?;
 
     process_collection_photo_deletions(&state, entry_id, updated.photo_storage_keys).await;
 
@@ -1714,6 +1722,227 @@ mod tests {
             .await
             .unwrap();
         let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::too_many_lines)]
+    async fn patch_retries_reconciliation_and_deletes_photos_only_after_commit() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = MySqlPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let _lock = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let mut cleanup = crate::db::test_cleanup::DatabaseTestCleanup::new(pool.clone());
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mut users = Vec::new();
+        for index in 0..2 {
+            let id = inserted_id(
+                &sqlx::query(
+                    "INSERT INTO users (email, display_name) VALUES (?, 'PATCH retry fixture')",
+                )
+                .bind(format!("patch-retry-{suffix}-{index}@example.test"))
+                .execute(&pool)
+                .await
+                .unwrap(),
+            );
+            cleanup.defer("DELETE FROM users WHERE id = ?", &[id]);
+            users.push(id);
+        }
+        let (owner, partner) = (users[0], users[1]);
+        let series = inserted_id(
+            &sqlx::query(
+                "INSERT INTO series (name, slug, active) VALUES ('PATCH retries', ?, TRUE)",
+            )
+            .bind(format!("patch-retries-{suffix}"))
+            .execute(&pool)
+            .await
+            .unwrap(),
+        );
+        cleanup.defer("DELETE FROM series WHERE id = ?", &[series]);
+        let first = insert_issue(&pool, series, 1, "PATCH photo fixture").await;
+        let second = insert_issue(&pool, series, 2, "Reciprocal offer").await;
+        let mut entries = Vec::new();
+        for (user, issue, status) in [
+            (owner, first, "owned"),
+            (partner, first, "duplicate"),
+            (owner, second, "duplicate"),
+            (partner, second, "wanted"),
+        ] {
+            entries.push(inserted_id(&sqlx::query("INSERT INTO collection_entries (user_id, issue_id, copy_number, condition_grade, status) VALUES (?, ?, 1, 'Z2', ?)")
+                .bind(user).bind(issue).bind(status).execute(&pool).await.unwrap()));
+        }
+        let entry_id = entries[0];
+        let media_root = std::env::temp_dir().join(format!("lilly-patch-retry-{suffix}"));
+        let state = test_state(pool.clone(), media_root.clone());
+        let staged = state
+            .inner
+            .media_storage
+            .stage(b"photo must survive rollback")
+            .await
+            .unwrap();
+        state.inner.media_storage.commit(&staged).await.unwrap();
+        cleanup.defer_text(
+            "DELETE FROM media_deletion_jobs WHERE storage_key = ?",
+            &staged.storage_key,
+        );
+        let photo_id = crate::db::media::insert_photo(
+            &mut pool.acquire().await.unwrap(),
+            entry_id,
+            &staged.storage_key,
+            "image/jpeg",
+            27,
+            1,
+            1,
+            0,
+        )
+        .await
+        .unwrap();
+        let auth = AuthUser {
+            user_id: owner,
+            display_name: "PATCH tester".into(),
+            role: "user".into(),
+            auth_time: 0,
+            session_version: 0,
+        };
+        let update = || UpdateCollectionEntryRequest {
+            condition_grade: None,
+            status: Some("wanted".into()),
+            notes: Some("saved once".into()),
+            edition_label: None,
+            base_revision: Some(1),
+        };
+        // Reconciliation creates the reciprocal match after updating the entry and queuing its photo.
+        // Session variables survive rollback and keep this injection isolated from other tests.
+        cleanup.defer("DROP TRIGGER IF EXISTS lilly_test_patch_retry", &[]);
+        sqlx::query("DROP TRIGGER IF EXISTS lilly_test_patch_retry")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TRIGGER lilly_test_patch_retry BEFORE INSERT ON trade_matches FOR EACH ROW
+            BEGIN
+              IF @lilly_patch_remaining > 0 THEN
+                SET @lilly_patch_remaining = @lilly_patch_remaining - 1;
+                IF @lilly_patch_errno = 1064 THEN
+                  SIGNAL SQLSTATE '42000' SET MYSQL_ERRNO = 1064, MESSAGE_TEXT = 'Injected permanent error';
+                ELSE
+                  SIGNAL SQLSTATE '40001' SET MYSQL_ERRNO = 1213, MESSAGE_TEXT = 'Injected PATCH deadlock';
+                END IF;
+              END IF;
+            END").execute(&pool).await.unwrap();
+
+        for (code, attempts, remaining) in [(1213, 5, 0), (1064, 2, 1)] {
+            sqlx::query("SET @lilly_patch_errno = ?, @lilly_patch_remaining = ?")
+                .bind(code)
+                .bind(attempts)
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert!(matches!(
+                update_entry(
+                    State(state.clone()),
+                    auth.clone(),
+                    Path(entry_id),
+                    Json(update())
+                )
+                .await,
+                Err(AppError::InternalError(_))
+            ));
+            let left: i64 = sqlx::query_scalar("SELECT @lilly_patch_remaining")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(left, remaining);
+            let unchanged = collection::find_entry_by_id_and_user(&pool, entry_id, owner)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(unchanged.status, "owned");
+            assert_eq!(unchanged.revision, 1);
+            assert!(unchanged.notes.is_none());
+            assert!(
+                crate::db::media::find_photo(&pool, photo_id)
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            assert_eq!(
+                state
+                    .inner
+                    .media_storage
+                    .read(&staged.storage_key)
+                    .await
+                    .unwrap(),
+                b"photo must survive rollback"
+            );
+            let jobs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM media_deletion_jobs WHERE storage_key = ?",
+            )
+            .bind(&staged.storage_key)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(jobs, 0);
+        }
+        let mut conflict = update();
+        conflict.base_revision = Some(0);
+        assert!(matches!(
+            update_entry(
+                State(state.clone()),
+                auth.clone(),
+                Path(entry_id),
+                Json(conflict)
+            )
+            .await,
+            Err(AppError::ConflictWithCode { .. })
+        ));
+        let left: i64 = sqlx::query_scalar("SELECT @lilly_patch_remaining")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 1);
+
+        sqlx::query("SET @lilly_patch_errno = 1213, @lilly_patch_remaining = 2")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let Json(saved) = update_entry(State(state.clone()), auth, Path(entry_id), Json(update()))
+            .await
+            .unwrap();
+        assert_eq!(saved.status, "wanted");
+        assert_eq!(saved.revision, Some(2));
+        assert_eq!(saved.notes.as_deref(), Some("saved once"));
+        assert!(
+            crate::db::media::find_photo(&pool, photo_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            state
+                .inner
+                .media_storage
+                .read(&staged.storage_key)
+                .await
+                .is_err()
+        );
+        let job: (i64, i64) = sqlx::query_as("SELECT COUNT(*), CAST(SUM(attempts) AS SIGNED) FROM media_deletion_jobs WHERE storage_key = ? AND processed_at IS NOT NULL")
+            .bind(&staged.storage_key).fetch_one(&pool).await.unwrap();
+        assert_eq!(job, (1, 1));
+        let matches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trade_matches WHERE user_low_id = LEAST(?, ?) AND user_high_id = GREATEST(?, ?)")
+            .bind(owner).bind(partner).bind(owner).bind(partner).fetch_one(&pool).await.unwrap();
+        assert_eq!(matches, 1);
+        cleanup.finish().await.unwrap();
+        // This path is constructed exclusively below the OS temporary directory.
+        assert!(media_root.starts_with(std::env::temp_dir()));
+        tokio::fs::remove_dir_all(media_root).await.unwrap();
     }
 
     fn test_state(pool: sqlx::MySqlPool, media_root: PathBuf) -> AppState {

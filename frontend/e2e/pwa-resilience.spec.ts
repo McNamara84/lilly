@@ -209,6 +209,38 @@ test('reads both initial series offline', async ({ page, context }) => {
 	await context.setOffline(false);
 });
 
+test('clears the failed logout alert only after signing in successfully again', async ({
+	page
+}, info) => {
+	// Inject at fetch so this also reaches service-worker-controlled WebKit pages.
+	await page.evaluate(() => {
+		const originalFetch = window.fetch.bind(window);
+		window.fetch = async (input, init) => {
+			if (!String(input).endsWith('/auth/logout')) return originalFetch(input, init);
+			window.fetch = originalFetch;
+			return new Response(JSON.stringify({ error: 'Injected logout failure' }), {
+				status: 503,
+				headers: { 'Content-Type': 'application/json' }
+			});
+		};
+	});
+	await page.getByTestId('header-logout-button').click();
+	await expect(page.getByTestId('login-form')).toBeVisible();
+	const alert = page.getByRole('alert').filter({ hasText: 'Abmeldung beim Server' });
+	await expect(alert).toBeVisible();
+	await page
+		.getByTestId('email-input')
+		.fill(`e2e-pwa-${info.project.name}-${info.parallelIndex}@lilly.app`);
+	await page.getByTestId('password-input').fill('incorrect-password');
+	await page.getByTestId('submit-button').click();
+	await expect(page.getByTestId('login-error')).toBeVisible();
+	await expect(alert).toBeVisible();
+	await page.getByTestId('password-input').fill('e2e-pwa-password');
+	await page.getByTestId('submit-button').click();
+	await expect(page.getByTestId('header-logout-button')).toBeVisible();
+	await expect(alert).toHaveCount(0);
+});
+
 test('ignores delayed session-end notifications after the same account signs in again', async ({
 	page,
 	context,

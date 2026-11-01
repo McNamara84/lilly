@@ -1523,7 +1523,7 @@ mod tests {
             .expect("series fixture must be deleted");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::too_many_lines)]
     async fn trade_transactions_retry_deadlocks_without_partial_or_duplicate_writes() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
@@ -1537,6 +1537,7 @@ mod tests {
             .unwrap();
         crate::db::migrate_test_database(&pool).await.unwrap();
         let _database_guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let mut cleanup = crate::db::test_cleanup::DatabaseTestCleanup::new(pool.clone());
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1547,13 +1548,16 @@ mod tests {
             "Retry Owner",
         )
         .await;
+        cleanup.defer("DELETE FROM users WHERE id = ?", &[owner]);
         let partner = insert_user(
             &pool,
             &format!("retry-partner-{suffix}@example.test"),
             "Retry Partner",
         )
         .await;
+        cleanup.defer("DELETE FROM users WHERE id = ?", &[partner]);
         let series = insert_series(&pool, suffix).await;
+        cleanup.defer("DELETE FROM series WHERE id = ?", &[series]);
         let first = insert_issue(&pool, series, 1, "First Retry Issue").await;
         let second = insert_issue(&pool, series, 2, "Second Retry Issue").await;
         let offer = insert_entry(&pool, owner, first, "duplicate", Some("Z1")).await;
@@ -1572,12 +1576,14 @@ mod tests {
         .await
         .unwrap();
         let match_id = matches.data[0].id;
+        cleanup.defer("DELETE FROM trades WHERE match_id = ?", &[match_id]);
         let request = CreateTradeProposalRequest {
             offered_entry_ids: vec![offer],
             requested_entry_ids: vec![partner_offer],
         };
         // Fail after the trade, items, thread or collection changes have already been written.
         // Other tests use different sessions and cannot activate this trigger's failure branch.
+        cleanup.defer("DROP TRIGGER IF EXISTS lilly_test_trade_retry", &[]);
         sqlx::query("DROP TRIGGER IF EXISTS lilly_test_trade_retry")
             .execute(&pool)
             .await
@@ -1696,26 +1702,7 @@ mod tests {
         ).bind(match_id).bind(match_id).bind(match_id).fetch_one(&pool).await.unwrap();
         assert_eq!(totals, (2, 2, 4));
 
-        sqlx::query("DROP TRIGGER lilly_test_trade_retry")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM trades WHERE match_id = ?")
-            .bind(match_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM users WHERE id IN (?, ?)")
-            .bind(owner)
-            .bind(partner)
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM series WHERE id = ?")
-            .bind(series)
-            .execute(&pool)
-            .await
-            .unwrap();
+        cleanup.finish().await.unwrap();
     }
 
     async fn arm_trade_deadlock(pool: &MySqlPool, kind: &str, attempts: i32) {

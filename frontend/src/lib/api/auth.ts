@@ -181,10 +181,11 @@ export async function refreshToken(): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-	await fetch(`${API_BASE}/auth/logout`, {
+	const response = await fetch(`${API_BASE}/auth/logout`, {
 		method: 'POST',
 		credentials: 'same-origin'
 	});
+	if (!response.ok) await handleResponse<void>(response);
 }
 
 export async function resendVerification(email: string): Promise<void> {
