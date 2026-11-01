@@ -46,6 +46,32 @@ function renderLayout() {
 }
 
 describe('Layout', () => {
+	it.each(['cancelled', 'failed'] as const)(
+		'handles a %s logout without hiding the result',
+		async (outcome) => {
+			const { goto } = await import('$app/navigation');
+			mockGetAuthState.mockReturnValue({
+				isAuthenticated: true,
+				user: { id: 1, display_name: 'Collector' },
+				isLoading: false,
+				logoutError: outcome === 'failed' ? 'The remote logout could not be confirmed.' : null
+			});
+			if (outcome === 'cancelled') mockPerformLogout.mockResolvedValue(false);
+			else mockPerformLogout.mockRejectedValue(new Error('offline'));
+			renderLayout();
+			await userEvent.click(screen.getByTestId('header-logout-button'));
+			if (outcome === 'cancelled') {
+				expect(goto).not.toHaveBeenCalled();
+				expect(screen.getByTestId('header-logout-button')).toBeInTheDocument();
+			} else {
+				expect(goto).toHaveBeenCalledWith('/login');
+				expect(screen.getByRole('alert')).toHaveTextContent(
+					'The remote logout could not be confirmed.'
+				);
+			}
+		}
+	);
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		// Default: not authenticated

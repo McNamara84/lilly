@@ -5,7 +5,29 @@ describe('offline session tombstones', () => {
 		vi.resetModules();
 		localStorage.clear();
 	});
-	afterEach(() => vi.restoreAllMocks());
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
+	});
+
+	it('uses the in-memory session and blocked users when storage reads fail', async () => {
+		const session = await import('#lib/offline/session.js');
+		session.changeOfflineSession(1, true);
+		const version = session.offlineSessionVersion();
+		vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+			throw new DOMException('Blocked', 'SecurityError');
+		});
+		expect(session.offlineSessionVersion()).toBe(version);
+		expect(session.isOfflineUserBlocked(1)).toBe(true);
+		expect(session.isOfflineUserBlocked(2)).toBe(false);
+	});
+
+	it('can inspect a session when localStorage is unavailable', async () => {
+		const session = await import('#lib/offline/session.js');
+		vi.stubGlobal('localStorage', undefined);
+		expect(session.offlineSessionVersion()).toBe('');
+		expect(session.isOfflineUserBlocked(1)).toBe(false);
+	});
 
 	it('invalidates old responses and keeps logout durable across module reloads', async () => {
 		let session = await import('#lib/offline/session.js');

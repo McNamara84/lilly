@@ -230,6 +230,16 @@ describe('SeriesProgressBar', () => {
 // CoverCard
 // ---------------------------------------------------------------------------
 describe('CoverCard', () => {
+	it.each([true, false])('loads a cover with the requested priority (%s)', (priority) => {
+		render(CoverCard, {
+			props: { entry: makeEntry({ cover_local_path: '/media/covers/1.jpg' }), priority }
+		});
+		const image = screen.getByRole('img');
+		expect(image).toHaveAttribute('loading', priority ? 'eager' : 'lazy');
+		if (priority) expect(image).toHaveAttribute('fetchpriority', 'high');
+		else expect(image).not.toHaveAttribute('fetchpriority');
+	});
+
 	it('renders issue number and title', () => {
 		render(CoverCard, { props: { entry: makeEntry() } });
 

@@ -224,8 +224,35 @@ Einzelwerte, Werkzeuge und das Profil. Ihr Commitfeld nennt den Ausgangsstand `f
 `workingTreeDirty: true` kennzeichnet die hier geprüften, noch nicht committeten
 Korrekturen. Die ursprüngliche Messreihe vom 31.10. bleibt separat erhalten.
 
-Dies sind lokale Linux-Nachweise; ein neuer GitHub-CI-Lauf nach dem Push steht noch aus.
+Der anschließende [GitHub-CI-Lauf zu `16fefed`](https://github.com/McNamara84/lilly/actions/runs/41275637846)
+bestätigte alle Build-, Lint-, Backend- und Browserprüfungen. Der zusätzliche Codecov-Check
+meldete noch fehlende Testabdeckung; die Nachprüfung dazu folgt unten.
 Der Implementierungsplan bleibt außerhalb des Korrekturcommits.
+
+## Codecov-Nachprüfung vom 01.11.2026
+
+Der [Codecov-Bericht zu PR #145](https://github.com/McNamara84/lilly/pull/145#issuecomment-6553287043)
+meldete 83,98268 % Patch-Abdeckung bei einer geforderten Schwelle von 93,79 %.
+Der lokale Abgleich des LCOV-Berichts mit den geänderten Zeilen gegenüber `28adf4b`
+reproduzierte diese Zahl exakt: 388 von 462 Zeilen waren vollständig abgedeckt.
+Auch eine ausgeführte Zeile mit einer ungetesteten Verzweigung zählt dabei als Lücke.
+
+45 zusätzliche Tests schließen die Lücken bei verspäteten Antworten nach Logout,
+OAuth-Sitzungswechseln, gesperrtem Browserspeicher, unterbrochenen IndexedDB-Zugriffen,
+Synchronisierungsberechtigungen zwischen Tabs, abhängigen Änderungen und der Anzeige
+von Abmelde-/Updatefehlern. Die Datenbanktests verwenden `fake-indexeddb` mit tatsächlichen
+Transaktionen; konkurrierende Abläufe werden an definierten Transaktionsgrenzen ausgelöst.
+Produktionscode, Coverage-Konfiguration und Prüfschwellen bleiben unverändert.
+
+Der abschließende Linux-Lauf mit Node 26.13.0 und Vitest 5.0.5 besteht alle 962 Tests
+in 72 Dateien ohne Wiederholungsversuche. Für den gesamten PR sind nun **462 von 462
+bewerteten geänderten Zeilen vollständig abgedeckt (100 %)**. Die gesamte Frontendmessung
+erreicht 98,62 % Statements, 89,89 % Branches und 99,36 % Lines; die 100 % beziehen sich
+ausdrücklich auf den Patch. ESLint, Prettier und Svelte-/TypeScript-Prüfung bestehen ebenfalls.
+Ein erster Linux-Lauf überschritt beim anfänglichen Modulimport eines bestehenden Tests
+das Zeitlimit, während weitere Prüfprozesse liefen. Der abschließende Lauf lief separat
+mit unverändertem Zeitlimit erfolgreich durch. Die erneute Bestätigung durch Codecov
+steht bis zum Push des Testcommits aus.
 
 ## Browsergrenzen und spätere Geräteprüfung
 

@@ -14,6 +14,7 @@ describe('logout and in-flight authentication', () => {
 		vi.resetAllMocks();
 		vi.resetModules();
 		localStorage.clear();
+		sessionStorage.clear();
 		const database = await import('#lib/offline/database.js');
 		await database.resetOfflineDatabaseForTests();
 		const api = await import('#lib/api/auth.js');
@@ -26,6 +27,118 @@ describe('logout and in-flight authentication', () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
+		window.history.replaceState({}, '', '/');
+	});
+
+	it('handles an account-deletion response when no local identity exists', async () => {
+		const api = await import('#lib/api/auth.js');
+		vi.mocked(api.fetchMe).mockRejectedValueOnce(
+			Object.assign(new Error('deleted'), { code: 'ACCOUNT_DELETION_PENDING' })
+		);
+		vi.mocked(api.refreshToken).mockRejectedValueOnce(new Error('unauthorized'));
+		const auth = await import('#lib/stores/auth.svelte.js');
+		await auth.initAuth();
+		expect(auth.getAuthState().isAuthenticated).toBe(false);
+		expect(auth.getAuthState().isLoading).toBe(false);
+	});
+
+	it.each(['success', 'registered'])(
+		'accepts a recent interactive OAuth %s after logout',
+		async (outcome) => {
+			const session = await import('#lib/offline/session.js');
+			session.changeOfflineSession(7, true);
+			sessionStorage.setItem('lilly-interactive-oauth', String(Date.now()));
+			window.history.replaceState({}, '', `/?oauth=${outcome}`);
+			const auth = await import('#lib/stores/auth.svelte.js');
+			await auth.initAuth();
+			expect(auth.getAuthState().user).toEqual(profile(7));
+			expect(session.isOfflineUserBlocked(7)).toBe(false);
+			expect(sessionStorage.getItem('lilly-interactive-oauth')).toBeNull();
+			const confirmed = session.offlineSessionVersion();
+			await auth.initAuth();
+			expect(session.offlineSessionVersion()).toBe(confirmed);
+		}
+	);
+
+	it('does not treat an expired OAuth marker as a new login', async () => {
+		const session = await import('#lib/offline/session.js');
+		session.changeOfflineSession(7, true);
+		sessionStorage.setItem('lilly-interactive-oauth', String(Date.now() - 600_001));
+		window.history.replaceState({}, '', '/?oauth=success');
+		const auth = await import('#lib/stores/auth.svelte.js');
+		await auth.initAuth();
+		expect(auth.getAuthState().isAuthenticated).toBe(false);
+		expect(session.isOfflineUserBlocked(7)).toBe(true);
+	});
+
+	it.each(['sessionStorage', 'location'])(
+		'initializes without the browser global %s',
+		async (name) => {
+			vi.stubGlobal(name, undefined);
+			const auth = await import('#lib/stores/auth.svelte.js');
+			await auth.initAuth();
+			expect(auth.getAuthState().user).toEqual(profile(7));
+		}
+	);
+
+	it('stops initialization if another login supersedes interrupted cleanup', async () => {
+		const database = await import('#lib/offline/database.js');
+		const session = await import('#lib/offline/session.js');
+		vi.spyOn(database, 'clearBlockedOfflineUsers').mockImplementationOnce(async () => {
+			session.changeOfflineSession(8, false);
+		});
+		const auth = await import('#lib/stores/auth.svelte.js');
+		await auth.initAuth();
+		expect((await import('#lib/api/auth.js')).fetchMe).not.toHaveBeenCalled();
+		expect(auth.getAuthState().isLoading).toBe(false);
+	});
+
+	it.each(['success', 'failure'])(
+		'ignores a late authentication %s after logout',
+		async (outcome) => {
+			const auth = await import('#lib/stores/auth.svelte.js');
+			const api = await import('#lib/api/auth.js');
+			await auth.initAuth();
+			const deferred = Promise.withResolvers<ReturnType<typeof profile>>();
+			vi.mocked(api.fetchMe).mockReturnValueOnce(deferred.promise);
+			const pending = auth.initAuth();
+			await vi.waitFor(() => expect(api.fetchMe).toHaveBeenCalledTimes(2));
+			await auth.performLogout();
+			if (outcome === 'success') deferred.resolve(profile(7));
+			else deferred.reject(new TypeError('late network error'));
+			await pending;
+			expect(auth.getAuthState().user).toBeNull();
+			expect(api.refreshToken).not.toHaveBeenCalled();
+		}
+	);
+
+	it('does not warm private data when logout interrupts profile persistence', async () => {
+		const database = await import('#lib/offline/database.js');
+		const saved = Promise.withResolvers<void>();
+		const save = vi.spyOn(database, 'saveConfirmedProfile').mockReturnValueOnce(saved.promise);
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const pending = auth.initAuth();
+		await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+		await auth.performLogout();
+		saved.resolve();
+		await pending;
+		expect(auth.getAuthState().user).toBeNull();
+		expect(
+			(await import('#lib/api/collection.js')).syncPendingCollectionChanges
+		).not.toHaveBeenCalled();
+	});
+
+	it('still logs out if pending-change and conflict inspection fail', async () => {
+		vi.stubGlobal('BroadcastChannel', undefined);
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const database = await import('#lib/offline/database.js');
+		await auth.initAuth();
+		vi.spyOn(database, 'listMutations').mockRejectedValueOnce(new Error('storage failed'));
+		vi.spyOn(database, 'listConflicts').mockRejectedValueOnce(new Error('storage failed'));
+		expect(await auth.performLogout()).toBe(true);
+		expect(auth.getAuthState().user).toBeNull();
+		expect(await database.getCachedProfile()).toBeNull();
+		expect(await auth.performLogout()).toBe(true);
 	});
 
 	it('cancels logout without losing pending changes when the user declines', async () => {

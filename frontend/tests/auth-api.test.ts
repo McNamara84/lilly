@@ -206,6 +206,14 @@ describe('Auth API Client', () => {
 	});
 
 	describe('OAuth and privacy', () => {
+		it('does not mark reauthentication as an interactive login', async () => {
+			sessionStorage.removeItem('lilly-interactive-oauth');
+			mockFetch.mockResolvedValue(
+				Response.json({ authorization_url: 'https://provider.example/reauth' })
+			);
+			await expect(startOAuth('github', 'reauth')).resolves.toBe('https://provider.example/reauth');
+			expect(sessionStorage.getItem('lilly-interactive-oauth')).toBeNull();
+		});
 		it('loads provider availability and the current privacy version', async () => {
 			mockFetch.mockResolvedValue({
 				ok: true,

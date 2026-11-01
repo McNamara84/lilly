@@ -14,9 +14,12 @@ describe('PWA lifecycle', () => {
 	beforeEach(() => {
 		vi.resetModules();
 		setServiceWorker();
+		vi.spyOn(window, 'addEventListener');
 	});
 
 	afterEach(() => {
+		for (const [type, listener, options] of vi.mocked(window.addEventListener).mock.calls)
+			window.removeEventListener(type, listener, options);
 		vi.useRealTimers();
 		vi.restoreAllMocks();
 		if (originalServiceWorker) {
@@ -24,6 +27,49 @@ describe('PWA lifecycle', () => {
 		} else {
 			Reflect.deleteProperty(navigator, 'serviceWorker');
 		}
+	});
+
+	it('ignores input outside forms and allows an update after the dirty form is removed', async () => {
+		const waiting = { postMessage: vi.fn() };
+		setServiceWorker({
+			ready: Promise.resolve({ waiting, addEventListener: vi.fn() }),
+			addEventListener: vi.fn((_type, callback) => callback())
+		});
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		window.dispatchEvent(new Event('input'));
+		document.body.dispatchEvent(new Event('input', { bubbles: true }));
+		window.dispatchEvent(new Event('submit'));
+		const form = document.createElement('form');
+		document.body.append(form);
+		form.dispatchEvent(new Event('input', { bubbles: true }));
+		form.remove();
+		const confirm = vi.spyOn(window, 'confirm');
+		await module.activateWaitingServiceWorker();
+		expect(confirm).not.toHaveBeenCalled();
+		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
+
+	it('tolerates registration failure and reports an untyped activation error', async () => {
+		const ready = Promise.withResolvers<ServiceWorkerRegistration>();
+		setServiceWorker({ ready: ready.promise });
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		const activation = module.activateWaitingServiceWorker();
+		ready.reject('registration unavailable');
+		await activation;
+		expect(module.getPwaState().updateAvailable).toBe(false);
+		expect(module.getPwaState().updateError).toBe('Die Aktualisierung ist fehlgeschlagen.');
+	});
+
+	it('ignores updatefound if the installing worker already disappeared', async () => {
+		const registration = Object.assign(new EventTarget(), { waiting: null, installing: null });
+		setServiceWorker({ ready: Promise.resolve(registration) });
+		const module = await import('#lib/offline/pwa.svelte.js');
+		module.initializePwaLifecycle();
+		await Promise.resolve();
+		registration.dispatchEvent(new Event('updatefound'));
+		expect(module.getPwaState().updateAvailable).toBe(false);
 	});
 
 	it('captures, invokes and clears the browser install prompt', async () => {
@@ -83,6 +129,8 @@ describe('PWA lifecycle', () => {
 		module.initializePwaLifecycle();
 		await vi.waitFor(() => expect(updateFound).toBeTypeOf('function'));
 		updateFound?.();
+		stateChanged?.();
+		expect(module.getPwaState().updateAvailable).toBe(false);
 		installing.state = 'installed';
 		stateChanged?.();
 

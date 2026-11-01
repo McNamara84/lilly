@@ -149,6 +149,14 @@ describe('offline status lifecycle', () => {
 		window.dispatchEvent(new Event('lilly:offline-change'));
 		channelMessage?.();
 		await vi.waitFor(() => expect(mocks.getCachedProfile.mock.calls.length).toBeGreaterThan(2));
+		await vi.waitFor(() => expect(module.getOfflineStatus().syncing).toBe(false));
+		intervalHandler?.();
+		await vi.waitFor(() => expect(mocks.syncPendingCollectionChanges).toHaveBeenCalledTimes(2));
+		await vi.waitFor(() => expect(module.getOfflineStatus().syncing).toBe(false));
+		mocks.listMutations.mockResolvedValue([]);
+		await module.refreshOfflineStatus();
+		intervalHandler?.();
+		expect(mocks.syncPendingCollectionChanges).toHaveBeenCalledTimes(2);
 
 		reportedOnline = false;
 		window.dispatchEvent(new Event('offline'));
