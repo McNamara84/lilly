@@ -262,7 +262,7 @@ export async function updateCollectionEntry(
 ): Promise<CollectionEntry> {
 	const version = offlineSessionVersion();
 	const profile = await getCachedProfile().catch(() => null);
-	if (!profile) return updateCollectionEntryOnline(id, body);
+	if (!profile) return currentSessionResult(version, await updateCollectionEntryOnline(id, body));
 
 	const entries = await listStoredCollectionEntries(profile.id).catch(() => []);
 	if (!entries.some((entry) => entry.id === id)) {

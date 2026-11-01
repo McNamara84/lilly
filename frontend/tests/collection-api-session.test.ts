@@ -6,6 +6,23 @@ import { changeOfflineSession } from '#lib/offline/session.js';
 import { entry, profile, snapshot } from './fixtures/offline';
 
 describe('collection responses across a session change', () => {
+	it.each(['missing', 'unavailable'] as const)(
+		'discards a PATCH response after logout when the cached profile is %s',
+		async (cache) => {
+			const lookup = vi.spyOn(database, 'getCachedProfile');
+			if (cache === 'missing') lookup.mockResolvedValue(null);
+			else lookup.mockRejectedValue(new Error('IndexedDB unavailable'));
+			const response = Promise.withResolvers<Response>();
+			const fetch = vi.fn(() => response.promise);
+			vi.stubGlobal('fetch', fetch);
+			const pending = updateCollectionEntry(entry.id, { notes: 'private response' });
+			await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+			changeOfflineSession(1, true);
+			changeOfflineSession(2, false);
+			response.resolve(Response.json({ ...entry, notes: 'private response' }));
+			await expect(pending).rejects.toThrow('Sitzung');
+		}
+	);
 	beforeEach(async () => {
 		localStorage.clear();
 		await database.resetOfflineDatabaseForTests();

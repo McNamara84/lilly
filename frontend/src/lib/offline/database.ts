@@ -43,12 +43,6 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 	});
 }
 
-async function deleteByUser(store: IDBObjectStore, userId: number): Promise<void> {
-	// Batch requests in the same transaction; cursor round trips stall large snapshots in WebKit.
-	const keys = await requestResult<IDBValidKey[]>(store.index('user_id').getAllKeys(userId));
-	for (const key of keys) store.delete(key);
-}
-
 function createUserStore(database: IDBDatabase, name: string, keyPath: string): IDBObjectStore {
 	const store = database.createObjectStore(name, { keyPath });
 	store.createIndex('user_id', 'user_id', { unique: false });
@@ -366,24 +360,39 @@ export async function getSnapshotTimestamp(userId: number): Promise<string | nul
 	}
 }
 
-export async function clearOfflineUserData(userId: number): Promise<void> {
+export async function clearOfflineUserData(userId: number, version?: string): Promise<void> {
 	const database = await openDatabase();
 	const transaction = database.transaction(Object.values(STORES), 'readwrite');
 	const done = transactionDone(transaction);
-	await Promise.all([
-		deleteByUser(transaction.objectStore(STORES.series), userId),
-		deleteByUser(transaction.objectStore(STORES.issues), userId),
-		deleteByUser(transaction.objectStore(STORES.collection), userId),
-		deleteByUser(transaction.objectStore(STORES.mutations), userId),
-		deleteByUser(transaction.objectStore(STORES.conflicts), userId),
-		deleteByUser(transaction.objectStore(STORES.metadata), userId)
+	const stores = [
+		STORES.series,
+		STORES.issues,
+		STORES.collection,
+		STORES.mutations,
+		STORES.conflicts,
+		STORES.metadata
+	];
+	const [keys, active] = await Promise.all([
+		Promise.all(
+			stores.map((name) =>
+				requestResult<IDBValidKey[]>(
+					transaction.objectStore(name).index('user_id').getAllKeys(userId)
+				)
+			)
+		),
+		requestResult<OfflineMetadata | undefined>(
+			transaction.objectStore(STORES.metadata).get('active_user_id')
+		)
 	]);
-	transaction.objectStore(STORES.profiles).delete(userId);
-	transaction.objectStore(STORES.metadata).delete(snapshotMetadataKey(userId));
-	const active = await requestResult<OfflineMetadata | undefined>(
-		transaction.objectStore(STORES.metadata).get('active_user_id')
-	);
-	if (active?.value === userId) transaction.objectStore(STORES.metadata).delete('active_user_id');
+	// A newer login can arrive while these reads wait for another tab's transaction.
+	if (version === undefined || isCurrentOfflineSession(version)) {
+		for (const [index, storeKeys] of keys.entries()) {
+			const store = transaction.objectStore(stores[index]);
+			for (const key of storeKeys) store.delete(key);
+		}
+		transaction.objectStore(STORES.profiles).delete(userId);
+		if (active?.value === userId) transaction.objectStore(STORES.metadata).delete('active_user_id');
+	}
 	await done;
 }
 

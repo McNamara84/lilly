@@ -121,3 +121,74 @@ test('keeps build A usable after an interrupted update and allows retrying B', a
 	await page.getByRole('button', { name: 'Jetzt aktualisieren' }).click();
 	await expect(page.getByTestId('collection-title')).toBeVisible();
 });
+
+test('protects same-tab edits and failed profile saves until persistence succeeds', async ({
+	page
+}) => {
+	const original = await (await page.request.get('/api/v1/me/profile')).json();
+	const dialogs: string[] = [];
+	page.on('dialog', async (dialog) => {
+		dialogs.push(dialog.message());
+		await dialog.dismiss();
+	});
+	await page.request.post('/__pwa_test__/switch', {
+		headers: { 'x-pwa-test-token': process.env.PWA_UPDATE_CONTROL_TOKEN! },
+		data: { build: 'b' }
+	});
+	await page.evaluate(async () => {
+		await (await navigator.serviceWorker.ready).update();
+	});
+	await expect(page.getByTestId('pwa-update-notice')).toBeVisible({ timeout: 20000 });
+	const update = page.getByRole('button', { name: 'Jetzt aktualisieren' });
+	await page.getByTestId('cover-card').first().click();
+	await page.getByTestId('condition-chip-Z3').click();
+	// The sheet overlays the notice. Dispatch its real handler without closing the editor.
+	await update.dispatchEvent('click');
+	expect(dialogs).toHaveLength(1);
+	expect(dialogs[0]).toContain('Ungespeicherte Eingaben');
+	await expect(page.getByTestId('issue-detail-sheet')).toBeVisible();
+	await page.keyboard.press('Escape');
+	await page.getByTestId('profile-link').click();
+	const name = page.getByTestId('profile-display-name-input');
+	await name.fill('x');
+	await page.getByTestId('save-profile').click();
+	await update.click();
+	expect(dialogs).toHaveLength(2);
+	await expect(name).toHaveValue('x');
+	await page.evaluate(() => {
+		const originalFetch = window.fetch.bind(window);
+		// Fail exactly one save at the fetch boundary, including in service-worker-controlled WebKit.
+		window.fetch = async (input, init) => {
+			if (String(input).endsWith('/me/profile') && init?.method === 'PATCH') {
+				window.fetch = originalFetch;
+				return new Response(JSON.stringify({ error: 'Test fixture: profile save failed' }), {
+					status: 503,
+					headers: { 'Content-Type': 'application/json' }
+				});
+			}
+			return originalFetch(input, init);
+		};
+	});
+	try {
+		await name.fill('Saved after update review');
+		await page.getByTestId('save-profile').click();
+		await expect(page.getByText('Test fixture: profile save failed')).toBeVisible();
+		await update.click();
+		expect(dialogs).toHaveLength(3);
+		await expect(name).toHaveValue('Saved after update review');
+		await page.getByTestId('save-profile').click();
+		await expect(page.getByTestId('profile-success')).toContainText('Profildaten gespeichert.');
+		await update.click();
+		await expect(page.getByTestId('pwa-update-notice')).toHaveCount(0);
+		await expect(name).toHaveValue('Saved after update review');
+		expect(dialogs).toHaveLength(3);
+	} finally {
+		expect(
+			(
+				await page.request.patch('/api/v1/me/profile', {
+					data: { display_name: original.display_name, location: original.location }
+				})
+			).ok()
+		).toBe(true);
+	}
+});

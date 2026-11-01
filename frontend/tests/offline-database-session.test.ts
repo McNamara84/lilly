@@ -41,6 +41,15 @@ describe('offline database session isolation', () => {
 
 	afterEach(() => vi.restoreAllMocks());
 
+	it('does not delete a newer login when a guarded cleanup resumes after its reads', async () => {
+		const { offlineSessionVersion } = await import('#lib/offline/session.js');
+		const version = offlineSessionVersion();
+		interruptRead('get', () => changeOfflineSession(1, false), 'metadata');
+		await database.clearOfflineUserData(1, version);
+		expect(await database.getCachedProfile()).toEqual(profile(1));
+		expect(await database.listStoredCollectionEntries(1)).toEqual([entry]);
+	});
+
 	it('does not restore a missing profile from a dangling active-user record', async () => {
 		const connection = await new Promise<IDBDatabase>((resolve, reject) => {
 			const request = indexedDB.open('lilly-offline');

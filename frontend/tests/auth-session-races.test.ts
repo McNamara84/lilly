@@ -9,6 +9,72 @@ vi.mock('#lib/api/collection.js', () => ({
 }));
 
 describe('logout and in-flight authentication', () => {
+	it('does not clear a fresh login when an older remote logout finishes late', async () => {
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const api = await import('#lib/api/auth.js');
+		const database = await import('#lib/offline/database.js');
+		await auth.initAuth();
+		const remote = Promise.withResolvers<void>();
+		vi.mocked(api.logout).mockReturnValueOnce(remote.promise);
+		const pending = auth.performLogout();
+		await vi.waitFor(() => expect(api.logout).toHaveBeenCalledOnce());
+		await auth.initAuth(true);
+		await database.replaceOfflineSnapshot(snapshot(7));
+		remote.resolve();
+		await pending;
+		expect(auth.getAuthState().user).toEqual(profile(7));
+		expect(await database.getCachedProfile()).toEqual(profile(7));
+		expect(await database.listStoredCollectionEntries(7)).toEqual(snapshot(7).collection_entries);
+	});
+
+	it('cancels a pending logout when another login supersedes its queue inspection', async () => {
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const database = await import('#lib/offline/database.js');
+		const api = await import('#lib/api/auth.js');
+		await auth.initAuth();
+		const inspect = Promise.withResolvers<Awaited<ReturnType<typeof database.listMutations>>>();
+		vi.spyOn(database, 'listMutations').mockReturnValueOnce(inspect.promise);
+		const pending = auth.performLogout();
+		auth.setUser(profile(8));
+		inspect.resolve([]);
+		expect(await pending).toBe(false);
+		expect(api.logout).not.toHaveBeenCalled();
+		expect(auth.getAuthState().user).toEqual(profile(8));
+	});
+	it.each(['logout', 'account-deletion'])(
+		'ignores a delayed %s from a previous login of the same account',
+		async (type) => {
+			let message!: (event: MessageEvent) => void;
+			vi.stubGlobal(
+				'BroadcastChannel',
+				class {
+					addEventListener(_type: string, callback: typeof message) {
+						message = callback;
+					}
+				}
+			);
+			const auth = await import('#lib/stores/auth.svelte.js');
+			const database = await import('#lib/offline/database.js');
+			const session = await import('#lib/offline/session.js');
+			await auth.initAuth();
+			const previousVersion = session.offlineSessionVersion();
+			session.changeOfflineSession(7, true);
+			const version = session.offlineSessionVersion();
+			await database.clearOfflineUserData(7);
+			await auth.initAuth(true);
+			await database.replaceOfflineSnapshot(snapshot(7));
+			const freshVersion = session.offlineSessionVersion();
+			const clear = vi.spyOn(database, 'clearOfflineUserData');
+			message({
+				data: { type, user_id: 7, previous_version: previousVersion, session_version: version }
+			} as MessageEvent);
+			expect(auth.getAuthState().user).toEqual(profile(7));
+			expect(session.offlineSessionVersion()).toBe(freshVersion);
+			expect(clear).not.toHaveBeenCalled();
+			expect(await database.getCachedProfile()).toEqual(profile(7));
+			expect(await database.listStoredCollectionEntries(7)).toEqual(snapshot(7).collection_entries);
+		}
+	);
 	beforeEach(async () => {
 		vi.restoreAllMocks();
 		vi.resetAllMocks();
@@ -40,6 +106,21 @@ describe('logout and in-flight authentication', () => {
 		await auth.initAuth();
 		expect(auth.getAuthState().isAuthenticated).toBe(false);
 		expect(auth.getAuthState().isLoading).toBe(false);
+	});
+
+	it('does not purge a newer login when service-worker readiness delays account cleanup', async () => {
+		const ready = Promise.withResolvers<ServiceWorkerRegistration>();
+		const postMessage = vi.fn();
+		vi.stubGlobal('navigator', { serviceWorker: { ready: ready.promise } });
+		const auth = await import('#lib/stores/auth.svelte.js');
+		await auth.initAuth();
+		await auth.deactivateAccountLocally();
+		await auth.initAuth(true);
+		ready.resolve({ active: { postMessage } } as unknown as ServiceWorkerRegistration);
+		await ready.promise;
+		expect(postMessage).not.toHaveBeenCalled();
+		expect(auth.getAuthState().user).toEqual(profile(7));
+		expect(await (await import('#lib/offline/database.js')).getCachedProfile()).toEqual(profile(7));
 	});
 
 	it.each(['success', 'registered'])(
@@ -199,7 +280,14 @@ describe('logout and in-flight authentication', () => {
 		);
 		const logout = auth.performLogout();
 		await vi.waitFor(() =>
-			expect(postMessage).toHaveBeenCalledWith({ type: 'logout', user_id: 7 })
+			expect(postMessage).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'logout',
+					user_id: 7,
+					previous_version: expect.stringMatching(/^active:7:/),
+					session_version: expect.stringMatching(/^blocked:7:/)
+				})
+			)
 		);
 		expect(auth.getAuthState().isAuthenticated).toBe(false);
 		finish();
@@ -236,13 +324,15 @@ describe('logout and in-flight authentication', () => {
 		);
 		const auth = await import('#lib/stores/auth.svelte.js');
 		await auth.initAuth();
-		handler({ data: { type: 'logout', user_id: 8 } } as MessageEvent);
+		const { sessionEndMessage } = await import('./fixtures/session-end');
+		const notification = sessionEndMessage('logout', 8);
+		handler(notification);
 		expect(auth.getAuthState().user?.id).toBe(7);
 		const { offlineSessionVersion } = await import('#lib/offline/session.js');
 		const version = offlineSessionVersion();
-		handler({ data: { type: 'logout', user_id: 8 } } as MessageEvent);
+		handler(notification);
 		expect(offlineSessionVersion()).toBe(version);
-		handler({ data: { type: 'logout', user_id: 7 } } as MessageEvent);
+		handler(sessionEndMessage('logout', 7));
 		expect(auth.getAuthState().isAuthenticated).toBe(false);
 		expect(await (await import('#lib/offline/database.js')).getCachedProfile()).toBeNull();
 	});

@@ -11,6 +11,28 @@ function setServiceWorker(value?: object) {
 }
 
 describe('PWA lifecycle', () => {
+	it('uses the registered editor state until successful persistence and ignores detached editors', async () => {
+		const waiting = { postMessage: vi.fn() };
+		setServiceWorker({
+			ready: Promise.resolve({ waiting }),
+			addEventListener: vi.fn((_type, callback) => callback())
+		});
+		const module = await import('#lib/offline/pwa.svelte.js');
+		const editor = document.createElement('section');
+		document.body.append(editor);
+		const tracking = module.trackUnsavedChanges(editor, () => true);
+		const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).not.toHaveBeenCalled();
+		tracking.update(() => false);
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).toHaveBeenCalledOnce();
+		tracking.update(() => true);
+		editor.remove();
+		await module.activateWaitingServiceWorker();
+		expect(confirm).toHaveBeenCalledOnce();
+		tracking.destroy();
+	});
 	beforeEach(() => {
 		vi.resetModules();
 		setServiceWorker();
@@ -169,7 +191,7 @@ describe('PWA lifecycle', () => {
 		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
 	});
 
-	it('keeps unsaved inputs when the user declines an update and permits submitted forms', async () => {
+	it('keeps unsaved inputs protected after submission until the form is discarded', async () => {
 		const waiting = { postMessage: vi.fn() };
 		setServiceWorker({
 			ready: Promise.resolve({ waiting, addEventListener: vi.fn() }),
@@ -187,8 +209,10 @@ describe('PWA lifecycle', () => {
 		expect(waiting.postMessage).not.toHaveBeenCalled();
 		form.dispatchEvent(new Event('submit', { bubbles: true }));
 		await module.activateWaitingServiceWorker();
-		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+		expect(waiting.postMessage).not.toHaveBeenCalled();
 		form.remove();
+		await module.activateWaitingServiceWorker();
+		expect(waiting.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
 	});
 
 	it('reports a stalled update and removes its event listener without reloading', async () => {

@@ -1,5 +1,5 @@
 import { version } from '$app/env';
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 interface InstallPromptEvent extends Event {
 	prompt(): Promise<void>;
@@ -11,6 +11,20 @@ let updateAvailable = $state(false);
 let initialized = false;
 let updateError = $state<string | null>(null);
 const dirtyForms = new SvelteSet<HTMLFormElement>();
+const editors = new SvelteMap<HTMLElement, () => boolean>();
+
+/** An editor owns its persistence state; submitting alone never acknowledges a save. */
+export function trackUnsavedChanges(element: HTMLElement, isDirty: () => boolean) {
+	editors.set(element, isDirty);
+	return {
+		update(check: () => boolean) {
+			editors.set(element, check);
+		},
+		destroy() {
+			editors.delete(element);
+		}
+	};
+}
 
 export function getPwaState() {
 	return {
@@ -31,10 +45,7 @@ export function initializePwaLifecycle(): void {
 	initialized = true;
 	window.addEventListener('input', (event) => {
 		const form = event.target instanceof Element ? event.target.closest('form') : null;
-		if (form) dirtyForms.add(form);
-	});
-	window.addEventListener('submit', (event) => {
-		if (event.target instanceof HTMLFormElement) dirtyForms.delete(event.target);
+		if (form && !editors.has(form)) dirtyForms.add(form);
 	});
 	window.addEventListener('beforeinstallprompt', (event) => {
 		event.preventDefault();
@@ -75,7 +86,8 @@ export async function promptInstall(): Promise<void> {
 export async function activateWaitingServiceWorker(): Promise<void> {
 	if (!('serviceWorker' in navigator)) return;
 	if (
-		[...dirtyForms].some((form) => form.isConnected) &&
+		([...dirtyForms].some((form) => form.isConnected) ||
+			[...editors].some(([element, isDirty]) => element.isConnected && isDirty())) &&
 		!window.confirm(
 			'Ungespeicherte Eingaben gehen beim Aktualisieren verloren. Jetzt aktualisieren?'
 		)

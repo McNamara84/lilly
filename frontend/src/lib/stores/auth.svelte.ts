@@ -12,6 +12,7 @@ import { isNetworkFailure } from '#lib/offline/network.js';
 import { listMutations, listConflicts } from '#lib/offline/database.js';
 import {
 	changeOfflineSession,
+	acceptOfflineSessionEnd,
 	offlineSessionVersion,
 	isCurrentOfflineSession,
 	isOfflineUserBlocked
@@ -29,14 +30,20 @@ function initializeAuthBroadcast(): void {
 	const channel = new BroadcastChannel('lilly-offline');
 	channel.addEventListener('message', (event) => {
 		if (!['account-deletion', 'logout'].includes(event.data?.type)) return;
-		const deletedUserId = event.data.user_id as number | undefined;
-		if (deletedUserId !== undefined) {
-			// The sender already persisted the tombstone. A delayed notification must not
-			// invalidate a newer login in another tab by creating a second session epoch.
-			if (!isOfflineUserBlocked(deletedUserId)) changeOfflineSession(deletedUserId, true);
-			void clearOfflineUserData(deletedUserId).catch(() => undefined);
-		}
-		if (deletedUserId === undefined || user?.id === deletedUserId) {
+		const {
+			user_id: deletedUserId,
+			previous_version: previousVersion,
+			session_version: version
+		} = event.data;
+		if (
+			typeof deletedUserId !== 'number' ||
+			typeof previousVersion !== 'string' ||
+			typeof version !== 'string' ||
+			!acceptOfflineSessionEnd(deletedUserId, previousVersion, version)
+		)
+			return;
+		void clearOfflineUserData(deletedUserId, version).catch(() => undefined);
+		if (user?.id === deletedUserId) {
 			user = null;
 			isOfflineSession = false;
 		}
@@ -163,13 +170,15 @@ async function clearCurrentOfflineData(): Promise<void> {
 
 export async function deactivateAccountLocally(): Promise<void> {
 	const userId = user?.id ?? (await getCachedProfile().catch(() => null))?.id;
+	const previousVersion = offlineSessionVersion();
 	if (userId !== undefined) changeOfflineSession(userId, true);
+	const version = offlineSessionVersion();
 	user = null;
 	isOfflineSession = false;
 	let offlineCleanupFailed = false;
 	if (userId !== undefined) {
 		try {
-			await clearOfflineUserData(userId);
+			await clearOfflineUserData(userId, version);
 		} catch {
 			offlineCleanupFailed = true;
 		}
@@ -177,13 +186,19 @@ export async function deactivateAccountLocally(): Promise<void> {
 	if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
 		void navigator.serviceWorker.ready
 			.then((registration) => {
-				registration.active?.postMessage({ type: 'PURGE_PRIVATE_DATA' });
+				if (isCurrentOfflineSession(version))
+					registration.active?.postMessage({ type: 'PURGE_PRIVATE_DATA' });
 			})
 			.catch(() => undefined);
 	}
 	if (typeof BroadcastChannel !== 'undefined') {
 		const channel = new BroadcastChannel('lilly-offline');
-		channel.postMessage({ type: 'account-deletion', user_id: userId });
+		channel.postMessage({
+			type: 'account-deletion',
+			user_id: userId,
+			previous_version: previousVersion,
+			session_version: version
+		});
 		channel.close();
 	}
 	if (offlineCleanupFailed) {
@@ -191,18 +206,18 @@ export async function deactivateAccountLocally(): Promise<void> {
 			'Lokale Kontodaten konnten nicht vollständig gelöscht werden. Bitte versuche es erneut.'
 		);
 	}
-	user = null;
-	isOfflineSession = false;
 }
 
 export async function performLogout(): Promise<boolean> {
 	logoutError = null;
 	const userId = user?.id;
+	const previousVersion = offlineSessionVersion();
 	if (userId !== undefined) {
 		const [pending, conflicts] = await Promise.all([
 			listMutations(userId).catch(() => []),
 			listConflicts(userId).catch(() => [])
 		]);
+		if (!isCurrentOfflineSession(previousVersion)) return false;
 		if (
 			(pending.length || conflicts.length) &&
 			!window.confirm(
@@ -212,11 +227,17 @@ export async function performLogout(): Promise<boolean> {
 			return false;
 		changeOfflineSession(userId, true);
 	}
+	const version = offlineSessionVersion();
 	user = null;
 	isOfflineSession = false;
 	if (typeof BroadcastChannel !== 'undefined') {
 		const channel = new BroadcastChannel('lilly-offline');
-		channel.postMessage({ type: 'logout', user_id: userId });
+		channel.postMessage({
+			type: 'logout',
+			user_id: userId,
+			previous_version: previousVersion,
+			session_version: version
+		});
 		channel.close();
 	}
 	let remoteError: unknown;
@@ -227,7 +248,7 @@ export async function performLogout(): Promise<boolean> {
 	}
 	if (userId !== undefined) {
 		try {
-			await clearOfflineUserData(userId);
+			await clearOfflineUserData(userId, version);
 		} catch {
 			logoutError =
 				'Du bist abgemeldet. Lokale Kontodaten konnten nicht vollständig gelöscht werden. Bitte lösche die Websitedaten dieses Browsers.';

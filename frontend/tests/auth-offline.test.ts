@@ -35,12 +35,13 @@ describe('offline authentication context', () => {
 		vi.mocked(fetchMe).mockResolvedValue(profile(7));
 		const { getAuthState, initAuth } = await import('#lib/stores/auth.svelte.js');
 		await initAuth();
+		const { sessionEndMessage } = await import('./fixtures/session-end');
 
 		messageHandler?.({ data: { type: 'changed', user_id: 7 } } as MessageEvent);
 		expect(getAuthState().user).toEqual(profile(7));
-		messageHandler?.({ data: { type: 'account-deletion', user_id: 8 } } as MessageEvent);
+		messageHandler?.(sessionEndMessage('account-deletion', 8));
 		expect(getAuthState().user).toEqual(profile(7));
-		messageHandler?.({ data: { type: 'account-deletion', user_id: 7 } } as MessageEvent);
+		messageHandler?.(sessionEndMessage('account-deletion', 7));
 
 		await vi.waitFor(() => expect(getAuthState().user).toBeNull());
 		const { getCachedProfile } = await import('#lib/offline/database.js');
@@ -73,7 +74,14 @@ describe('offline authentication context', () => {
 		expect(getAuthState().isAuthenticated).toBe(false);
 		expect(getAuthState().isOfflineSession).toBe(false);
 		expect(serviceWorkerPost).toHaveBeenCalledWith({ type: 'PURGE_PRIVATE_DATA' });
-		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(broadcastPost).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'account-deletion',
+				user_id: 7,
+				previous_version: expect.any(String),
+				session_version: expect.stringMatching(/^blocked:7:/)
+			})
+		);
 		expect(broadcastClose).toHaveBeenCalledOnce();
 	});
 
@@ -105,7 +113,14 @@ describe('offline authentication context', () => {
 		await vi.waitFor(() =>
 			expect(serviceWorkerPost).toHaveBeenCalledWith({ type: 'PURGE_PRIVATE_DATA' })
 		);
-		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(broadcastPost).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'account-deletion',
+				user_id: 7,
+				previous_version: expect.any(String),
+				session_version: expect.stringMatching(/^blocked:7:/)
+			})
+		);
 		expect(getAuthState().isAuthenticated).toBe(false);
 		expect(await database.getCachedProfile()).toBeNull();
 
@@ -135,7 +150,14 @@ describe('offline authentication context', () => {
 
 		await deactivateAccountLocally();
 
-		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(broadcastPost).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'account-deletion',
+				user_id: 7,
+				previous_version: expect.any(String),
+				session_version: expect.stringMatching(/^blocked:7:/)
+			})
+		);
 		expect(getAuthState().isAuthenticated).toBe(false);
 	});
 
@@ -168,7 +190,14 @@ describe('offline authentication context', () => {
 		await deactivation;
 		await Promise.resolve();
 
-		expect(broadcastPost).toHaveBeenCalledWith({ type: 'account-deletion', user_id: 7 });
+		expect(broadcastPost).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'account-deletion',
+				user_id: 7,
+				previous_version: expect.any(String),
+				session_version: expect.stringMatching(/^blocked:7:/)
+			})
+		);
 		expect(getAuthState().isAuthenticated).toBe(false);
 	});
 

@@ -254,6 +254,56 @@ das Zeitlimit, während weitere Prüfprozesse liefen. Der abschließende Lauf li
 mit unverändertem Zeitlimit erfolgreich durch. Die erneute Bestätigung durch Codecov
 steht bis zum Push des Testcommits aus.
 
+## Erste Review-Runde vom 01.11.2026
+
+Alle vier Hinweise ließen sich anhand des Codes und gezielter Regressionstests
+bestätigen. Die Korrekturen schützen folgende Abläufe:
+
+- Der Online-PATCH ohne verfügbares Cache-Profil prüft nach der Antwort dieselbe
+  Sitzungskennung wie die übrigen privaten Antwortpfade. Eine zwischenzeitliche
+  Abmeldung oder Anmeldung verwirft die verspätete Antwort.
+- Logout- und Kontolöschungsnachrichten enthalten die ursprüngliche Sitzungskennung
+  und die zugehörige Abmeldekennung. Empfänger akzeptieren sie nur für diese Sitzung
+  oder deren bereits gemeinsam gespeicherten Abmeldestand. Überholte Nachrichten
+  verändern weder Anmeldung noch Cache. Auch eine bereits begonnene lokale Löschung
+  prüft nach ihren IndexedDB-Lesezugriffen die Sitzung erneut. Ein verzögerter
+  Service-Worker-Aufruf darf ebenfalls keine neuere Anmeldung bereinigen.
+- Der Hefteditor registriert seinen Änderungszustand ausdrücklich. Notizen, Auflage,
+  Status und Zustand bleiben bei laufendem oder fehlgeschlagenem Speichern geschützt;
+  erfolgreich gespeicherte beziehungsweise verworfene Eingaben geben das Update frei.
+- Das Profil vergleicht seine Eingaben mit den zuletzt gespeicherten Daten.
+  Validierungsfehler und fehlgeschlagene oder laufende Speichervorgänge behalten
+  den Updateschutz. Das bloße Absenden eines Formulars gilt nicht mehr als Speichern.
+
+23 zusätzliche Unit-/Komponententests prüfen diese Abläufe einschließlich erneuter
+Anmeldung desselben Kontos, gesperrtem IndexedDB, verzögerter Bereinigung, Änderungen
+über Buttons und erfolgreicher Wiederholung nach einem Speicherfehler. Der vollständige
+Linux-Lauf besteht **985 Tests in 72 Dateien**. Der LCOV-Abgleich gegen `28adf4b`
+ergibt **506 von 506 vollständig abgedeckten geänderten Zeilen (100 % Patch-Abdeckung)**.
+Die Gesamtmessung erreicht 98,65 % Statements, 90,18 % Branches und 99,39 % Lines.
+Prüfschwellen und Coverage-Konfiguration bleiben unverändert. Produktionsbuild,
+ESLint, Prettier und Svelte-/TypeScript-Prüfung bestehen ebenfalls.
+
+Die Browsernachprüfung unter Linux besteht **334 Tests ohne Wiederholungen**:
+314 in der vollständigen Chromium-/Firefox-/WebKit-Suite, elf mobile PWA-Tests
+und neun separat ausgeführte A/B-Produktionsupdates. Die zehn Ausnahmen der
+vollständigen Suite sind diese neun separat ausgeführten Updates und der bekannte
+vollständig netzlose WebKit-Neuladetest. Der neue Sitzungstest meldet dasselbe Konto
+über das echte Formular erneut an und stellt anschließend alte Logout- und
+Kontolöschungsnachrichten zu. Der neue Updatetest prüft Änderungen im selben Tab,
+fehlgeschlagene Validierung, einen fehlgeschlagenen Profilspeichervorgang und das
+erfolgreiche Update nach erneutem Speichern. Weil der Hefteditor den Updatehinweis
+überlagert, löst dieser Test dessen echten Klickhandler programmatisch aus; die
+Profilprüfungen bedienen den sichtbaren Updatebutton direkt. Echte Gerätechecks
+bleiben wie vereinbart offen. Lighthouse wurde in dieser Review-Runde nicht erneut
+gemessen; die oben dokumentierte Messreihe gehört zur vorangegangenen CI-Korrektur.
+
+Unversionierte Nachrichten aus älteren App-Versionen werden bewusst ignoriert:
+Ohne die ursprüngliche Sitzungskennung lassen sie sich keiner noch gültigen Sitzung
+sicher zuordnen. Die gemeinsame Abmeldesperre schützt weiterhin spätere private
+Datenzugriffe; die sofortige tabübergreifende UI-Abmeldung setzt das neue
+Nachrichtenformat auf beiden Seiten voraus.
+
 ## Browsergrenzen und spätere Geräteprüfung
 
 Playwright-WebKit kann beim vollständig netzlosen Neuladen einer vom Service Worker

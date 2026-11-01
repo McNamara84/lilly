@@ -1,6 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('offline session tombstones', () => {
+	it('accepts the same logout epoch across storage failures and rejects superseded or malformed epochs', async () => {
+		const session = await import('#lib/offline/session.js');
+		session.changeOfflineSession(1, false);
+		const active = session.offlineSessionVersion();
+		expect(session.acceptOfflineSessionEnd(1, active, 'active:1:not-a-logout')).toBe(false);
+		vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+			throw new Error('storage unavailable');
+		});
+		expect(session.acceptOfflineSessionEnd(1, active, 'blocked:1:remote-epoch')).toBe(true);
+		expect(session.offlineSessionVersion()).toBe('blocked:1:remote-epoch');
+		expect(session.isOfflineUserBlocked(1)).toBe(true);
+		expect(session.acceptOfflineSessionEnd(1, active, 'blocked:1:remote-epoch')).toBe(true);
+		session.changeOfflineSession(1, false);
+		const current = session.offlineSessionVersion();
+		expect(session.acceptOfflineSessionEnd(1, active, 'blocked:1:remote-epoch')).toBe(false);
+		expect(session.offlineSessionVersion()).toBe(current);
+		expect(session.isOfflineUserBlocked(1)).toBe(false);
+	});
 	beforeEach(() => {
 		vi.resetModules();
 		localStorage.clear();

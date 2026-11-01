@@ -209,6 +209,63 @@ test('reads both initial series offline', async ({ page, context }) => {
 	await context.setOffline(false);
 });
 
+test('ignores delayed session-end notifications after the same account signs in again', async ({
+	page,
+	context,
+	browserName
+}, info) => {
+	const account = await (await page.request.get('/api/v1/auth/me')).json();
+	const previousVersion = await page.evaluate(() => localStorage.getItem('lilly-offline-session'));
+	await page.getByTestId('header-logout-button').click();
+	await expect(page.getByTestId('login-form')).toBeVisible();
+	const endedVersion = await page.evaluate(() => localStorage.getItem('lilly-offline-session'));
+	await page
+		.getByTestId('email-input')
+		.fill(`e2e-pwa-${info.project.name}-${info.parallelIndex}@lilly.app`);
+	await page.getByTestId('password-input').fill('e2e-pwa-password');
+	await page.getByTestId('submit-button').click();
+	await expect(page.getByTestId('header-logout-button')).toBeVisible();
+	await page.goto('/collection');
+	await expect(page.getByTestId('cover-card').first()).toBeVisible();
+	await waitForOfflineData(page);
+	const freshVersion = await page.evaluate(() => localStorage.getItem('lilly-offline-session'));
+	expect(freshVersion).not.toBe(previousVersion);
+	await page.evaluate(
+		async ({ userId, previousVersion, endedVersion }) => {
+			const sender = new BroadcastChannel('lilly-offline');
+			const observer = new BroadcastChannel('lilly-offline');
+			// Wait for delivery to all previously created receivers, including the auth listener.
+			const delivered = new Promise<void>((resolve) => {
+				observer.onmessage = (event) => {
+					if (event.data.type === 'account-deletion') resolve();
+				};
+			});
+			for (const type of ['logout', 'account-deletion']) {
+				sender.postMessage({
+					type,
+					user_id: userId,
+					previous_version: previousVersion,
+					session_version: endedVersion
+				});
+			}
+			await delivered;
+			sender.close();
+			observer.close();
+		},
+		{ userId: account.id, previousVersion, endedVersion }
+	);
+	expect(await page.evaluate(() => localStorage.getItem('lilly-offline-session'))).toBe(
+		freshVersion
+	);
+	await expect(page.getByTestId('header-logout-button')).toBeVisible();
+	await waitForOfflineData(page);
+	await context.setOffline(true);
+	if (browserName !== 'webkit') await page.reload();
+	await expect(page.getByTestId('cover-card')).toHaveCount(1);
+	await expect(page.getByTestId('header-logout-button')).toBeVisible();
+	await context.setOffline(false);
+});
+
 test('creates and edits both series offline through every condition grade', async ({
 	page,
 	context

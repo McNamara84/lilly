@@ -27,9 +27,33 @@ export function isOfflineUserBlocked(userId: number): boolean {
 }
 
 export function changeOfflineSession(userId: number, blocked: boolean): void {
+	writeSession(
+		userId,
+		blocked,
+		`${blocked ? 'blocked' : 'active'}:${userId}:${crypto.randomUUID()}`
+	);
+}
+
+/** Apply a remote logout only to the session that sent it (or its shared tombstone). */
+export function acceptOfflineSessionEnd(
+	userId: number,
+	previousVersion: string,
+	version: string
+): boolean {
+	const current = read();
+	if (
+		!version.startsWith(`blocked:${userId}:`) ||
+		(current !== previousVersion && current !== version)
+	)
+		return false;
+	writeSession(userId, true, version);
+	return true;
+}
+
+function writeSession(userId: number, blocked: boolean, version: string): void {
 	if (blocked) blockedUsers.add(userId);
 	else blockedUsers.delete(userId);
-	fallback = `${blocked ? 'blocked' : 'active'}:${userId}:${crypto.randomUUID()}`;
+	fallback = version;
 	try {
 		if (blocked) localStorage.setItem(`${KEY}:blocked:${userId}`, 'true');
 		else localStorage.removeItem(`${KEY}:blocked:${userId}`);

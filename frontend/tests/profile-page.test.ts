@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { userEvent } from '@testing-library/user-event';
 import ProfilePage from '../src/routes/profile/+page.svelte';
+import { activateWaitingServiceWorker, initializePwaLifecycle } from '#lib/offline/pwa.svelte.js';
+import { mockWaitingUpdate } from './fixtures/pwa-update';
 
 const mockGetAuthState = vi.fn();
 const mockFetchOwnProfile = vi.fn();
@@ -92,6 +94,68 @@ function authedState() {
 }
 
 describe('Profile Page', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
+	});
+
+	it.each(['validation', 'server'] as const)(
+		'protects unsaved profile values after a %s failure',
+		async (failure) => {
+			const update = mockWaitingUpdate();
+			initializePwaLifecycle();
+			render(ProfilePage);
+			const input = await screen.findByLabelText('Anzeigename');
+			await fireEvent.input(input, {
+				target: { value: failure === 'validation' ? 'x' : 'Unsaved name' }
+			});
+			if (failure === 'server') mockUpdateProfile.mockRejectedValueOnce(new Error('Save failed'));
+			await userEvent.click(screen.getByTestId('save-profile'));
+			if (failure === 'server') await screen.findByText('Save failed');
+			else expect(mockUpdateProfile).not.toHaveBeenCalled();
+			await activateWaitingServiceWorker();
+			expect(update.confirm).toHaveBeenCalledOnce();
+			expect(update.postMessage).not.toHaveBeenCalled();
+			expect(input).toHaveValue(failure === 'validation' ? 'x' : 'Unsaved name');
+		}
+	);
+
+	it('protects an in-flight profile save and permits an update after persistence succeeds', async () => {
+		const update = mockWaitingUpdate();
+		initializePwaLifecycle();
+		const saved = Promise.withResolvers<typeof profile>();
+		mockUpdateProfile.mockReturnValueOnce(saved.promise);
+		render(ProfilePage);
+		await fireEvent.input(await screen.findByLabelText('Ort oder Region (optional)'), {
+			target: { value: 'Hamburg' }
+		});
+		await userEvent.click(screen.getByTestId('save-profile'));
+		expect(screen.getByTestId('save-profile')).toBeDisabled();
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).not.toHaveBeenCalled();
+		saved.resolve({ ...profile, location: 'Hamburg' });
+		await screen.findByText('Profildaten gespeichert.');
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
+
+	it('protects a newly entered location and releases it when the edit is reverted', async () => {
+		const update = mockWaitingUpdate();
+		initializePwaLifecycle();
+		mockFetchOwnProfile.mockResolvedValueOnce({ ...profile, location: null });
+		render(ProfilePage);
+		const input = await screen.findByLabelText('Ort oder Region (optional)');
+		await fireEvent.input(input, { target: { value: 'Hamburg' } });
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).not.toHaveBeenCalled();
+		await fireEvent.input(input, { target: { value: '' } });
+		await activateWaitingServiceWorker();
+		expect(update.confirm).toHaveBeenCalledOnce();
+		expect(update.postMessage).toHaveBeenCalledWith('SKIP_WAITING');
+	});
 	it('waits for authentication to finish before loading an editable profile', async () => {
 		mockGetAuthState.mockReturnValue({ ...authedState(), isLoading: true });
 		render(ProfilePage);

@@ -24,6 +24,7 @@
 	} from '#lib/api/account-erasure.js';
 	import { DEFAULT_PHOTO_POLICY, fetchPhotoPolicy, type PhotoPolicy } from '#lib/api/media.js';
 	import { getOfflineStatus } from '#lib/offline/status.svelte.js';
+	import { trackUnsavedChanges } from '#lib/offline/pwa.svelte.js';
 	import { deactivateAccountLocally, getAuthState, setUser } from '#lib/stores/auth.svelte.js';
 
 	const auth = getAuthState();
@@ -379,7 +380,13 @@
 					</div>
 				</div>
 
-				<form class="grid gap-4 sm:grid-cols-2" onsubmit={saveProfile} novalidate>
+				<form
+					class="grid gap-4 sm:grid-cols-2"
+					use:trackUnsavedChanges={() =>
+						displayName !== profile?.display_name || location !== (profile?.location ?? '')}
+					onsubmit={saveProfile}
+					novalidate
+				>
 					<div>
 						<label for="profile-display-name-input" class="mb-1 block text-sm font-medium">
 							Anzeigename
