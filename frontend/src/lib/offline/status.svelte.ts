@@ -9,6 +9,7 @@ let conflictCount = $state(0);
 let lastSyncedAt = $state<string | null>(null);
 let syncError = $state<string | null>(null);
 let initialized = false;
+let connectivityVersion = 0;
 
 interface OfflineStatusLabelInput {
 	online: boolean;
@@ -93,6 +94,7 @@ export async function synchronizeNow(): Promise<void> {
 }
 
 export async function refreshConnectivity(): Promise<boolean> {
+	const version = ++connectivityVersion;
 	if (typeof navigator === 'undefined' || !navigator.onLine) {
 		online = false;
 		syncing = false;
@@ -104,9 +106,11 @@ export async function refreshConnectivity(): Promise<boolean> {
 			cache: 'no-store',
 			credentials: 'same-origin'
 		});
+		if (version !== connectivityVersion) return online;
 		online = true;
 		return true;
 	} catch {
+		if (version !== connectivityVersion) return online;
 		online = false;
 		syncing = false;
 		return false;
@@ -132,6 +136,7 @@ export function initializeOfflineStatus(): void {
 		void reconnectAndSynchronize();
 	});
 	window.addEventListener('offline', () => {
+		connectivityVersion++;
 		online = false;
 		syncing = false;
 	});

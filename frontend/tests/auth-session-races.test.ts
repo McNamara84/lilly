@@ -108,6 +108,90 @@ describe('logout and in-flight authentication', () => {
 		expect(auth.getAuthState().isLoading).toBe(false);
 	});
 
+	it('does not deactivate a new login while identifying the cached account to clean up', async () => {
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const database = await import('#lib/offline/database.js');
+		const api = await import('#lib/api/auth.js');
+		vi.mocked(api.fetchMe).mockRejectedValueOnce(
+			Object.assign(new Error('deleted'), { code: 'ACCOUNT_DELETION_WINDOW_EXPIRED' })
+		);
+		vi.spyOn(database, 'getCachedProfile').mockImplementationOnce(async () => {
+			auth.setUser(profile(8));
+			return profile(7);
+		});
+		const clear = vi.spyOn(database, 'clearOfflineUserData');
+		await auth.initAuth();
+		expect(clear).not.toHaveBeenCalled();
+		expect(auth.getAuthState().user).toEqual(profile(8));
+		expect(await database.getCachedProfile()).toEqual(profile(8));
+		expect(api.refreshToken).not.toHaveBeenCalled();
+	});
+
+	it('keeps a deleted account blocked when its local cleanup fails', async () => {
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const database = await import('#lib/offline/database.js');
+		const api = await import('#lib/api/auth.js');
+		await auth.initAuth();
+		vi.mocked(api.fetchMe).mockRejectedValueOnce(
+			Object.assign(new Error('deleted'), { code: 'ACCOUNT_DELETION_PENDING' })
+		);
+		vi.spyOn(database, 'clearOfflineUserData').mockRejectedValueOnce(new Error('disk unavailable'));
+		await auth.initAuth();
+		expect(auth.getAuthState().user).toBeNull();
+		expect((await import('#lib/offline/session.js')).isOfflineUserBlocked(7)).toBe(true);
+		expect(api.refreshToken).not.toHaveBeenCalled();
+	});
+
+	it('ignores a late refresh failure after another login has succeeded', async () => {
+		const auth = await import('#lib/stores/auth.svelte.js');
+		const api = await import('#lib/api/auth.js');
+		await auth.initAuth();
+		vi.mocked(api.fetchMe).mockRejectedValueOnce(new Error('unauthorized'));
+		vi.mocked(api.refreshToken).mockImplementationOnce(async () => {
+			auth.setUser(profile(8));
+			throw new Error('late refresh failure');
+		});
+		await auth.initAuth();
+		expect(auth.getAuthState().user).toEqual(profile(8));
+		expect(await (await import('#lib/offline/database.js')).getCachedProfile()).toEqual(profile(8));
+	});
+
+	it.each(['initial', 'refresh'] as const)(
+		'keeps a fresh login and its data when an %s account-deletion cleanup resumes late',
+		async (phase) => {
+			const auth = await import('#lib/stores/auth.svelte.js');
+			const api = await import('#lib/api/auth.js');
+			const database = await import('#lib/offline/database.js');
+			await auth.initAuth();
+			await database.replaceOfflineSnapshot(snapshot(7));
+			const deletion = Object.assign(new Error('deleted'), { code: 'ACCOUNT_DELETION_PENDING' });
+			if (phase === 'initial') vi.mocked(api.fetchMe).mockRejectedValueOnce(deletion);
+			else {
+				vi.mocked(api.fetchMe).mockRejectedValueOnce(new Error('unauthorized'));
+				vi.mocked(api.refreshToken).mockRejectedValueOnce(deletion);
+			}
+			const get = IDBObjectStore.prototype.get;
+			let relogged = false;
+			vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+				this: IDBObjectStore,
+				key
+			) {
+				const request = get.call(this, key);
+				if (!relogged && this.name === 'metadata' && key === 'active_user_id') {
+					relogged = true;
+					request.addEventListener('success', () => auth.setUser(profile(7)), { once: true });
+				}
+				return request;
+			});
+			await auth.initAuth();
+			expect(relogged).toBe(true);
+			expect(auth.getAuthState().user).toEqual(profile(7));
+			expect(await database.getCachedProfile()).toEqual(profile(7));
+			expect(await database.listStoredCollectionEntries(7)).toEqual(snapshot(7).collection_entries);
+			expect(api.refreshToken).toHaveBeenCalledTimes(phase === 'initial' ? 0 : 1);
+		}
+	);
+
 	it('does not purge a newer login when service-worker readiness delays account cleanup', async () => {
 		const ready = Promise.withResolvers<ServiceWorkerRegistration>();
 		const postMessage = vi.fn();

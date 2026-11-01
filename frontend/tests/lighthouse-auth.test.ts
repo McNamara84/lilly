@@ -98,7 +98,7 @@ describe('cold Lighthouse measurement', () => {
 			const dependencies = {
 				launch: vi.fn(async () => browser),
 				saveReport: vi.fn(),
-				audit: vi.fn(async (_url: string) => ({
+				audit: vi.fn(async (_url: string, _flags: unknown, _config: unknown, _page: unknown) => ({
 					lhr: report(authenticated),
 					report: ['', '<html>secret-token</html>']
 				})),
@@ -116,6 +116,7 @@ describe('cold Lighthouse measurement', () => {
 			expect(dependencies.audit.mock.calls[0][0]).toBe(
 				`https://lilly.test${authenticated ? '/collection' : '/'}`
 			);
+			expect(dependencies.audit.mock.calls[0][3]).toBe(page);
 			expect(dependencies.request).toHaveBeenCalledTimes(authenticated ? 2 : 0);
 			if (authenticated) expect(result.html).not.toContain('secret-token');
 			page.evaluate.mockResolvedValueOnce({ valid: false, total: 0 });
@@ -135,6 +136,16 @@ describe('cold Lighthouse measurement', () => {
 			expect(JSON.parse(invalid.json).runtimeError.code).toBe('NO_NAVSTART');
 			if (authenticated) expect(invalid.html).not.toContain('secret-token');
 			expect(browser.close).toHaveBeenCalledTimes(4);
+			dependencies.audit.mockImplementationOnce(async (_url, _flags, _config, auditedPage) => {
+				expect(auditedPage).toBe(page);
+				const onError = page.on.mock.calls.filter(([event]) => event === 'pageerror').at(-1)![1];
+				onError(new Error('Error from the audited page'));
+				return { lhr: report(authenticated), report: ['', '<html></html>'] };
+			});
+			await expect(auditOnce('https://lilly.test', authenticated, dependencies)).rejects.toThrow(
+				'browser errors (1)'
+			);
+			expect(browser.close).toHaveBeenCalledTimes(5);
 		}
 	);
 });

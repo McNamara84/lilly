@@ -131,7 +131,10 @@ export async function initAuth(interactive = false): Promise<void> {
 		await confirmOnlineUser(await fetchMe(), version, interactive);
 	} catch (initialError) {
 		if (!isCurrentOfflineSession(version)) return;
-		if (hasAccountDeletionCode(initialError)) await clearCurrentOfflineData();
+		if (hasAccountDeletionCode(initialError)) {
+			await clearCurrentOfflineData(version);
+			return;
+		}
 		if (isNetworkFailure(initialError) && (await restoreOfflineUser())) {
 			isLoading = false;
 			return;
@@ -142,7 +145,10 @@ export async function initAuth(interactive = false): Promise<void> {
 			await confirmOnlineUser(await fetchMe(), version, interactive);
 		} catch (refreshError) {
 			if (!isCurrentOfflineSession(version)) return;
-			if (hasAccountDeletionCode(refreshError)) await clearCurrentOfflineData();
+			if (hasAccountDeletionCode(refreshError)) {
+				await clearCurrentOfflineData(version);
+				return;
+			}
 			if (!isNetworkFailure(refreshError) || !(await restoreOfflineUser())) {
 				user = null;
 				isOfflineSession = false;
@@ -158,13 +164,15 @@ function hasAccountDeletionCode(cause: unknown): boolean {
 	return code === 'ACCOUNT_DELETION_PENDING' || code === 'ACCOUNT_DELETION_WINDOW_EXPIRED';
 }
 
-async function clearCurrentOfflineData(): Promise<void> {
+async function clearCurrentOfflineData(version: string): Promise<void> {
 	const userId = user?.id ?? (await getCachedProfile().catch(() => null))?.id;
+	if (!isCurrentOfflineSession(version)) return;
 	if (userId !== undefined) {
 		changeOfflineSession(userId, true);
+		const endedVersion = offlineSessionVersion();
 		user = null;
 		isOfflineSession = false;
-		await clearOfflineUserData(userId).catch(() => undefined);
+		await clearOfflineUserData(userId, endedVersion).catch(() => undefined);
 	}
 }
 

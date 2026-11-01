@@ -404,7 +404,8 @@ export async function clearBlockedOfflineUsers(): Promise<void> {
 		transaction.objectStore(STORES.profiles).getAll()
 	);
 	for (const profile of profiles) {
-		if (isOfflineUserBlocked(profile.user_id)) await clearOfflineUserData(profile.user_id);
+		const version = offlineSessionVersion();
+		if (isOfflineUserBlocked(profile.user_id)) await clearOfflineUserData(profile.user_id, version);
 	}
 }
 

@@ -21,6 +21,48 @@ vi.mock('#lib/offline/collection.js', () => ({
 }));
 
 describe('offline status lifecycle', () => {
+	it('does not let a late health response overwrite a newer offline event', async () => {
+		vi.stubGlobal('navigator', { onLine: true });
+		vi.stubGlobal('BroadcastChannel', undefined);
+		vi.spyOn(window, 'setInterval').mockImplementation(() =>
+			globalThis.setTimeout(() => undefined, 0)
+		);
+		const listeners = new Map<string, EventListener>();
+		vi.spyOn(window, 'addEventListener').mockImplementation((name, listener) => {
+			listeners.set(name, listener as EventListener);
+		});
+		const response = Promise.withResolvers<Response>();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => response.promise)
+		);
+		const module = await import('#lib/offline/status.svelte.js');
+		module.initializeOfflineStatus();
+		const pending = module.refreshConnectivity();
+		listeners.get('offline')!(new Event('offline'));
+		response.resolve(new Response());
+		expect(await pending).toBe(false);
+		expect(module.getOfflineStatus().online).toBe(false);
+	});
+
+	it.each(['success', 'failure'])(
+		'ignores an older probe %s after a newer probe has completed',
+		async (outcome) => {
+			vi.stubGlobal('navigator', { onLine: true });
+			const response = Promise.withResolvers<Response>();
+			const fetch = vi.fn().mockReturnValueOnce(response.promise);
+			if (outcome === 'success') fetch.mockRejectedValueOnce(new TypeError('now offline'));
+			else fetch.mockResolvedValueOnce(new Response());
+			vi.stubGlobal('fetch', fetch);
+			const module = await import('#lib/offline/status.svelte.js');
+			const older = module.refreshConnectivity();
+			const latest = await module.refreshConnectivity();
+			if (outcome === 'success') response.resolve(new Response());
+			else response.reject(new TypeError('old offline result'));
+			expect(await older).toBe(latest);
+			expect(module.getOfflineStatus().online).toBe(latest);
+		}
+	);
 	beforeEach(() => {
 		vi.resetModules();
 		vi.clearAllMocks();

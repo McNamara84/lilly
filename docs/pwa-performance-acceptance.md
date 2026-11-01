@@ -304,6 +304,69 @@ sicher zuordnen. Die gemeinsame Abmeldesperre schützt weiterhin spätere privat
 Datenzugriffe; die sofortige tabübergreifende UI-Abmeldung setzt das neue
 Nachrichtenformat auf beiden Seiten voraus.
 
+## Zweite Review-Runde vom 01.11.2026
+
+Der Lighthouse-Hinweis ist für die festgelegte Version **13.6.0 nicht zutreffend**.
+Der installierte Einstiegspunkt `lighthouse/core/index.js` nimmt `page` als vierten
+Parameter entgegen und übergibt ihn an `navigation(page, url, ...)`. In
+`core/gather/navigation-runner.js` wird nur bei fehlendem `page` eine zusätzliche
+Browserverbindung samt Seite angelegt. Der vorhandene Messrunner verwendet damit
+bereits dieselbe Seite für Sitzungscookies, Navigation, Fehlerüberwachung und
+Inhaltsprüfung. Die Runner-Tests prüfen jetzt ausdrücklich die Identität dieses
+vierten Arguments und dass ein Fehler dieser Seite die Messung scheitern lässt.
+Die Browseranbindung wurde nicht umgebaut.
+
+Die drei Hinweise zum Sitzungsschutz sind berechtigt und durch Regressionstests
+vor der Korrektur bestätigt:
+
+- Anlegen und Bearbeiten erfassen ihre Sitzung vor dem ersten Cache-Zugriff.
+  Nach verzögerten Profil- und Eintragszugriffen wird sie vor dem Online-Schreiben
+  erneut geprüft. Die Antwortprüfung bleibt erhalten und gilt nun auch für den
+  POST-Fallback ohne Cache-Profil.
+- Eine bereits lokal abgemeldete Sitzung darf auch bei noch gültigen Servercookies
+  keinen neuen POST/PATCH beginnen. Ein unveränderter, aber gesperrter Sitzungsstand
+  wird deshalb ausdrücklich abgelehnt. Auch die Übergänge zwischen lokalem
+  Vormerken, Synchronisieren und Rückgabe des Ergebnisses prüfen den Ursprung.
+- Die Bereinigung nach einer serverseitig gemeldeten Kontolöschung erhält die
+  zugehörige Abmeldekennung. Eine neuere Anmeldung während der IndexedDB-Lesezugriffe
+  verhindert das Löschen. Der alte Authentifizierungsablauf endet nach der
+  Bereinigung, statt anschließend Tokens zu erneuern oder die neue Anmeldung
+  zurückzusetzen. Auch die Ermittlung des zu löschenden Cache-Profils und die beim
+  App-Start wiederaufgenommene Bereinigung sind gegen Sitzungswechsel abgesichert.
+
+Bei der Browsernachprüfung scheiterte ein bestehender WebKit-Test am Offline-Übergang;
+auch einer von drei gezielten Vergleichsläufen scheiterte dort. Die Untersuchung
+bestätigte zusätzlich einen Wettlauf im Verbindungsstatus: Eine verspätete Antwort
+der Erreichbarkeitsprüfung konnte ein neueres Offline-Ereignis oder Prüfergebnis
+überschreiben. Drei deterministische Unit-Tests reproduzieren diesen Fehler.
+Eine laufende Erreichbarkeitsprüfung darf ihren Zustand jetzt nur übernehmen,
+solange kein neueres Ereignis beziehungsweise keine neuere Prüfung sie ersetzt hat.
+
+30 zusätzliche Regressionstests decken die Sitzungslücken und die genannten
+Zeitabläufe ab. Der abschließende Linux-Lauf besteht **1.015 Tests in 72 Dateien**.
+Der LCOV-Abgleich gegen `28adf4b` ergibt **535 von 535 vollständig abgedeckten
+geänderten Zeilen (100 % Patch-Abdeckung)**. Insgesamt werden 98,71 % Statements,
+90,36 % Branches und 99,41 % Lines erreicht. Produktionsbuild, ESLint, Prettier und
+Svelte-/TypeScript-Prüfung bestehen; Prüfschwellen bleiben unverändert.
+
+Die abschließende PWA-Browserprüfung besteht **43 Tests ohne automatische
+Wiederholungen** in Chromium, Firefox, WebKit und mobilem Chrome. Der zuvor
+fehlgeschlagene Offline-Übergang besteht nun ebenfalls. Ein vollständig netzloser
+WebKit-Neuladetest bleibt wie bisher ausgenommen. Zusätzlich bestanden die
+117 ausgewählten Browserprüfungen für Anmeldung, Sammlung und Profil in allen
+drei Desktop-Engines. Die anfänglichen WebKit-Fehler sind damit ausdrücklich
+von den erfolgreichen Prüfungen nach der Statuskorrektur getrennt dokumentiert.
+
+Die erneute echte Lighthouse-Messreihe besteht alle zehn kalten Navigationen.
+Alle fünf Sammlungsläufe bestätigen die angemeldete Identität, 200 Einträge und
+ein geladenes Cover auf der von Lighthouse verwendeten Seite. Die unveränderte
+Browseranbindung funktioniert damit auch ohne Testdouble. Die Mediane betragen
+99 Performancepunkte für den öffentlichen Einstieg und 96 Punkte für die Sammlung;
+beide FCP-Mediane liegen unter 800 ms. Die Grenzwerte bleiben 90 Punkte und 3.000 ms.
+[Die Messreihe dieser Review-Runde](pwa-performance-results-review2.json) enthält
+alle Einzelwerte und die Werkzeugversionen. `commit: 911837d…` bezeichnet den
+Ausgangsstand, `workingTreeDirty: true` die geprüften Korrekturen vor dem Commit.
+
 ## Browsergrenzen und spätere Geräteprüfung
 
 Playwright-WebKit kann beim vollständig netzlosen Neuladen einer vom Service Worker

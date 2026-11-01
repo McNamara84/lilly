@@ -50,6 +50,14 @@ describe('offline database session isolation', () => {
 		expect(await database.listStoredCollectionEntries(1)).toEqual([entry]);
 	});
 
+	it('does not delete a newer login when retrying interrupted blocked-account cleanup', async () => {
+		changeOfflineSession(1, true);
+		interruptRead('get', () => changeOfflineSession(1, false), 'metadata');
+		await database.clearBlockedOfflineUsers();
+		expect(await database.getCachedProfile()).toEqual(profile(1));
+		expect(await database.listStoredCollectionEntries(1)).toEqual([entry]);
+	});
+
 	it('does not restore a missing profile from a dangling active-user record', async () => {
 		const connection = await new Promise<IDBDatabase>((resolve, reject) => {
 			const request = indexedDB.open('lilly-offline');

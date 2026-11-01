@@ -215,6 +215,11 @@ export async function fetchAllCollectionEntries(seriesSlug: string): Promise<Col
 	return fetchAllCollectionPages({ series_slug: seriesSlug });
 }
 
+function assertCollectionWriteSession(version: string): void {
+	if (version.startsWith('blocked:') || !isCurrentOfflineSession(version))
+		throw new Error('Die Sitzung wurde inzwischen beendet.');
+}
+
 async function addToCollectionOnline(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
 	const response = await fetch(`${API_BASE}/me/collection`, {
 		method: 'POST',
@@ -226,19 +231,23 @@ async function addToCollectionOnline(body: AddCollectionEntryRequest): Promise<C
 }
 
 export async function addToCollection(body: AddCollectionEntryRequest): Promise<CollectionEntry> {
+	const version = offlineSessionVersion();
+	assertCollectionWriteSession(version);
 	const profile = await getCachedProfile().catch(() => null);
-	if (!profile) return addToCollectionOnline(body);
+	assertCollectionWriteSession(version);
+	if (!profile) return currentSessionResult(version, await addToCollectionOnline(body));
 
 	const queued = await queueCollectionCreate(profile.id, body);
+	assertCollectionWriteSession(version);
 	try {
 		const response = await synchronizeCollection(profile.id, sendCollectionSync);
 		const result = response?.results.find(
 			(candidate) => candidate.mutation_id === queued.mutation.mutation_id
 		);
 		if (result?.status === 'rejected') throw new Error(result.error ?? 'Änderung abgelehnt');
-		return result?.entry ?? queued.entry;
+		return currentSessionResult(version, result?.entry ?? queued.entry);
 	} catch (error) {
-		if (isNetworkFailure(error)) return queued.entry;
+		if (isNetworkFailure(error)) return currentSessionResult(version, queued.entry);
 		throw error;
 	}
 }
@@ -261,10 +270,13 @@ export async function updateCollectionEntry(
 	body: UpdateCollectionEntryRequest
 ): Promise<CollectionEntry> {
 	const version = offlineSessionVersion();
+	assertCollectionWriteSession(version);
 	const profile = await getCachedProfile().catch(() => null);
+	assertCollectionWriteSession(version);
 	if (!profile) return currentSessionResult(version, await updateCollectionEntryOnline(id, body));
 
 	const entries = await listStoredCollectionEntries(profile.id).catch(() => []);
+	assertCollectionWriteSession(version);
 	if (!entries.some((entry) => entry.id === id)) {
 		const online = await updateCollectionEntryOnline(id, body);
 		if (!isCurrentOfflineSession(version)) throw new Error('Die Sitzung wurde inzwischen beendet.');
@@ -273,15 +285,16 @@ export async function updateCollectionEntry(
 	}
 
 	const queued = await queueCollectionUpdate(profile.id, id, body);
+	assertCollectionWriteSession(version);
 	try {
 		const response = await synchronizeCollection(profile.id, sendCollectionSync);
 		const result = response?.results.find(
 			(candidate) => candidate.mutation_id === queued.mutation.mutation_id
 		);
 		if (result?.status === 'rejected') throw new Error(result.error ?? 'Änderung abgelehnt');
-		return result?.entry ?? queued.entry;
+		return currentSessionResult(version, result?.entry ?? queued.entry);
 	} catch (error) {
-		if (isNetworkFailure(error)) return queued.entry;
+		if (isNetworkFailure(error)) return currentSessionResult(version, queued.entry);
 		throw error;
 	}
 }

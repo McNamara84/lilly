@@ -48,6 +48,8 @@ async function auditOnce(origin, authenticated, dependencies) {
 		page.on('pageerror', (error) => errors.push(error.message));
 		const cookies = authenticated ? await authenticate(page, origin, dependencies.request) : [];
 		const url = `${origin}${authenticated ? '/collection' : '/'}`;
+		// Lighthouse 13.6 accepts this Puppeteer page as its fourth argument; authentication,
+		// navigation, error monitoring and content validation must share the same page.
 		const result = await dependencies.audit(
 			url,
 			{
