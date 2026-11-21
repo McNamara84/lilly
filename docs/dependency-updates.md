@@ -148,6 +148,17 @@ parallelen Betrieb von TypeScript 7 sind nun umgesetzt:
   Die Anleitung für manuelle Rollbacks unterscheidet Anwendungsrollback und
   Wiederherstellung des Datenbankservers auf einem frischen Volume.
 
+Die erste Review-Runde zeigte einen anschließenden Recovery-Fehler: `current`
+bleibt beim Anwendungsrollback auf dem alten Release, dessen Restore-Skript das
+frühere Datenbankimage starten würde. `deploy.sh` hält deshalb vor dem
+Containerstart einen unabhängigen Verweis `infrastructure` auf das versuchte
+Release fest. Dieser bleibt beim Rollback erhalten. Die dokumentierte Recovery
+verwendet dessen Restore-Skript und Compose-Datei. Der Restore sperrt parallele
+Deployments und lehnt ein vom laufenden Container abweichendes Datenbankimage
+einschließlich abweichender Digests vor allen Dienste- und Datenänderungen ab.
+Alle 25 Python-/Bash-Regressionstests unter Linux sind erfolgreich, einschließlich
+der beiden Rollback-Fälle und neun zusätzlicher Recovery-Tests.
+
 ## Nachprüfung mit MariaDB 13 und TypeScript 7
 
 - `npm ci` und der vollständige installierte npm-Abhängigkeitsbaum sind konsistent;

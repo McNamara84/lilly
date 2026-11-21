@@ -50,6 +50,7 @@ for arg in "$@"; do
 done
 if (( starts )) && [[ "$config" == "$TEST_CANDIDATE" ]]; then
   [[ -f "$TEST_BACKUP" ]] || exit 90
+  [[ "$(readlink -f -- "$LILLY_ROOT/infrastructure")/docker-compose.production.yml" == "$TEST_CANDIDATE" ]] || exit 92
   printf 13.0 > "$TEST_DATABASE"
   [[ "$TEST_FAILURE" != compose ]] || exit 1
 fi
@@ -80,6 +81,7 @@ fi
             self.assertEqual((root / "application-version").read_text(), "previous")
             self.assertEqual((shared / ".deployment.env").read_text(), previous_environment)
             self.assertEqual((deployment_root / "current").resolve(), previous)
+            self.assertEqual((deployment_root / "infrastructure").resolve(), candidate)
 
     def test_compose_failure_restores_only_the_application(self):
         self.run_failed_deployment("compose")

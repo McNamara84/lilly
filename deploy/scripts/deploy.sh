@@ -9,6 +9,7 @@ readonly APP_ENV_FILE="${SHARED_DIR}/.env.production"
 readonly DEPLOYMENT_ENV_FILE="${SHARED_DIR}/.deployment.env"
 readonly CANDIDATE_ENV_FILE="${SHARED_DIR}/.deployment.env.candidate"
 readonly COMPOSE_FILE="${RELEASE_DIR}/docker-compose.production.yml"
+readonly INFRASTRUCTURE_LINK="${LILLY_ROOT}/infrastructure"
 
 if [[ ! "${RELEASE_ID}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Usage: $0 <40-character commit SHA>" >&2
@@ -95,6 +96,7 @@ compose_new() {
 rollback() {
   echo "Deployment failed; attempting application container rollback." >&2
   echo "The database image and data directory will remain at their current version." >&2
+  echo "Recovery tooling: ${INFRASTRUCTURE_LINK}/scripts/restore.sh" >&2
 
   if (( had_previous_env == 1 )); then
     install -m 600 "${previous_env_file}" "${DEPLOYMENT_ENV_FILE}"
@@ -109,7 +111,7 @@ rollback() {
       --env-file "${DEPLOYMENT_ENV_FILE}" \
       --file "${previous_release}/docker-compose.production.yml" \
       up -d --wait --no-deps backend frontend caddy; then
-      echo "Automatic application rollback also failed. Use the pre-deployment backup for manual recovery." >&2
+      echo "Automatic application rollback also failed. Use ${INFRASTRUCTURE_LINK}/scripts/restore.sh with the pre-deployment backup for recovery." >&2
     fi
   else
     compose_new stop || true
@@ -132,6 +134,11 @@ fi
 
 echo "Pulling immutable release images..."
 compose_new pull
+
+# Record recovery tooling and infrastructure before the database can be upgraded.
+# Application rollback deliberately leaves this reference on the attempted release.
+ln -sfn "${RELEASE_DIR}" "${INFRASTRUCTURE_LINK}.next"
+mv -Tf "${INFRASTRUCTURE_LINK}.next" "${INFRASTRUCTURE_LINK}"
 
 install -m 600 "${CANDIDATE_ENV_FILE}" "${DEPLOYMENT_ENV_FILE}"
 
