@@ -26,6 +26,19 @@ npm run dev          # Start dev server on http://localhost:5173
 
 ## Testing
 
+Playwright is temporarily pinned to **1.66.0-alpha-2026-11-21** because the latest
+stable release, 1.65.1, bundles a Firefox build that crashes when Axe and Playwright
+both read ARIA label references. The pinned version includes the corrected Firefox
+build 1578. See [the upstream diagnosis](https://github.com/microsoft/playwright/issues/44135#issuecomment-6918863177).
+Return to a stable Playwright release once it includes the browser fix.
+
+Install the browsers matching the lock file after installing or updating dependencies:
+
+```bash
+npm ci
+npx playwright install
+```
+
 Start the isolated E2E stack from the `frontend` directory before running Playwright:
 
 ```bash

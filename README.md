@@ -348,6 +348,12 @@ npm run test:coverage    # With coverage report
 
 ### Frontend E2E Tests (Playwright)
 
+Playwright is temporarily pinned to `1.66.0-alpha-2026-11-21` for the corrected
+Firefox build 1578. Stable Playwright 1.65.1 ships a Firefox build that can crash
+during accessibility checks; see the [upstream diagnosis](https://github.com/microsoft/playwright/issues/44135#issuecomment-6918863177).
+Run `npx playwright install` again after updating dependencies to install the
+matching browsers. CI installs them on every run.
+
 ```bash
 # From the repository root, start the isolated E2E stack:
 docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build --wait

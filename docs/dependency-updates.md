@@ -4,7 +4,8 @@ Stabile Versionen wurden gegen npm, crates.io, PyPI, die GitHub-Releases der
 Hersteller und die Docker-Registry geprüft. Direkte Abhängigkeiten und die
 kompatibel auflösbaren indirekten Abhängigkeiten sind aktualisiert. GitHub Actions
 bleiben mit vollständigen Commit-SHAs, externe Images mit verifizierten
-Multiarch-Digests fixiert.
+Multiarch-Digests fixiert. Die unten beschriebene Playwright-Vorabversion ist eine
+gezielte Ausnahme für einen bestätigten Fehler des mitgelieferten Firefox-Builds.
 
 ## Aktuelle Versionen
 
@@ -14,7 +15,7 @@ Multiarch-Digests fixiert.
 | Rust | 1.100.0, lokal, in CI und im Slim-Trixie-Buildimage |
 | Svelte / SvelteKit / Node-Adapter | 5.59.1 / 3.4.0 / 6.0.5 |
 | Tailwind CSS / Skeleton Svelte | 4.3.5 / 5.0.6 |
-| Vite / Vitest / Playwright | 8.3.8 / 5.1.1 / 1.65.1 |
+| Vite / Vitest / Playwright | 8.3.8 / 5.1.1 / 1.66.0-alpha-2026-11-21, exakt gepinnt |
 | Jest-DOM / jsdom | 8.0.0 / 31.0.1 |
 | TypeScript: nativer Compiler / JavaScript-Compiler-API | 7.0.2 / 6.0.3 |
 | Lighthouse / Lighthouse CI | 13.6.0 / 0.16.1 |
@@ -29,6 +30,63 @@ Docker Login wurde auf
 der Rust-Toolchain-Installer auf den geprüften Commit vom 15. November 2026.
 Die übrigen verwendeten Actions entsprechen bereits ihren neuesten stabilen
 Releases; ihre Commit-Pins wurden gegen die Release-Tags geprüft.
+
+## Korrektur des Firefox-CI-Absturzes
+
+Der [CI-Lauf auf `6e72bba`](https://github.com/McNamara84/lilly/actions/runs/44897987894)
+scheiterte ausschließlich in der Firefox-Barrierefreiheitsprüfung der Profilseite.
+Der Browser stürzte auch bei beiden Wiederholungen ab. Ein unveränderter lokaler
+Linux-Durchlauf mit Firefox-Build 1572 reproduzierte drei Abstürze in 20 Versuchen;
+ein einzelner grüner Gesamtlauf reichte deshalb nicht als Entwarnung.
+
+Ursache ist [Mozilla-Bug 2090055](https://bugzilla.mozilla.org/show_bug.cgi?id=2090055):
+Beim Lesen von ARIA-Elementreferenzen wie `ariaLabelledByElements` aus dem
+Seitenkontext und Playwrights isolierter Skriptumgebung kann Firefox durch einen
+Nullzeigerzugriff abstürzen. Die [Playwright-Diagnose](https://github.com/microsoft/playwright/issues/44135#issuecomment-6918863177)
+bestätigt den Fehler in 1.65.1 und die Korrektur in neueren Firefox-Builds.
+Die Browser werden in CI bereits frisch installiert; ein alter Browser-Cache war
+daher nicht die Ursache.
+
+Nach ausdrücklicher Freigabe ist `@playwright/test` vorübergehend exakt auf
+`1.66.0-alpha-2026-11-21` festgelegt.
+Diese Version enthält den korrigierten Firefox-Build 1578. Die bestehende
+Browserinstallation in CI übernimmt damit automatisch die passenden Builds.
+Die Ausnahme soll entfallen, sobald eine stabile Playwright-Version den Fix enthält.
+Timeouts, Wiederholungen, Trace-Aufzeichnung und Axe-Prüfregeln bleiben unverändert.
+Ein gezielter npm-Override bindet auch Axes `playwright-core`-Peer an dieselbe
+Version über `$@playwright/test`. Ohne diese Auflösung schließt der Peer-Bereich
+die Vorabversion aus und npm installiert zusätzlich den stabilen Core mit
+abweichenden `Page`-Typen. Override und Vorabversions-Pin sollen gemeinsam mit dem
+Wechsel zurück zu einer stabilen Version entfallen.
+
+Ein kleiner zusätzlicher E2E-Regressionstest liest die ARIA-Referenzen mit Axe und
+anschließend über benannte Playwright-Lokatoren. Er stürzt mit Build 1572 ab und
+besteht mit Build 1578. Der ursprüngliche Profiltest bestand mit dem korrigierten
+Browser außerdem 20 von 20 Durchläufen ohne Wiederholung.
+
+Die freigegebene Version verwendet Chromium 159.0.8154.13 (Build 1256),
+Firefox 159.0 (Build 1578) und WebKit 27.2 (Build 2395). Die passenden Browser sind
+auch im regulären lokalen Windows-Cache installiert.
+
+Nachprüfung mit der endgültigen Lockdatei:
+
+- `npm ci` unter Windows und Linux erfolgreich; alle Playwright-Pakete und Axes
+  Peer verwenden dieselbe Version. npm meldet keine Schwachstellen.
+- TypeScript-7-Prüfung, ESLint und Prettier erfolgreich. Der Frontend-Docker-Build
+  einschließlich `npm ci`, Typprüfung und Produktionsbuild ist erfolgreich.
+- Alle 1.027 Unit-Tests erfolgreich; Statement-Coverage unverändert 98,68 %.
+- Vollständige Linux-Suites ohne Wiederholung erfolgreich: Chromium 107,
+  Firefox 107 und WebKit 106 Tests. Die drei Produktionsupdate-Fälle je Browser
+  benötigen einen gesonderten Zwei-Build-Lauf; WebKit überspringt zusätzlich den
+  bestehenden Offline-Navigationstest.
+- Alle zwölf mobilen Chromium-PWA-Tests erfolgreich.
+- Alle neun Update-Prüfungen zwischen zwei Produktionsbuilds in Chromium,
+  Firefox und WebKit ohne Wiederholung erfolgreich.
+- Alle zehn Lighthouse-Messungen und die unveränderten Grenzwerte erfolgreich.
+  Median für den öffentlichen Einstieg: Performance 99/100, FCP 762 ms;
+  für die angemeldete Sammlung: Performance 95/100, FCP 758 ms.
+- Der neue Browser-Regressionstest besteht zusätzlich unter Windows in allen
+  drei Browsern mit dem regulären Playwright-Cache.
 
 ## Freigegebene Migrationen und Ausnahmen
 
@@ -55,7 +113,7 @@ Ladezustand deaktiviert, bis die Daten und Ereignisbehandlung bereit sind. Eine
 gezielte Regressionprüfung hält die erste API-Antwort zurück und prüft anschließend
 die erfolgreiche Auswahl der Historie.
 
-Alle bisherigen npm-Overrides sind entfallen: Lighthouse CI verwendet nun selbst
+Die bisherigen Sicherheits-Overrides für npm sind entfallen: Lighthouse CI verwendet nun selbst
 Lighthouse 13.6.0 und uuid 14.0.3. `tmp` kommt im aufgelösten Baum nicht mehr vor;
 `get-uri` erlaubt bereits die installierte neueste Version von `basic-ftp`.
 Der aufgelöste Paketbaum blieb beim Entfernen der letzten Overrides unverändert.
