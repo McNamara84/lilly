@@ -593,6 +593,14 @@ erhalten. Der Restore verwendet diese Compose-Konfiguration, sperrt parallele
 Deployments und Backups und prüft vor Änderungen das konfigurierte Datenbankimage
 gegen den laufenden Container. Einzelheiten stehen in [der Betriebsanleitung](server-deployment.md).
 
+Deployments aktualisieren den stabilen Backup-Einstieg
+`/opt/lilly/shared/backup.sh` atomar aus dem neuen Release. Dienst und manuelle
+Backups verwenden diesen auch nach einem Anwendungsrollback. Backups erwerben
+zuerst dieselbe Deployment-Sperre und anschließend die Backup-Sperre; das vom
+Deployment gestartete Backup verwendet den geerbten Sperrdeskriptor weiter.
+Ein noch auf alte Skripte zeigender systemd-Dienst verhindert das Upgrade bis zur
+Aktualisierung seiner geladenen Konfiguration.
+
 ### 8.2 Volumes
 
 - **`db_data`:** Persistenter MariaDB-Speicher.

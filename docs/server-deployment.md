@@ -121,12 +121,53 @@ The `Main Branch` GitHub Actions workflow performs all tests, publishes both com
 
 The script validates the Compose model, creates a mandatory backup when a previous release exists, pulls exact image tags, waits for all healthchecks and switches `/opt/lilly/current` only after the release is healthy.
 
+While holding the deployment lock, it atomically installs the candidate release's
+backup implementation as `/opt/lilly/shared/backup.sh`. Both the backup service
+and manual backups use this stable entry point. The pre-deployment backup invokes
+the same fresh helper and reuses the deployment lock inherited from `deploy.sh`.
+Its configuration still comes from the previous infrastructure release, with
+`current` as the bootstrap fallback before an infrastructure reference exists.
+
 Before starting containers, it atomically points `/opt/lilly/infrastructure` at the
 attempted release. This independent reference retains its Compose configuration
 and recovery scripts even if the application rolls back to an older release.
 `current` identifies the healthy application release; the infrastructure reference
 is retained after partial failures and must be recorded with offsite recovery
 information. Do not delete either referenced release directory.
+
+### One-time migration of an existing backup service
+
+An already installed service may still execute `current/scripts/backup.sh`, which
+can retain older, unlocked code after an application rollback. Update the loaded
+unit before the first deployment using the shared backup entry point. Provisioning
+a fresh server already installs the updated unit.
+
+Pause the timer and let any running backup finish before updating the service.
+Also let manually started legacy backups finish before this migration.
+
+```bash
+sudo systemctl stop lilly-backup.timer
+systemctl show --property=ActiveState lilly-backup.service
+# Continue when the service is inactive or failed and no old manual backup is running.
+sudo install -m 0644 /opt/lilly/releases/<NEW_RELEASE_SHA>/systemd/lilly-backup.service /etc/systemd/system/
+sudo systemctl daemon-reload
+systemctl show --property=ExecStart lilly-backup.service
+```
+
+The loaded `ExecStart` must point to `/opt/lilly/shared/backup.sh`. Deployment
+checks this setting and refuses an outdated unit or an unreadable service state
+before starting a backup or changing the database. It also refuses to continue
+while a service invocation from before the helper update is still running.
+The uploaded candidate release directory remains available when this preflight
+check aborts a workflow; update its unit and retry that deployment.
+
+After deployment has installed the shared helper, enable the timer again. The
+helper remains updated even if application startup subsequently fails:
+
+```bash
+test -x /opt/lilly/shared/backup.sh
+sudo systemctl start lilly-backup.timer
+```
 
 ### MariaDB 13 upgrades
 
@@ -155,11 +196,11 @@ curl --fail http://127.0.0.1:8091/api/v1/health
 
 ## Backups and restore
 
-After the first successful deployment, install/refresh the unit files from the active release and enable the timer:
+After the first successful deployment, install/refresh the unit files from the retained infrastructure release and enable the timer:
 
 ```bash
-sudo install -m 0644 /opt/lilly/current/systemd/lilly-backup.service /etc/systemd/system/
-sudo install -m 0644 /opt/lilly/current/systemd/lilly-backup.timer /etc/systemd/system/
+sudo install -m 0644 /opt/lilly/infrastructure/systemd/lilly-backup.service /etc/systemd/system/
+sudo install -m 0644 /opt/lilly/infrastructure/systemd/lilly-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now lilly-backup.timer
 sudo systemctl start lilly-backup.service
@@ -172,6 +213,16 @@ systemctl status lilly-backup.timer
 journalctl -u lilly-backup.service
 find /opt/lilly/backups -maxdepth 2 -type f -name COMPLETE -print
 ```
+
+For a manual backup, use the same maintained entry point as the service:
+
+```bash
+/opt/lilly/shared/backup.sh manual
+```
+
+Each backup records both the application release and the infrastructure
+configuration release in `metadata.env`. Use the shared helper after a rollback;
+an older release's `scripts/backup.sh` may not implement the current lock protocol.
 
 Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log`; it must be included in offsite copies and must never be replaced by an older backup copy. Its file mode is `0600`; the containing directory is owned by the deployment user and the backend container group (GID 999) with mode `0770`.
 
@@ -187,12 +238,15 @@ A restore is intentionally manual and destructive:
 
 The restore script refuses to proceed without the live erasure ledger. After restoring database and media, it runs `lilly-backend privacy replay-erasure-ledger` before starting any public service. The replay permanently removes every account recorded after the restored snapshot. A replay failure keeps the stack offline; investigate the ledger and database instead of bypassing this guard.
 
-Restore uses the infrastructure Compose file and acquires both exclusive locks in
-this fixed order: `shared/.deploy.lock`, then `backups/.backup.lock`. This matches
-deployment's lock order when it invokes a pre-deployment backup. Restore waits up
-to 15 minutes for each lock and holds both through checksum validation and the
-entire recovery, including the final health check. Manual and scheduled backups
-use the same backup lock and refuse to start a snapshot while restore holds it.
+Deployment, backups and restore all use `shared/.deploy.lock`. Backups and restore
+then acquire `backups/.backup.lock`, always in that order. A standalone backup
+acquires the deployment lock before reading configuration or inspecting containers.
+A deployment-invoked backup verifies and reuses the inherited descriptor for that
+same lock; it keeps the parent deployment locked after the backup finishes.
+Standalone backups fail immediately when either lock is busy. Restore waits up to
+15 minutes for each lock. Both backup and restore retain their locks through the
+entire operation, including cleanup; restore also holds them through the final
+health check. This prevents snapshots during deployment, upgrade or recovery.
 
 Before stopping application services or changing data, restore requires one
 running database container and compares its exact image reference, including the

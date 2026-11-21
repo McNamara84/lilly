@@ -18,7 +18,7 @@ class DeploymentRollbackTests(unittest.TestCase):
             candidate = deployment_root / "releases" / ("b" * 40)
             shared = deployment_root / "shared"
             commands = root / "bin"
-            for path in (previous / "scripts", candidate, shared, commands):
+            for path in (previous / "scripts", candidate / "scripts", shared, commands):
                 path.mkdir(parents=True)
             for release in (previous, candidate):
                 (release / "docker-compose.production.yml").write_text("services: {}\n")
@@ -32,7 +32,9 @@ class DeploymentRollbackTests(unittest.TestCase):
                 path.write_text(source, encoding="utf-8")
                 path.chmod(0o755)
 
-            executable(previous / "scripts/backup.sh", '#!/bin/bash\nprintf backup > "$TEST_BACKUP"\n')
+            executable(previous / "scripts/backup.sh", "#!/bin/bash\nexit 99\n")
+            executable(candidate / "scripts/backup.sh", '#!/bin/bash\n[[ "$LILLY_ROOT/shared/.deploy.lock" -ef "/proc/$$/fd/8" ]] || exit 93\nprintf backup > "$TEST_BACKUP"\n')
+            executable(commands / "systemctl", "#!/bin/bash\nprintf 'not-found\\n'\n")
             executable(commands / "flock", "#!/bin/bash\nexit 0\n")
             executable(commands / "sleep", "#!/bin/bash\nexit 0\n")
             executable(commands / "curl", '#!/bin/bash\n[[ "$TEST_FAILURE" != http ]]\n')

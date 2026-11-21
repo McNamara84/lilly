@@ -169,6 +169,20 @@ Linux-Regressionstests sind erfolgreich. Die Nebenläufigkeitstests verwenden
 echtes `flock`, prüfen beide Aufrufreihenfolgen und die Freigabe der Sperren nach
 erfolgreichem sowie fehlgeschlagenem Restore.
 
+Die nächste Review-Runde schloss die Sperrlücke zwischen eigenständigen Backups
+und Deployments. Auch manuelle und geplante Backups erwerben nun vor ihren
+Konfigurations- und Containerzugriffen `shared/.deploy.lock`. Das Pre-Deployment-
+Backup verwendet den überprüften, geerbten Deskriptor desselben Locks weiter,
+sodass es weder an der eigenen Elternsperre hängt noch diese vorzeitig freigibt.
+Das Deployment installiert die neue Backup-Implementierung atomar unter
+`shared/backup.sh`; Dienst, manuelle Aufrufe und Pre-Deployment-Backups verwenden
+diesen Einstieg unabhängig von `current`. Alte geladene systemd-Dienstpfade oder
+noch laufende Dienstaufrufe verhindern den Start des Upgrades. Die einmalige
+Dienstmigration ist in der Betriebsanleitung beschrieben. Die Regressionstests
+prüfen auch den ersten Umstieg von einer alten Installation und den Abbruch vor
+dem Containerstart bei fehlgeschlagenem Pre-Deployment-Backup.
+Alle 39 Linux-Regressionstests und die Bash-Syntaxprüfung sind erfolgreich.
+
 ## Nachprüfung mit MariaDB 13 und TypeScript 7
 
 - `npm ci` und der vollständige installierte npm-Abhängigkeitsbaum sind konsistent;

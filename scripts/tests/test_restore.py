@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import signal
 import subprocess
 import tarfile
@@ -31,10 +32,11 @@ class RestoreTests(unittest.TestCase):
         self.shared = self.deployment_root / "shared"
         self.backup = self.deployment_root / "backups" / "test-backup"
         commands = self.root / "bin"
-        for directory in (self.previous, self.infrastructure / "scripts", self.shared / "erasure-ledger", self.backup, commands):
+        for directory in (self.previous / "scripts", self.infrastructure / "scripts", self.shared / "erasure-ledger", self.backup, commands):
             directory.mkdir(parents=True)
         for release, image in ((self.previous, OLD_IMAGE), (self.infrastructure, NEW_IMAGE)):
             (release / "docker-compose.production.yml").write_text(f"services:\n  db:\n    image: {image}\n")
+            (release / "Caddyfile").touch()
         (self.deployment_root / "current").symlink_to(self.previous, target_is_directory=True)
         (self.deployment_root / "infrastructure").symlink_to(self.infrastructure, target_is_directory=True)
         (self.shared / ".env.production").write_text("JWT_SECRET=test-only\n")
@@ -68,6 +70,11 @@ class RestoreTests(unittest.TestCase):
             "TEST_LOCK_ATTEMPTS": str(self.root / "lock-attempts"),
             "TEST_INSPECT_FAILURE": "0",
             "TEST_REPLAY_FAILURE": "0",
+            "TEST_SYSTEMD_LOAD_STATE": "loaded",
+            "TEST_SYSTEMD_ROUTE": "shared",
+            "TEST_SYSTEMD_ACTIVE_STATE": "inactive",
+            "TEST_SYSTEMD_FAILURE": "0",
+            "TEST_LEGACY_BACKUP": str(self.root / "legacy-backup-used"),
         }
 
         def executable(name, source):
@@ -84,19 +91,51 @@ fi
 [[ "$TEST_BACKUP_LOCK_BUSY" != 1 || "${@: -1}" != 9 ]]
 ''')
         executable("curl", "#!/bin/bash\nexit 0\n")
+        executable("sleep", "#!/bin/bash\nexit 0\n")
+        executable("systemctl", r'''#!/bin/bash
+[[ "$TEST_SYSTEMD_FAILURE" != 1 ]] || exit 1
+case "$2" in
+  --property=LoadState) printf '%s\n' "$TEST_SYSTEMD_LOAD_STATE" ;;
+  --property=ExecStart)
+    if [[ "$TEST_SYSTEMD_ROUTE" == shared ]]; then
+      path="$LILLY_ROOT/shared/backup.sh"
+    else
+      path="$LILLY_ROOT/$TEST_SYSTEMD_ROUTE/scripts/backup.sh"
+    fi
+    printf '{ path=%s ; argv[]=%s daily ; }\n' "$path" "$path"
+    ;;
+  --property=ActiveState) printf '%s\n' "$TEST_SYSTEMD_ACTIVE_STATE" ;;
+  *) exit 94 ;;
+esac
+''')
         executable("docker", r'''#!/usr/bin/env python3
 import json
+import io
 import os
 from pathlib import Path
 import re
 import sys
+import tarfile
 import time
+
+def wait_for_release(operation):
+    ready = os.environ.get("TEST_" + operation + "_READY")
+    if not ready:
+        return
+    Path(ready).touch()
+    deadline = time.monotonic() + 15
+    while not Path(os.environ["TEST_" + operation + "_RESUME"]).exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Test did not release " + operation)
+        time.sleep(0.01)
 
 args = sys.argv[1:]
 with open(os.environ["TEST_DOCKER_LOG"], "a") as log:
     log.write(json.dumps(args) + "\n")
 database = Path(os.environ["TEST_DATABASE_IMAGE"])
-if args[0] == "inspect":
+if args[:2] == ["network", "inspect"]:
+    assert args[2] == "proxy", args
+elif args[0] == "inspect":
     if os.environ["TEST_INSPECT_FAILURE"] == "1":
         sys.exit(1)
     if args[2] == "{{.Config.Image}}":
@@ -113,29 +152,42 @@ elif args[0] == "compose":
     command = args[config_index + 2:]
     image = re.search(r"image:\s*(\S+)", config.read_text()).group(1)
     if command[0] == "config":
-        assert command[1:] == ["--images", "db"], command
-        print(image)
+        if command[1:] == ["--images", "db"]:
+            print(image)
+        else:
+            assert command[1:] == ["--quiet"], command
     elif command[0] == "ps":
         if os.environ["TEST_DATABASE_STATE"] == "running":
             print("test-" + command[-1])
     elif command[0] == "up":
-        database.write_text(image)
+        if "--no-deps" not in command:
+            database.write_text(image)
+        if str(config.resolve()) == os.environ.get("TEST_CANDIDATE_COMPOSE"):
+            wait_for_release("DEPLOY")
+            if os.environ.get("TEST_DEPLOY_FAILURE") == "compose":
+                sys.exit(1)
     elif command[0] == "exec":
-        ready = os.environ.get("TEST_RESTORE_READY")
-        if ready and any("DROP DATABASE" in argument for argument in command):
-            Path(ready).touch()
-            deadline = time.monotonic() + 15
-            while not Path(os.environ["TEST_RESTORE_RESUME"]).exists():
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("Restore test did not release the database operation")
-                time.sleep(0.01)
+        if any("DROP DATABASE" in argument for argument in command):
+            wait_for_release("RESTORE")
+        if any("mariadb-dump" in argument for argument in command):
+            wait_for_release("BACKUP")
+            if os.environ.get("TEST_BACKUP_FAILURE") == "1":
+                sys.exit(1)
+            sys.stdout.write("SELECT 1;\n")
         sys.stdin.buffer.read()
     elif command[0] == "run":
         if os.environ["TEST_REPLAY_FAILURE"] == "1":
             sys.exit(1)
     else:
-        assert command[0] in ("stop", "pause", "unpause"), command
+        assert command[0] in ("stop", "pause", "unpause", "pull", "logs"), command
 elif args[0] == "run":
+    if "tar" in args:
+        stream = io.BytesIO()
+        with tarfile.open(fileobj=stream, mode="w:gz"):
+            pass
+        sys.stdout.buffer.write(stream.getvalue())
+    elif "cat" in args:
+        sys.stdout.buffer.write((Path(os.environ["LILLY_ROOT"]) / "shared/erasure-ledger/account-erasure.log").read_bytes())
     sys.stdin.buffer.read()
 else:
     raise AssertionError(args)
@@ -143,6 +195,14 @@ else:
         script = Path(__file__).resolve().parents[2] / "deploy/scripts/restore.sh"
         self.script = self.infrastructure / "scripts/restore.sh"
         self.script.write_text(script.read_text(), encoding="utf-8")
+        backup_source = script.with_name("backup.sh").read_text()
+        self.backup_script = self.shared / "backup.sh"
+        self.backup_script.write_text(backup_source, encoding="utf-8")
+        self.backup_script.chmod(0o700)
+        for release in (self.previous, self.infrastructure):
+            legacy = release / "scripts/backup.sh"
+            legacy.write_text('#!/bin/bash\nprintf legacy > "$TEST_LEGACY_BACKUP"\nexit 99\n')
+            legacy.chmod(0o755)
 
     def restore(self):
         return subprocess.run(
@@ -162,8 +222,11 @@ else:
         self.env["TEST_REAL_FLOCK"] = real_flock
 
     def start_restore(self):
+        return self.start_operation(["bash", str(self.script), "--backup", str(self.backup), "--confirm", "RESTORE_LILLY"])
+
+    def start_operation(self, arguments):
         process = subprocess.Popen(
-            ["bash", str(self.script), "--backup", str(self.backup), "--confirm", "RESTORE_LILLY"],
+            arguments,
             env=self.env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, start_new_session=True,
         )
@@ -184,9 +247,9 @@ else:
         while not condition():
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
-                self.fail("Restore exited before the expected synchronization point:\n" + stdout + stderr)
+                self.fail("Operation exited before the expected synchronization point:\n" + stdout + stderr)
             if time.monotonic() >= deadline:
-                self.fail("Restore did not reach the expected synchronization point")
+                self.fail("Operation did not reach the expected synchronization point")
             time.sleep(0.01)
 
     def assert_locks_available(self):
@@ -195,6 +258,30 @@ else:
         for path in (self.shared / ".deploy.lock", self.backup.parent / ".backup.lock"):
             with path.open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def prepare_deployment(self):
+        candidate = self.deployment_root / "releases" / ("c" * 40)
+        (candidate / "scripts").mkdir(parents=True)
+        shutil.copyfile(self.infrastructure / "docker-compose.production.yml", candidate / "docker-compose.production.yml")
+        (candidate / "Caddyfile").touch()
+        sources = Path(__file__).resolve().parents[2] / "deploy/scripts"
+        for source in sources.glob("*.sh"):
+            target = candidate / "scripts" / source.name
+            target.write_text(source.read_text(), encoding="utf-8")
+            target.chmod(0o755)
+        self.env["TEST_CANDIDATE_COMPOSE"] = str(candidate / "docker-compose.production.yml")
+        return candidate
+
+    def deploy(self, candidate):
+        return subprocess.run(
+            ["bash", str(candidate / "scripts/deploy.sh"), candidate.name],
+            env=self.env, input="", capture_output=True, text=True, timeout=10,
+        )
+
+    def service_backup_arguments(self):
+        unit = Path(__file__).resolve().parents[2] / "deploy/systemd/lilly-backup.service"
+        command = next(line.removeprefix("ExecStart=") for line in unit.read_text().splitlines() if line.startswith("ExecStart="))
+        return ["bash", *shlex.split(command.replace("/opt/lilly", str(self.deployment_root)))]
 
     def assert_refused_before_changes(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -318,6 +405,190 @@ else:
         calls = self.docker_calls()
         replay = next(index for index, args in enumerate(calls) if "replay-erasure-ledger" in args)
         self.assertFalse(any("up" in args for args in calls[replay + 1:]))
+        self.assert_locks_available()
+
+    def test_backups_refuse_during_candidate_start_without_unlocking_deployment(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        ready = self.root / "deployment-ready"
+        resume = self.root / "deployment-resume"
+        self.env.update(TEST_DEPLOY_READY=str(ready), TEST_DEPLOY_RESUME=str(resume))
+        process = self.start_operation(["bash", str(candidate / "scripts/deploy.sh"), candidate.name])
+        self.wait_for(ready.exists, process)
+        try:
+            for kind in ("manual", "daily", "pre-deploy"):
+                with self.subTest(kind=kind):
+                    before = len(self.docker_calls())
+                    result = subprocess.run(
+                        ["bash", str(self.backup_script), kind], env=self.env,
+                        input="", capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("deployment, backup or restore", result.stderr)
+                    self.assertEqual(self.docker_calls()[before:], [])
+        finally:
+            resume.touch()
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0, stdout + stderr)
+        self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
+        snapshots = list(self.backup.parent.glob("*-pre-deploy"))
+        self.assertEqual(len(snapshots), 1)
+        metadata = (snapshots[0] / "metadata.env").read_text()
+        self.assertIn(f"infrastructure_release={self.infrastructure}\n", metadata)
+        self.assertEqual(gzip.decompress((snapshots[0] / "database.sql.gz").read_bytes()), b"SELECT 1;\n")
+        self.assert_locks_available()
+
+    def test_deployment_waits_for_standalone_backup(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        ready = self.root / "backup-ready"
+        resume = self.root / "backup-resume"
+        self.env.update(TEST_BACKUP_READY=str(ready), TEST_BACKUP_RESUME=str(resume))
+        backup = self.start_operation(["bash", str(self.backup_script), "manual"])
+        self.wait_for(ready.exists, backup)
+        before = len(self.docker_calls())
+        deployment = self.start_operation(["bash", str(candidate / "scripts/deploy.sh"), candidate.name])
+        attempts = Path(self.env["TEST_LOCK_ATTEMPTS"])
+        try:
+            self.wait_for(lambda: len(attempts.read_text().splitlines()) >= 3, deployment)
+            self.assertEqual(attempts.read_text().splitlines(), ["8", "9", "8"])
+            self.assertIsNone(deployment.poll())
+            self.assertEqual(self.docker_calls()[before:], [])
+        finally:
+            resume.touch()
+        backup_stdout, backup_stderr = backup.communicate(timeout=10)
+        self.assertEqual(backup.returncode, 0, backup_stdout + backup_stderr)
+        stdout, stderr = deployment.communicate(timeout=10)
+        self.assertEqual(deployment.returncode, 0, stdout + stderr)
+        self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
+        self.assert_locks_available()
+
+    def test_unrelated_inherited_descriptor_does_not_bypass_deployment_lock(self):
+        import fcntl
+
+        self.use_real_locks()
+        wrapper = self.root / "unrelated-descriptor.sh"
+        wrapper.write_text('#!/bin/bash\nexec 8>"$LILLY_ROOT/unrelated.lock"\nexec "$LILLY_ROOT/shared/backup.sh" manual\n')
+        with (self.shared / ".deploy.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            result = subprocess.run(["bash", str(wrapper)], env=self.env, input="", capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.docker_calls(), [])
+
+    def test_standalone_backup_respects_legacy_backup_lock(self):
+        import fcntl
+
+        self.use_real_locks()
+        with (self.backup.parent / ".backup.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            result = subprocess.run(
+                ["bash", str(self.backup_script), "manual"], env=self.env,
+                input="", capture_output=True, text=True, timeout=10,
+            )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("backup or restore", result.stderr)
+        self.assertEqual(self.docker_calls(), [])
+        self.assert_locks_available()
+
+    def test_backup_service_keeps_updated_implementation_after_failed_deployment(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        self.env["TEST_DEPLOY_FAILURE"] = "compose"
+        result = self.deploy(candidate)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual((self.deployment_root / "current").resolve(), self.previous)
+        self.assertEqual((self.deployment_root / "infrastructure").resolve(), candidate)
+        self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
+        self.env["TEST_DEPLOY_FAILURE"] = ""
+        self.script = candidate / "scripts/restore.sh"
+        ready = self.root / "restore-ready"
+        resume = self.root / "restore-resume"
+        self.env.update(TEST_RESTORE_READY=str(ready), TEST_RESTORE_RESUME=str(resume))
+        restore = self.start_restore()
+        self.wait_for(ready.exists, restore)
+        try:
+            before = len(self.docker_calls())
+            result = subprocess.run(self.service_backup_arguments(), env=self.env, input="", capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("backup or restore", result.stderr)
+            self.assertEqual(self.docker_calls()[before:], [])
+            self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
+        finally:
+            resume.touch()
+        stdout, stderr = restore.communicate(timeout=10)
+        self.assertEqual(restore.returncode, 0, stdout + stderr)
+        result = subprocess.run(self.service_backup_arguments(), env=self.env, input="", capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        snapshots = list(self.backup.parent.glob("*-daily"))
+        self.assertEqual(len(snapshots), 1)
+        self.assertIn(f"infrastructure_release={candidate}\n", (snapshots[0] / "metadata.env").read_text())
+        self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
+        self.assert_locks_available()
+
+    def test_legacy_installed_backup_unit_blocks_deployment(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        self.env["TEST_SYSTEMD_ROUTE"] = "current"
+        result = self.deploy(candidate)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Update lilly-backup.service", result.stderr)
+        self.assertEqual((self.deployment_root / "infrastructure").resolve(), self.infrastructure)
+        self.assertFalse(any("up" in args or "exec" in args or "run" in args for args in self.docker_calls()))
+        self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
+
+    def test_running_legacy_backup_must_finish_before_deployment(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        self.env["TEST_SYSTEMD_ACTIVE_STATE"] = "activating"
+        result = self.deploy(candidate)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("backup service is still running", result.stderr)
+        self.assertEqual((self.deployment_root / "infrastructure").resolve(), self.infrastructure)
+        self.assertFalse(any("up" in args or "exec" in args or "run" in args for args in self.docker_calls()))
+
+    def test_failed_backup_unit_inspection_blocks_deployment(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        self.env["TEST_SYSTEMD_FAILURE"] = "1"
+        result = self.deploy(candidate)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Cannot inspect lilly-backup.service", result.stderr)
+        self.assertFalse(any("up" in args or "exec" in args or "run" in args for args in self.docker_calls()))
+
+    def test_deployment_without_installed_backup_unit(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        self.env["TEST_SYSTEMD_LOAD_STATE"] = "not-found"
+        result = self.deploy(candidate)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_locks_available()
+
+    def test_first_upgrade_uses_updated_backup_code_with_legacy_configuration(self):
+        self.use_real_locks()
+        (self.deployment_root / "infrastructure").unlink()
+        self.database_image.write_text(OLD_IMAGE)
+        candidate = self.prepare_deployment()
+        result = self.deploy(candidate)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.database_image.read_text(), NEW_IMAGE)
+        self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
+        snapshots = list(self.backup.parent.glob("*-pre-deploy"))
+        self.assertEqual(len(snapshots), 1)
+        self.assertIn(f"infrastructure_release={self.previous}\n", (snapshots[0] / "metadata.env").read_text())
+        self.assert_locks_available()
+
+    def test_failed_predeployment_backup_prevents_candidate_start(self):
+        self.use_real_locks()
+        candidate = self.prepare_deployment()
+        self.env["TEST_BACKUP_FAILURE"] = "1"
+        result = self.deploy(candidate)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.deployment_root / "current").resolve(), self.previous)
+        self.assertEqual((self.deployment_root / "infrastructure").resolve(), self.infrastructure)
+        self.assertEqual((self.shared / ".deployment.env").read_text(), self.previous_environment)
+        self.assertFalse(any("up" in args for args in self.docker_calls()))
+        self.assertEqual(list(self.backup.parent.glob("*-pre-deploy/COMPLETE")), [])
+        self.assertFalse(Path(self.env["TEST_LEGACY_BACKUP"]).exists())
         self.assert_locks_available()
 
 
