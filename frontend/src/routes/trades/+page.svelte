@@ -116,6 +116,7 @@
 				? 'background: var(--color-brand-500); color: #000;'
 				: 'background: var(--glass);'}
 			data-testid="matches-tab"
+			disabled={loading}
 		>
 			Vorschläge ({matches.length})
 		</button>
@@ -128,6 +129,7 @@
 				? 'background: var(--color-brand-500); color: #000;'
 				: 'background: var(--glass);'}
 			data-testid="active-trades-tab"
+			disabled={loading}
 		>
 			Aktive Tausche ({trades.length})
 		</button>
@@ -140,6 +142,7 @@
 				? 'background: var(--color-brand-500); color: #000;'
 				: 'background: var(--glass);'}
 			data-testid="trade-history-tab"
+			disabled={loading}
 		>
 			Historie ({history.length})
 		</button>

@@ -6,7 +6,7 @@ For project documentation, setup instructions, and architecture details, see the
 
 ## Development
 
-Use Node.js **26.13.0 LTS** and npm **12.2.1**. SvelteKit configuration lives in
+Use Node.js **26.13.1 LTS** and npm **12.2.3**. SvelteKit configuration lives in
 `vite.config.ts`; internal imports use the `#lib` package alias. TypeScript stays on
 6.0.3 until SvelteKit, svelte-check, and typescript-eslint support TypeScript 7 together.
 

@@ -427,42 +427,37 @@ fn map_issue_details(
     let author = fields
         .get("Autor")
         .map(|s| MaddraxAdapter::strip_wiki_markup(s));
-    let authors: Vec<String> = author
-        .map(|a| {
-            a.split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
+    let authors: Vec<String> = author.map_or_default(|a| {
+        a.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
 
     // Split comma-separated cover artists
     let cover_artists: Vec<String> = fields
         .get("Titelbildzeichner")
         .map(|s| MaddraxAdapter::strip_wiki_markup(s))
-        .map(|a| {
+        .map_or_default(|a| {
             a.split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect()
-        })
-        .unwrap_or_default();
+        });
 
     let keywords: Vec<String> = fields
         .get("Schlagworte")
         .map(|s| MaddraxAdapter::strip_wiki_markup(s))
-        .map(|a| {
+        .map_or_default(|a| {
             a.split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect()
-        })
-        .unwrap_or_default();
+        });
 
     let raw_notes = fields
         .get("Besonderes")
-        .map(|s| MaddraxAdapter::strip_wiki_markup(s))
-        .unwrap_or_default();
+        .map_or_default(|s| MaddraxAdapter::strip_wiki_markup(s));
     let (part_number, part_total, notes) = parse_multipart_and_notes(&raw_notes);
 
     let date_text = fields

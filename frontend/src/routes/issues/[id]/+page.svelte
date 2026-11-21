@@ -294,8 +294,10 @@
 									: `background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-secondary);`}
 								role="radio"
 								aria-checked={isActive}
-								onclick={() => (status = s)}>{label}</button
+								onclick={() => (status = s)}
 							>
+								{label}
+							</button>
 						{/each}
 					</div>
 

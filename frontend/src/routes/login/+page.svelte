@@ -404,16 +404,18 @@
 					href={resolve('forgot-password')}
 					style="color: var(--color-brand-500);"
 					class="font-medium"
-					data-testid="forgot-password-link">Passwort vergessen?</a
+					data-testid="forgot-password-link"
 				>
+					Passwort vergessen?
+				</a>
 			</p>
 
 			<p class="text-sm" style="color: var(--text-secondary);">
 				Noch kein Konto?
 
-				<a href={resolve('register')} style="color: var(--color-brand-500);" class="font-medium"
-					>Registrieren</a
-				>
+				<a href={resolve('register')} style="color: var(--color-brand-500);" class="font-medium">
+					Registrieren
+				</a>
 			</p>
 		</div>
 	</div>

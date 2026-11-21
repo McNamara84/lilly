@@ -189,8 +189,10 @@
 						stroke="currentColor"
 						stroke-width="2"
 						stroke-linecap="round"
-						stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg
+						stroke-linejoin="round"
 					>
+						<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+					</svg>
 				{/if}
 			</button>
 		</div>
@@ -207,9 +209,9 @@
 		<nav aria-label="Rechtliches" class="flex items-center justify-center gap-4">
 			<a href={resolve('imprint')} class="underline" data-testid="footer-imprint-link">Impressum</a>
 
-			<a href={resolve('privacy')} class="underline" data-testid="footer-privacy-link"
-				>Datenschutz</a
-			>
+			<a href={resolve('privacy')} class="underline" data-testid="footer-privacy-link">
+				Datenschutz
+			</a>
 		</nav>
 	</footer>
 	<OfflineStatus />

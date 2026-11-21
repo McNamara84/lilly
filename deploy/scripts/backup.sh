@@ -122,7 +122,7 @@ compose exec -T db sh -ec \
 echo "Archiving LILLY media..."
 docker run --rm \
   --volume "${MEDIA_VOLUME}:/source:ro" \
-  caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 \
+  caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
   tar -C /source -czf - . >"${temporary_dir}/media.tar.gz"
 
 if (( ledger_available == 1 )); then
@@ -130,7 +130,7 @@ if (( ledger_available == 1 )); then
   # newer live ledger instead of replacing it with this point-in-time copy.
   docker run --rm \
     --volume "${SHARED_DIR}/erasure-ledger:/ledger:ro" \
-    caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 \
+    caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
     cat /ledger/account-erasure.log >"${temporary_dir}/account-erasure.log"
 fi
 

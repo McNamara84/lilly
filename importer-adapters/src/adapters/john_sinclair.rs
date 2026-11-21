@@ -424,17 +424,14 @@ fn map_issue_details(summary: IssueSummary, wikitext: &str) -> Result<IssueData,
     } else {
         (summary.part_number, summary.part_total)
     };
-    let notes = fields
-        .get("Besonderes")
-        .map(|value| {
-            strip_wiki_markup(value)
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let notes = fields.get("Besonderes").map_or_default(|value| {
+        strip_wiki_markup(value)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(ToString::to_string)
+            .collect()
+    });
     let source_record_id = summary.page_title;
 
     Ok(IssueData {

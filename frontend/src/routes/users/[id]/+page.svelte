@@ -121,9 +121,9 @@
 					<div class="mb-4 flex items-center justify-between gap-3">
 						<h2 id="public-stats-heading" class="text-lg font-semibold">Sammlung</h2>
 
-						<a href={resolve(`users/${profile.id}/collection`)} class="text-sm underline"
-							>Sammlung öffnen</a
-						>
+						<a href={resolve(`users/${profile.id}/collection`)} class="text-sm underline">
+							Sammlung öffnen
+						</a>
 					</div>
 					<div
 						class="mb-6 rounded-lg p-4"

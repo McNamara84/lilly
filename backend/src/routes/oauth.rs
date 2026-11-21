@@ -807,7 +807,7 @@ mod tests {
         async fn token(
             Form(payload): Form<TestHashMap<String, String>>,
         ) -> (StatusCode, Json<serde_json::Value>) {
-            let code = payload.get("code").map(String::as_str).unwrap_or_default();
+            let code = payload.get("code").map_or_default(String::as_str);
             if code == "provider-error" {
                 return (
                     StatusCode::BAD_GATEWAY,

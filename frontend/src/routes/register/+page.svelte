@@ -492,9 +492,9 @@
 			<p class="text-sm" style="color: var(--text-secondary);">
 				Bereits ein Konto?
 
-				<a href={resolve('login')} style="color: var(--color-brand-500);" class="font-medium"
-					>Anmelden</a
-				>
+				<a href={resolve('login')} style="color: var(--color-brand-500);" class="font-medium">
+					Anmelden
+				</a>
 			</p>
 		</div>
 	</div>

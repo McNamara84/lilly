@@ -2,7 +2,3 @@
 name = "lilly-importer"
 version = "0.1.0"
 edition = "2024"
-
-[dependencies]
-lilly-importer-core = { path = "../importer-core" }
-tokio = { version = "1.54.1", features = ["full"] }

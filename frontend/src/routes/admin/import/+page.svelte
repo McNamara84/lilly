@@ -175,9 +175,9 @@
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Adapter</th>
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Status</th>
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Auslöser</th>
-							<th class="text-center py-3 px-2" style="color: var(--text-secondary);"
-								>Fortschritt</th
-							>
+							<th class="text-center py-3 px-2" style="color: var(--text-secondary);">
+								Fortschritt
+							</th>
 							<th class="text-left py-3 px-2" style="color: var(--text-secondary);">Gestartet</th>
 							<th class="text-right py-3 px-2" style="color: var(--text-secondary);">Details</th>
 						</tr>
@@ -189,8 +189,10 @@
 									{job.adapter_name}
 									{#if job.source_key}<span
 											class="block text-xs"
-											style="color: var(--text-secondary);">{job.source_key}</span
-										>{/if}
+											style="color: var(--text-secondary);"
+										>
+											{job.source_key}
+										</span>{/if}
 								</td>
 								<td class="py-3 px-2">
 									<span
@@ -206,9 +208,9 @@
 								</td>
 								<td class="py-3 px-2" style="color: var(--text-secondary);">
 									{formatTrigger(job.trigger_type)}
-									{#if job.retry_of_job_id}<span class="block text-xs"
-											>Retry von #{job.retry_of_job_id}</span
-										>{/if}
+									{#if job.retry_of_job_id}<span class="block text-xs">
+											Retry von #{job.retry_of_job_id}
+										</span>{/if}
 								</td>
 								<td class="py-3 px-2 text-center" style="color: var(--text-secondary);">
 									{processedCount(job)} / {job.total_issues}

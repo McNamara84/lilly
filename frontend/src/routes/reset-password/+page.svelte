@@ -116,8 +116,10 @@
 			<a
 				href={resolve('forgot-password')}
 				class="font-medium text-sm"
-				style="color: var(--color-brand-500);">Neuen Reset-Link anfordern</a
+				style="color: var(--color-brand-500);"
 			>
+				Neuen Reset-Link anfordern
+			</a>
 		{:else}
 			<p class="text-sm mb-6" style="color: var(--text-secondary);">
 				Wähle ein starkes neues Passwort. Nach der Änderung musst du dich auf allen Geräten neu

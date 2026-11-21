@@ -105,7 +105,7 @@ gzip --decompress --stdout "${backup_dir}/database.sql.gz" \
 echo "Replacing the LILLY media volume..."
 docker run --rm --interactive \
   --volume "${MEDIA_VOLUME}:/restore" \
-  caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 \
+  caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
   sh -ec 'find /restore -mindepth 1 -delete; tar -C /restore -xzf -' \
   <"${backup_dir}/media.tar.gz"
 

@@ -71,7 +71,7 @@ pub fn create_token_with_auth(
     encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
+        &EncodingKey::from_secret(secret.as_bytes())?,
     )
 }
 
@@ -79,7 +79,7 @@ pub fn create_token_with_auth(
 pub fn validate_token(token: &str, secret: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let token_data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(secret.as_bytes()),
+        &DecodingKey::from_secret(secret.as_bytes())?,
         &Validation::default(),
     )?;
 
@@ -111,6 +111,25 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_secret_fails_token_creation() {
+        let error = create_token(1, "TestUser", "user", "", 3600).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &jsonwebtoken::errors::ErrorKind::InvalidKeyFormat
+        );
+    }
+
+    #[test]
+    fn test_empty_secret_fails_validation() {
+        let token = create_token(1, "TestUser", "user", "test-secret-key", 3600).unwrap();
+        let error = validate_token(&token, "").unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &jsonwebtoken::errors::ErrorKind::InvalidKeyFormat
+        );
+    }
+
+    #[test]
     fn test_expired_token_fails_validation() {
         let secret = "test-secret-key";
         // Manually create a token that expired 120 seconds ago (beyond default leeway)
@@ -129,7 +148,7 @@ mod tests {
         let token = jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &claims,
-            &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+            &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()).unwrap(),
         )
         .expect("Failed to create token");
 

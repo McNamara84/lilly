@@ -1,4 +1,127 @@
-# Abhängigkeits- und Sicherheitsstand vom 30. Oktober 2026
+# Abhängigkeits- und Sicherheitsstand vom 21. November 2026
+
+Stabile Versionen wurden gegen npm, crates.io, PyPI, die GitHub-Releases der
+Hersteller und die Docker-Registry geprüft. Direkte Abhängigkeiten und die
+kompatibel auflösbaren indirekten Abhängigkeiten sind aktualisiert. GitHub Actions
+bleiben mit vollständigen Commit-SHAs, externe Images mit verifizierten
+Multiarch-Digests fixiert.
+
+## Aktuelle Versionen
+
+| Bereich | Stand |
+| --- | --- |
+| Node.js / npm | 26.13.1 LTS / 12.2.3 |
+| Rust | 1.100.0, lokal, in CI und im Slim-Trixie-Buildimage |
+| Svelte / SvelteKit / Node-Adapter | 5.59.1 / 3.4.0 / 6.0.5 |
+| Tailwind CSS / Skeleton Svelte | 4.3.5 / 5.0.6 |
+| Vite / Vitest / Playwright | 8.3.8 / 5.1.1 / 1.65.1 |
+| Jest-DOM / jsdom | 8.0.0 / 31.0.1 |
+| Lighthouse / Lighthouse CI | 13.6.0 / 0.16.1 |
+| SQLx / jsonwebtoken / jsonschema | 0.9.1 / 12.0.0 / 0.62.0 |
+| Python-Zeitzonendaten | tzdata 2026.6, für Windows festgelegt |
+| MariaDB | 12.3.3 LTS mit erneuertem Image-Digest |
+| Caddy / Mailpit | 2.11.9 / 1.34.0 |
+| Debian-Laufzeitimage | Trixie Slim mit erneuertem Image-Digest |
+
+Docker Login wurde auf
+[4.8.0](https://github.com/docker/login-action/releases/tag/v4.8.0) aktualisiert,
+der Rust-Toolchain-Installer auf den geprüften Commit vom 15. November 2026.
+Die übrigen verwendeten Actions entsprechen bereits ihren neuesten stabilen
+Releases; ihre Commit-Pins wurden gegen die Release-Tags geprüft.
+
+## Freigegebene Migrationen und Ausnahmen
+
+Die fünf vorab vorgeschlagenen Versionssprünge wurden ausdrücklich freigegeben:
+Jest-DOM 8, jsdom 31, Lighthouse CI 0.16.1 einschließlich uuid 14,
+jsonwebtoken 12 und jsonschema 0.62.0.
+
+Bei jsonwebtoken liefern HMAC-Schlüsselkonstruktoren jetzt ein `Result` zurück.
+Die Anwendung reicht Fehler an ihren bisherigen Fehlerpfad weiter. Zwei zusätzliche
+Tests sichern ab, dass leere Schlüssel beim Ausstellen und Prüfen eines Tokens
+kontrolliert abgelehnt werden. Siehe den
+[Changelog von jsonwebtoken 12](https://docs.rs/crate/jsonwebtoken/12.0.0/source/CHANGELOG.md).
+
+Die neue Clippy-Version verlangt an sechs Stellen `map_or_default` statt
+`map(...).unwrap_or_default()`. Der noch funktionslose Importer-Platzhalter hatte
+zwei unbenutzte Abhängigkeiten; diese wurden nach den neuen Cargo-Warnungen entfernt.
+Die aktualisierten Prettier-Versionen erfordern zusätzlich reine
+Formatierungsänderungen in 69 Frontend-Dateien.
+
+Die WebKit-Prüfung machte außerdem einen verlorenen Klick auf den Historie-Tab
+sichtbar: Die Schaltflächen waren bereits vor Abschluss der clientseitigen
+Initialisierung bedienbar. Die drei Tausch-Tabs bleiben jetzt über den bestehenden
+Ladezustand deaktiviert, bis die Daten und Ereignisbehandlung bereit sind. Eine
+gezielte Regressionprüfung hält die erste API-Antwort zurück und prüft anschließend
+die erfolgreiche Auswahl der Historie.
+
+Alle bisherigen npm-Overrides sind entfallen: Lighthouse CI verwendet nun selbst
+Lighthouse 13.6.0 und uuid 14.0.3. `tmp` kommt im aufgelösten Baum nicht mehr vor;
+`get-uri` erlaubt bereits die installierte neueste Version von `basic-ftp`.
+Der aufgelöste Paketbaum blieb beim Entfernen der letzten Overrides unverändert.
+
+Zwei Updates bleiben bewusst ausstehend:
+
+- **TypeScript 7.0.2:** SvelteKit 3.4.0 verlangt TypeScript 6,
+  svelte-check 4.7.8 unterstützt höchstens Version 6 und typescript-eslint 8.73.0
+  verlangt eine Version unter 6.1. Die gemeinsam unterstützte Version bleibt 6.0.3.
+- **MariaDB 12.3.4:** Der Hersteller hat diese LTS-Wartungsversion am
+  17. November veröffentlicht. Die offiziellen Docker-Tags `12.3.4` und
+  `12.3.4-noble` lieferten bei der Prüfung noch HTTP 404; `12.3` und `12.3.3`
+  verwiesen auf denselben neuen Digest. Daher bleibt der tatsächlich verfügbare
+  Build von 12.3.3 gepinnt. Ein Wechsel auf MariaDB 13.0.2 wurde nicht freigegeben;
+  diese Rolling-Release-Linie ersetzt die LTS-Linie nicht. Siehe die
+  [offizielle Release-Liste](https://mariadb.org/mariadb/all-releases/) und das
+  [offizielle Image-Verzeichnis](https://github.com/docker-library/official-images/blob/master/library/mariadb),
+  das sowohl für Noble als auch UBI weiterhin 12.3.3 aufführt.
+
+## Aktuelle Prüfergebnisse
+
+- `npm ci` bestätigt die Konsistenz von Manifest und Lockdatei.
+- ESLint, Prettier, Svelte-Typprüfung und separate Service-Worker-Typprüfung erfolgreich.
+- 1.027 Frontend-Tests erfolgreich; Statement-Coverage 98,68 %.
+  Ein erster Lauf unter paralleler Build-Last überschritt in einem Test das
+  Fünf-Sekunden-Limit. Die betroffene Datei bestand isoliert mit 34 Tests;
+  anschließend bestand der gesamte Coverage-Lauf mit vier Workern.
+- Rustfmt und Clippy für alle Workspace-Ziele mit `-D warnings` erfolgreich.
+- 438 Rust-Tests einschließlich der Datenbanktests gegen die isolierte MariaDB
+  erfolgreich. Der generierte OpenAPI-Vertrag ist unverändert aktuell.
+- 14 Python-Tests mit tzdata 2026.6 erfolgreich.
+- Backend- und Frontend-Docker-Build erfolgreich; alle fünf Dienste des isolierten
+  E2E-Stacks gesund.
+- Chromium: 106 Browserprüfungen ohne Wiederholung erfolgreich;
+  drei Update-Prüfungen benötigen den gesonderten Lauf mit zwei Produktionsbuilds.
+- Firefox: im abschließenden Gesamtlauf 106 Browserprüfungen ohne Wiederholung
+  erfolgreich. In einem früheren Lauf stürzte einmal der Browserprozess bei der
+  Barrierefreiheitsprüfung der Profilseite ab; diese Prüfung bestand anschließend
+  außerdem dreimal isoliert ohne Wiederholung.
+- WebKit: nach der Tab-Korrektur 105 Browserprüfungen ohne Wiederholung erfolgreich.
+  Zusätzlich zu den drei gesonderten Update-Prüfungen wird ein bestehender
+  Offline-Navigationstest wegen einer Playwright-WebKit-Einschränkung übersprungen.
+- Alle drei Chromium-Tauschprüfungen nach der Tab-Korrektur erneut erfolgreich.
+- Alle zwölf mobilen Chromium-Prüfungen für Offline-Nutzung und Synchronisierung
+  erfolgreich.
+- Alle neun Update-Prüfungen zwischen zwei Produktionsbuilds in Chromium, Firefox
+  und WebKit ohne Wiederholung erfolgreich, einschließlich unterbrochener Updates
+  und Schutz ungespeicherter Änderungen.
+- Lighthouse 13.6.0: alle zehn mobilen Messungen und die unveränderten Assertions
+  erfolgreich. Median für den öffentlichen Einstieg (`/` mit Weiterleitung zu
+  `/login`): Performance 99/100, FCP 758 ms; für die angemeldete `/collection`:
+  Performance 96/100, FCP 759 ms. Gefordert bleiben mindestens 90/100 und höchstens
+  3.000 ms. Der erste Messlauf wurde durch eine parallel gestartete lokale
+  npm-Neuinstallation unterbrochen; die abschließende Serie lief separat vollständig
+  durch.
+- Produktions- und Acceptance-Compose-Konfigurationen erfolgreich validiert.
+- Vollständiger npm-Audit: keine Schwachstellen.
+- RustSec: keine Sicherheitsmeldungen. Es bleiben Wartungshinweise für die bereits
+  neuesten Versionen von `chrono` und `chrono-tz`
+  ([RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html),
+  [RUSTSEC-2026-0555](https://rustsec.org/advisories/RUSTSEC-2026-0555.html)).
+  Ein Ersatz durch eine andere Zeitbibliothek ist eine eigene Migration.
+
+Die nachfolgenden Angaben dokumentieren die frühere Prüfung. Insbesondere deren
+Image-CVE-Zahlen und Messergebnisse sind keine erneute Prüfung der aktuellen Images.
+
+## Historische Prüfung vom 30. Oktober 2026
 
 Die Versionen wurden gegen npm, crates.io, die GitHub-Releases der jeweiligen
 Hersteller und die Container-Registries geprüft. Verwendet werden stabile Releases.
@@ -6,7 +129,7 @@ GitHub Actions sind mit vollständigen Commit-SHAs, externe Images mit den
 Multiarch-Digests ihrer Versionstags fixiert. Die Pins müssen bei späteren
 Sicherheitsupdates einschließlich neuer Builds desselben Versionstags erneuert werden.
 
-## Versionsentscheidungen
+### Versionsentscheidungen
 
 | Bereich | Stand |
 | --- | --- |
@@ -41,7 +164,7 @@ clientseitigen Einhängen der Event-Handler aktiviert. Dadurch gehen schnelle
 Eingaben vor Abschluss der Hydrierung nicht verloren und lösen keinen nativen
 Formularversand aus.
 
-## npm-Overrides
+### npm-Overrides
 
 Lighthouse CI 0.15.1 pinnt noch ältere Werkzeuge. Gezielt aktualisiert werden:
 
@@ -55,7 +178,7 @@ verwendet. Die vorhandenen Lighthouse-Grenzwerte für Performance und FCP bleibe
 Der alte globale `cookie`-Override wurde entfernt, da er mit SvelteKit 3 inkompatibel ist.
 Node-Adapter und Tailwind-Vite-Plugin sind reine Entwicklungsabhängigkeiten.
 
-## Sicherheitsprüfungen und verbleibende Befunde
+### Sicherheitsprüfungen und verbleibende Befunde
 
 - RustSec: keine Sicherheitsmeldungen oder Warnungen in der aktualisierten `Cargo.lock`.
 - `npm audit --omit=dev`: keine Befunde.
@@ -93,7 +216,7 @@ verwendet, um unter anderem die unbenötigten ImageMagick-Pakete des großen
 Buildimages zu vermeiden. Das Backend-Laufzeitimage installiert Debian-Pakete
 ohne zusätzliche empfohlene Pakete.
 
-## Reproduzierbare Prüfung
+### Reproduzierbare Prüfung
 
 ```bash
 cd frontend
@@ -119,7 +242,7 @@ Die vollständigen Browser-Suites wurden wie in CI mit jeweils frischen Testdate
 ausgeführt. Der lokale Stack lief auf Port 18080, um eine Kollision mit Herd zu
 vermeiden; die reguläre Compose-Konfiguration verwendet weiterhin Port 80.
 
-## Prüfergebnisse
+### Prüfergebnisse
 
 - 402 Rust-Tests erfolgreich, einschließlich der Datenbanktests mit MariaDB 12.3.3.
 - 872 Frontend-Tests erfolgreich; Statement-Coverage 98,7 %.

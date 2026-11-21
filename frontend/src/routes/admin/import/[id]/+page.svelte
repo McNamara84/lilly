@@ -257,8 +257,10 @@
 	href={resolve('admin/import')}
 	class="text-sm mb-4 inline-block"
 	style="color: var(--color-brand-500);"
-	data-testid="back-link">← Zurück zur Import-Übersicht</a
+	data-testid="back-link"
 >
+	← Zurück zur Import-Übersicht
+</a>
 
 {#if loading}
 	<p style="color: var(--text-secondary);" data-testid="loading-indicator">
@@ -329,16 +331,19 @@
 					class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
 					style="background-color: var(--color-error-500); color: white;"
 					data-testid="cancel-import-button"
-					>{job.cancel_requested_at ? 'Abbruch angefordert' : 'Import abbrechen'}</button
 				>
+					{job.cancel_requested_at ? 'Abbruch angefordert' : 'Import abbrechen'}
+				</button>
 			{:else if canRetry(job.status)}
 				<button
 					onclick={() => handleRetry(job!)}
 					disabled={actionPending}
 					class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
 					style="background-color: var(--color-brand-500); color: white;"
-					data-testid="retry-import-button">Erneut vollständig synchronisieren</button
+					data-testid="retry-import-button"
 				>
+					Erneut vollständig synchronisieren
+				</button>
 			{/if}
 		</div>
 		{#if job.cancel_requested_at}
@@ -365,14 +370,18 @@
 					<button
 						onclick={() => changeErrorsPage(jobErrorsPage - 1)}
 						disabled={jobErrorsPage <= 1}
-						data-testid="previous-errors-page">Zurück</button
+						data-testid="previous-errors-page"
 					>
+						Zurück
+					</button>
 					<span>Seite {jobErrorsPage}</span>
 					<button
 						onclick={() => changeErrorsPage(jobErrorsPage + 1)}
 						disabled={jobErrorsPage * 50 >= jobErrorsTotal}
-						data-testid="next-errors-page">Weiter</button
+						data-testid="next-errors-page"
 					>
+						Weiter
+					</button>
 				</div>
 			{/if}
 		</section>
@@ -436,8 +445,10 @@
 								(reviewSummary.eligibility.requires_acknowledgement && !acknowledgeWarnings)}
 							class="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
 							style="background-color: var(--color-success-500); color: white;"
-							data-testid="activate-series-button">Geprüften Import freigeben</button
+							data-testid="activate-series-button"
 						>
+							Geprüften Import freigeben
+						</button>
 					{/if}
 				</div>
 			</div>
@@ -455,9 +466,9 @@
 							>
 								{check.status === 'passed' ? 'bestanden' : 'fehlgeschlagen'}
 							</span>
-							<br /><small
-								>{check.expected_authors.join(', ')} · {check.expected_published_at}</small
-							>
+							<br /><small>
+								{check.expected_authors.join(', ')} · {check.expected_published_at}
+							</small>
 						</li>
 					{/each}
 				</ul>
@@ -483,33 +494,43 @@
 					<span class="block mb-1">Ergebnis</span>
 					<select class="w-full p-2 rounded" bind:value={outcomeFilter}>
 						<option value="">Alle</option><option value="created">Neu</option><option
-							value="updated">Geändert</option
-						><option value="unchanged">Unverändert</option><option value="skipped"
-							>Übersprungen</option
-						><option value="failed">Fehlgeschlagen</option>
+							value="updated"
+						>
+							Geändert
+						</option><option value="unchanged">Unverändert</option><option value="skipped">
+							Übersprungen
+						</option><option value="failed">Fehlgeschlagen</option>
 						<option value="not_processed">Nicht verarbeitet</option>
 					</select>
 				</label>
 				<label class="text-sm">
 					<span class="block mb-1">Risiko</span>
 					<select class="w-full p-2 rounded" bind:value={severityFilter}>
-						<option value="">Alle</option><option value="info">Info</option><option value="warning"
-							>Warnung</option
-						><option value="blocking">Blocker</option>
+						<option value="">Alle</option><option value="info">Info</option><option value="warning">
+							Warnung
+						</option><option value="blocking">Blocker</option>
 					</select>
 				</label>
 				<label class="text-sm">
 					<span class="block mb-1">Cover</span>
 					<select class="w-full p-2 rounded" bind:value={coverFilter}>
 						<option value="">Alle</option><option value="imported">Importiert</option><option
-							value="reused">Vorhanden</option
-						><option value="missing_at_source">Nicht in Quelle</option><option value="not_permitted"
-							>Nicht erlaubt</option
-						><option value="fetch_failed">Abruf fehlgeschlagen</option><option value="invalid"
-							>Ungültig</option
-						><option value="storage_failed">Speichern fehlgeschlagen</option><option
-							value="not_checked">Nicht geprüft</option
+							value="reused"
 						>
+							Vorhanden
+						</option><option value="missing_at_source">Nicht in Quelle</option><option
+							value="not_permitted"
+						>
+							Nicht erlaubt
+						</option><option value="fetch_failed">Abruf fehlgeschlagen</option><option
+							value="invalid"
+						>
+							Ungültig
+						</option><option value="storage_failed">Speichern fehlgeschlagen</option><option
+							value="not_checked"
+						>
+							Nicht geprüft
+						</option>
 					</select>
 				</label>
 				<div class="flex flex-col justify-end gap-2 text-sm">
@@ -535,12 +556,15 @@
 					<table class="w-full text-sm" data-testid="issues-table">
 						<thead>
 							<tr style="border-bottom: 1px solid var(--border-default);">
-								<th class="text-left py-3 px-2">Nr.</th><th class="text-left py-3 px-2">Ergebnis</th
-								><th class="text-left py-3 px-2">Titel / Autor</th><th class="text-left py-3 px-2"
-									>Datum / Teil</th
-								><th class="text-left py-3 px-2">Cover</th><th class="text-left py-3 px-2"
-									>Quelle</th
+								<th class="text-left py-3 px-2">Nr.</th><th class="text-left py-3 px-2">
+									Ergebnis
+								</th><th class="text-left py-3 px-2">Titel / Autor</th><th
+									class="text-left py-3 px-2"
 								>
+									Datum / Teil
+								</th><th class="text-left py-3 px-2">Cover</th><th class="text-left py-3 px-2">
+									Quelle
+								</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -555,8 +579,8 @@
 										{item.title ?? '–'}<br /><small>{item.authors.join(', ') || '–'}</small>
 									</td>
 									<td class="py-3 px-2">
-										{item.published_at ?? '–'}<br /><small
-											>{item.part_number !== null && item.part_total !== null
+										{item.published_at ?? '–'}<br /><small>
+											{item.part_number !== null && item.part_total !== null
 												? `${item.part_number} von ${item.part_total}`
 												: (item.cycle ?? '–')}
 										</small>
@@ -569,11 +593,11 @@
 												class="h-16 w-auto rounded"
 											/>
 										{/if}
-										<small
-											>{coverLabel(item.cover_status)}{item.cover_reason
+										<small>
+											{coverLabel(item.cover_status)}{item.cover_reason
 												? `: ${item.cover_reason}`
-												: ''}</small
-										>
+												: ''}
+										</small>
 									</td>
 									<td class="py-3 px-2">
 										{#if item.source_url}
@@ -591,14 +615,18 @@
 						<button
 							onclick={() => changeReviewPage(reviewPage - 1)}
 							disabled={reviewPage <= 1}
-							data-testid="previous-review-page">Zurück</button
+							data-testid="previous-review-page"
 						>
+							Zurück
+						</button>
 						<span>Seite {reviewPage}</span>
 						<button
 							onclick={() => changeReviewPage(reviewPage + 1)}
 							disabled={reviewPage * 50 >= reviewTotal}
-							data-testid="next-review-page">Weiter</button
+							data-testid="next-review-page"
 						>
+							Weiter
+						</button>
 					</div>
 				{/if}
 			{/if}

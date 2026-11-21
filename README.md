@@ -167,7 +167,7 @@ The following scale is the established standard in the German _Heftroman_ collec
 │       │                                     │                │
 │       │  Static Files          ┌────────────┘─┐              │
 │       └────────────────────────┤   MariaDB    │              │
-│  ┌────────────┐                │   11.x       │              │
+│  ┌────────────┐                │   12.3       │              │
 │  │   /media   │                └──────────────┘              │
 │  │  (Volume)  │                                              │
 │  └────────────┘  ┌────────────────────────┐                  │
@@ -204,7 +204,7 @@ lilly/
 
 ### Frontend
 
-Use Node.js **26.13.0 LTS** (see `.nvmrc`) and npm **12.2.1**.
+Use Node.js **26.13.1 LTS** (see `.nvmrc`) and npm **12.2.3**.
 
 ```bash
 cd frontend
@@ -215,7 +215,7 @@ npm run dev          # Start dev server on http://localhost:5173
 ### Backend
 
 Requires [rustup](https://rustup.rs/) and a running MariaDB instance. The repository's
-`rust-toolchain.toml` selects Rust **1.99.1**, including Clippy and rustfmt.
+`rust-toolchain.toml` selects Rust **1.100.0**, including Clippy and rustfmt.
 
 ```bash
 cd backend
