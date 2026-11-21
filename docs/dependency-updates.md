@@ -13,6 +13,7 @@ gezielte Ausnahme für einen bestätigten Fehler des mitgelieferten Firefox-Buil
 | --- | --- |
 | Node.js / npm | 26.13.1 LTS / 12.2.3 |
 | Rust | 1.100.0, lokal, in CI und im Slim-Trixie-Buildimage |
+| Rust-Sicherheitsaudit | cargo-audit 0.23.0, exakt gepinnt und mit `--locked` installiert |
 | Svelte / SvelteKit / Node-Adapter | 5.59.1 / 3.4.0 / 6.0.5 |
 | Tailwind CSS / Skeleton Svelte | 4.3.5 / 5.0.6 |
 | Vite / Vitest / Playwright | 8.3.8 / 5.1.1 / 1.66.0-alpha-2026-11-21, exakt gepinnt |
@@ -30,6 +31,26 @@ Docker Login wurde auf
 der Rust-Toolchain-Installer auf den geprüften Commit vom 15. November 2026.
 Die übrigen verwendeten Actions entsprechen bereits ihren neuesten stabilen
 Releases; ihre Commit-Pins wurden gegen die Release-Tags geprüft.
+
+## Korrektur des Rust-Audit-Workflows
+
+Im [Security-Lauf auf `c55fb6a`](https://github.com/McNamara84/lilly/actions/runs/44933959775)
+fand `cargo-audit` keine Schwachstellen. Erst das anschließende Aktualisieren eines
+zusätzlichen GitHub-Checks durch `rustsec/audit-check` scheiterte mit HTTP 404.
+Die Action bietet keine Option, diesen API-Aufruf auszuschalten.
+
+Der Workflow installiert deshalb `cargo-audit 0.23.0` mit `--locked` unter der
+festgelegten Rust-Toolchain und führt `cargo audit --file Cargo.lock` direkt aus.
+Der normale Jobstatus meldet das Ergebnis; zusätzliche Check-Schreibrechte und
+die Tokenübergabe entfallen. Es werden keine Advisories ausgeblendet. Die bereits
+dokumentierten Wartungshinweise zu `chrono` und `chrono-tz` bleiben sichtbar.
+
+Der lokale Linux-Nachweis mit dem offiziellen, anhand seiner Release-Prüfsumme
+geprüften 0.23.0-Binary ergab für alle 399 Projektabhängigkeiten Exitcode 0 und
+keine Schwachstellen. Eine separate Test-Lockdatei mit `regex 1.5.4` wurde wegen
+`RUSTSEC-2022-0013` mit Exitcode 1 abgelehnt. Die Workflow-YAML ist gültig.
+Die reguläre CI desselben Commits einschließlich aller Browser-Suites ist
+[erfolgreich](https://github.com/McNamara84/lilly/actions/runs/44933959767).
 
 ## Korrektur des Firefox-CI-Absturzes
 
