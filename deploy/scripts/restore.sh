@@ -68,6 +68,14 @@ if ! flock -w 900 8; then
   exit 1
 fi
 
+# Deployments take the deployment lock before invoking the pre-deployment backup.
+# Use the same order and hold the backup lock through validation and recovery.
+exec 9>"${BACKUP_ROOT}/.backup.lock"
+if ! flock -w 900 9; then
+  echo "Another LILLY backup or restore did not finish within 15 minutes." >&2
+  exit 1
+fi
+
 (
   cd "${backup_dir}"
   sha256sum --check SHA256SUMS

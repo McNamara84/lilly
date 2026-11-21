@@ -159,6 +159,16 @@ einschließlich abweichender Digests vor allen Dienste- und Datenänderungen ab.
 Alle 25 Python-/Bash-Regressionstests unter Linux sind erfolgreich, einschließlich
 der beiden Rollback-Fälle und neun zusätzlicher Recovery-Tests.
 
+Die anschließende Review-Runde ergänzte den gegenseitigen Ausschluss von Backup
+und Restore: Restore erwirbt zuerst `shared/.deploy.lock` und anschließend
+`backups/.backup.lock`, in derselben Reihenfolge wie ein Deployment mit seinem
+Pre-Deployment-Backup. Beide Sperren bleiben bis zum Abschluss oder Abbruch des
+Restores gehalten. Ein laufendes Backup wird abgewartet; manuelle und geplante
+Backups brechen während eines Restores vor ihren Datenzugriffen ab. Alle 28
+Linux-Regressionstests sind erfolgreich. Die Nebenläufigkeitstests verwenden
+echtes `flock`, prüfen beide Aufrufreihenfolgen und die Freigabe der Sperren nach
+erfolgreichem sowie fehlgeschlagenem Restore.
+
 ## Nachprüfung mit MariaDB 13 und TypeScript 7
 
 - `npm ci` und der vollständige installierte npm-Abhängigkeitsbaum sind konsistent;

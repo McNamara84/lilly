@@ -80,7 +80,7 @@ umask 077
 mkdir -p "${BACKUP_ROOT}"
 exec 9>"${BACKUP_ROOT}/.backup.lock"
 if ! flock -n 9; then
-  echo "Another LILLY backup is already running." >&2
+  echo "Another LILLY backup or restore is already running." >&2
   exit 1
 fi
 

@@ -1,4 +1,4 @@
-"""Check recovery after an application rollback against the live database image."""
+"""Check recovery image safety and backup/restore coordination."""
 
 import gzip
 import hashlib
@@ -7,9 +7,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
+import time
 import unittest
 
 
@@ -62,6 +64,8 @@ class RestoreTests(unittest.TestCase):
             "TEST_DOCKER_LOG": str(self.command_log),
             "TEST_DATABASE_STATE": "running",
             "TEST_LOCK_BUSY": "0",
+            "TEST_BACKUP_LOCK_BUSY": "0",
+            "TEST_LOCK_ATTEMPTS": str(self.root / "lock-attempts"),
             "TEST_INSPECT_FAILURE": "0",
             "TEST_REPLAY_FAILURE": "0",
         }
@@ -71,7 +75,14 @@ class RestoreTests(unittest.TestCase):
             target.write_text(source, encoding="utf-8")
             target.chmod(0o755)
 
-        executable("flock", '#!/bin/bash\n[[ "$TEST_LOCK_BUSY" != 1 ]]\n')
+        executable("flock", r'''#!/bin/bash
+if [[ -n "${TEST_REAL_FLOCK:-}" ]]; then
+    printf '%s\n' "${@: -1}" >> "$TEST_LOCK_ATTEMPTS"
+    exec "$TEST_REAL_FLOCK" "$@"
+fi
+[[ "$TEST_LOCK_BUSY" != 1 ]] || exit 1
+[[ "$TEST_BACKUP_LOCK_BUSY" != 1 || "${@: -1}" != 9 ]]
+''')
         executable("curl", "#!/bin/bash\nexit 0\n")
         executable("docker", r'''#!/usr/bin/env python3
 import json
@@ -79,6 +90,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 
 args = sys.argv[1:]
 with open(os.environ["TEST_DOCKER_LOG"], "a") as log:
@@ -87,8 +99,14 @@ database = Path(os.environ["TEST_DATABASE_IMAGE"])
 if args[0] == "inspect":
     if os.environ["TEST_INSPECT_FAILURE"] == "1":
         sys.exit(1)
-    assert args[2] == "{{.Config.Image}}", args
-    print(database.read_text())
+    if args[2] == "{{.Config.Image}}":
+        print(database.read_text())
+    elif args[2] == "{{.State.Running}}":
+        print("true")
+    elif args[2] == "{{.State.Paused}}":
+        print("false")
+    else:
+        raise AssertionError(args)
 elif args[0] == "compose":
     config_index = args.index("--file")
     config = Path(args[config_index + 1])
@@ -99,16 +117,24 @@ elif args[0] == "compose":
         print(image)
     elif command[0] == "ps":
         if os.environ["TEST_DATABASE_STATE"] == "running":
-            print("test-db")
+            print("test-" + command[-1])
     elif command[0] == "up":
         database.write_text(image)
     elif command[0] == "exec":
+        ready = os.environ.get("TEST_RESTORE_READY")
+        if ready and any("DROP DATABASE" in argument for argument in command):
+            Path(ready).touch()
+            deadline = time.monotonic() + 15
+            while not Path(os.environ["TEST_RESTORE_RESUME"]).exists():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Restore test did not release the database operation")
+                time.sleep(0.01)
         sys.stdin.buffer.read()
     elif command[0] == "run":
         if os.environ["TEST_REPLAY_FAILURE"] == "1":
             sys.exit(1)
     else:
-        assert command[0] == "stop", command
+        assert command[0] in ("stop", "pause", "unpause"), command
 elif args[0] == "run":
     sys.stdin.buffer.read()
 else:
@@ -128,6 +154,47 @@ else:
         if not self.command_log.exists():
             return []
         return [json.loads(line) for line in self.command_log.read_text().splitlines()]
+
+    def use_real_locks(self):
+        real_flock = shutil.which("flock")
+        if real_flock is None:
+            self.skipTest("Concurrency tests require flock")
+        self.env["TEST_REAL_FLOCK"] = real_flock
+
+    def start_restore(self):
+        process = subprocess.Popen(
+            ["bash", str(self.script), "--backup", str(self.backup), "--confirm", "RESTORE_LILLY"],
+            env=self.env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, start_new_session=True,
+        )
+
+        def cleanup():
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            process.communicate(timeout=5)
+
+        self.addCleanup(cleanup)
+        return process
+
+    def wait_for(self, condition, process):
+        deadline = time.monotonic() + 5
+        while not condition():
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                self.fail("Restore exited before the expected synchronization point:\n" + stdout + stderr)
+            if time.monotonic() >= deadline:
+                self.fail("Restore did not reach the expected synchronization point")
+            time.sleep(0.01)
+
+    def assert_locks_available(self):
+        import fcntl
+
+        for path in (self.shared / ".deploy.lock", self.backup.parent / ".backup.lock"):
+            with path.open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def assert_refused_before_changes(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -190,7 +257,60 @@ else:
         self.assert_refused_before_changes(self.restore())
         self.assertEqual(self.docker_calls(), [])
 
+    def test_backup_lock_timeout_prevents_restore(self):
+        self.env["TEST_BACKUP_LOCK_BUSY"] = "1"
+        result = self.restore()
+        self.assert_refused_before_changes(result)
+        self.assertIn("backup or restore", result.stderr)
+        self.assertEqual(self.docker_calls(), [])
+
+    def test_restore_waits_for_active_backup_before_accessing_database(self):
+        import fcntl
+
+        self.use_real_locks()
+        attempts = Path(self.env["TEST_LOCK_ATTEMPTS"])
+        with (self.backup.parent / ".backup.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            process = self.start_restore()
+            self.wait_for(lambda: attempts.exists() and "9" in attempts.read_text().splitlines(), process)
+            self.assertEqual(attempts.read_text().splitlines(), ["8", "9"])
+            self.assertIsNone(process.poll())
+            self.assertEqual(self.docker_calls(), [])
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0, stdout + stderr)
+        self.assert_locks_available()
+
+    def test_manual_and_scheduled_backups_refuse_to_run_during_restore(self):
+        self.use_real_locks()
+        ready = self.root / "restore-ready"
+        resume = self.root / "restore-resume"
+        self.env.update(TEST_RESTORE_READY=str(ready), TEST_RESTORE_RESUME=str(resume))
+        process = self.start_restore()
+        self.wait_for(ready.exists, process)
+        backup_script = Path(__file__).resolve().parents[2] / "deploy/scripts/backup.sh"
+        try:
+            for kind in ("manual", "daily"):
+                with self.subTest(kind=kind):
+                    before = len(self.docker_calls())
+                    result = subprocess.run(
+                        ["bash", str(backup_script), kind], env=self.env,
+                        input="", capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("backup or restore", result.stderr)
+                    for args in self.docker_calls()[before:]:
+                        if args[0] == "compose":
+                            self.assertEqual(args[args.index("--file") + 2], "ps", args)
+                        else:
+                            self.assertEqual(args[0], "inspect", args)
+        finally:
+            resume.touch()
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0, stdout + stderr)
+        self.assert_locks_available()
+
     def test_failed_erasure_replay_keeps_application_offline(self):
+        self.use_real_locks()
         self.env["TEST_REPLAY_FAILURE"] = "1"
         result = self.restore()
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -198,6 +318,7 @@ else:
         calls = self.docker_calls()
         replay = next(index for index, args in enumerate(calls) if "replay-erasure-ledger" in args)
         self.assertFalse(any("up" in args for args in calls[replay + 1:]))
+        self.assert_locks_available()
 
 
 if __name__ == "__main__":

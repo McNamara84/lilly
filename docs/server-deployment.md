@@ -187,8 +187,14 @@ A restore is intentionally manual and destructive:
 
 The restore script refuses to proceed without the live erasure ledger. After restoring database and media, it runs `lilly-backend privacy replay-erasure-ledger` before starting any public service. The replay permanently removes every account recorded after the restored snapshot. A replay failure keeps the stack offline; investigate the ledger and database instead of bypassing this guard.
 
-Restore uses the infrastructure Compose file and takes the same exclusive lock as
-deployment. Before stopping application services or changing data, it requires one
+Restore uses the infrastructure Compose file and acquires both exclusive locks in
+this fixed order: `shared/.deploy.lock`, then `backups/.backup.lock`. This matches
+deployment's lock order when it invokes a pre-deployment backup. Restore waits up
+to 15 minutes for each lock and holds both through checksum validation and the
+entire recovery, including the final health check. Manual and scheduled backups
+use the same backup lock and refuse to start a snapshot while restore holds it.
+
+Before stopping application services or changing data, restore requires one
 running database container and compares its exact image reference, including the
 digest, with the configured database image. A missing container, an inspection
 failure or an image mismatch aborts recovery without changing the services or data.

@@ -590,8 +590,8 @@ Produktive Releases verwenden `deploy/docker-compose.production.yml`. Der Verwei
 `/opt/lilly/infrastructure` unabhängig davon die zuletzt versuchte Infrastruktur
 und deren Recovery-Skripte fest. Bei einem Anwendungsrollback bleibt dieser Verweis
 erhalten. Der Restore verwendet diese Compose-Konfiguration, sperrt parallele
-Deployments und prüft vor Änderungen das konfigurierte Datenbankimage gegen den
-laufenden Container. Einzelheiten stehen in [der Betriebsanleitung](server-deployment.md).
+Deployments und Backups und prüft vor Änderungen das konfigurierte Datenbankimage
+gegen den laufenden Container. Einzelheiten stehen in [der Betriebsanleitung](server-deployment.md).
 
 ### 8.2 Volumes
 
