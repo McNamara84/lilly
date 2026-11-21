@@ -1,2 +1,2 @@
 # Windows does not provide the IANA database used by Python's zoneinfo module.
-tzdata; sys_platform == "win32"
+tzdata==2026.6; sys_platform == "win32"

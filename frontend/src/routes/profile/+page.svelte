@@ -557,9 +557,9 @@
 						{saving ? 'Speichern …' : 'Sichtbarkeit speichern'}
 					</button>
 					{#if collectionPublic}
-						<a href={resolve(`users/${profile.id}/collection`)} class="text-sm underline"
-							>Öffentliche Sammlung ansehen</a
-						>
+						<a href={resolve(`users/${profile.id}/collection`)} class="text-sm underline">
+							Öffentliche Sammlung ansehen
+						</a>
 					{/if}
 				</div>
 			</section>
@@ -678,9 +678,9 @@
 				data-testid="account-deletion-confirmation"
 			/>
 			<div class="mt-5 flex flex-wrap justify-end gap-3">
-				<button type="button" class="rounded-lg px-4 py-2" onclick={() => deletionDialog?.close()}
-					>Abbrechen</button
-				>
+				<button type="button" class="rounded-lg px-4 py-2" onclick={() => deletionDialog?.close()}>
+					Abbrechen
+				</button>
 
 				<button
 					type="submit"

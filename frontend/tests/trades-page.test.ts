@@ -152,6 +152,24 @@ describe('Trades hub', () => {
 		mocks.createTradeProposal.mockResolvedValue(trade);
 	});
 
+	it('keeps tabs disabled until initial data is ready and then opens the history', async () => {
+		const result = page([match]);
+		const pendingMatches = Promise.withResolvers<typeof result>();
+		mocks.fetchMatches.mockReturnValueOnce(pendingMatches.promise);
+		render(TradesPage);
+
+		expect(screen.getByTestId('matches-tab')).toBeDisabled();
+		expect(screen.getByTestId('active-trades-tab')).toBeDisabled();
+		const historyTab = screen.getByTestId('trade-history-tab');
+		expect(historyTab).toBeDisabled();
+
+		await act(() => pendingMatches.resolve(result));
+		await waitFor(() => expect(historyTab).toBeEnabled());
+		await userEvent.click(historyTab);
+		expect(historyTab).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByTestId('trade-history-panel')).toBeInTheDocument();
+	});
+
 	it('loads matches and active trades and links to list management', async () => {
 		render(TradesPage);
 

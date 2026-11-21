@@ -9,7 +9,7 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS_4-06B6D4?logo=tailwindcss&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![Axum](https://img.shields.io/badge/Axum-000000?logo=rust&logoColor=white)
-![MariaDB](https://img.shields.io/badge/MariaDB_12.3-003545?logo=mariadb&logoColor=white)
+![MariaDB](https://img.shields.io/badge/MariaDB_13.0-003545?logo=mariadb&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 ![Caddy](https://img.shields.io/badge/Caddy_v2-1F88C0?logo=caddy&logoColor=white)
 
@@ -142,7 +142,7 @@ The following scale is the established standard in the German _Heftroman_ collec
 | **Frontend**         | Svelte 5 / SvelteKit (PWA)                        |
 | **UI**               | Skeleton UI + Tailwind CSS (Glassmorphism design) |
 | **Backend**          | Rust + Axum                                       |
-| **Database**         | MariaDB 12.3 LTS                                  |
+| **Database**         | MariaDB 13.0 (stable rolling release)              |
 | **DB Access**        | SQLx (compile-time verified queries)              |
 | **Auth**             | JWT + argon2id, OAuth2 (Google, GitHub)           |
 | **API**              | REST, documented via OpenAPI 3.1 / Swagger        |
@@ -167,7 +167,7 @@ The following scale is the established standard in the German _Heftroman_ collec
 │       │                                     │                │
 │       │  Static Files          ┌────────────┘─┐              │
 │       └────────────────────────┤   MariaDB    │              │
-│  ┌────────────┐                │   11.x       │              │
+│  ┌────────────┐                │   13.0       │              │
 │  │   /media   │                └──────────────┘              │
 │  │  (Volume)  │                                              │
 │  └────────────┘  ┌────────────────────────┐                  │
@@ -178,6 +178,16 @@ The following scale is the established standard in the German _Heftroman_ collec
 ```
 
 The application is designed for **self-hosting** on your own server or VPS. All components run in Docker containers, orchestrated via Docker Compose. Caddy provides automatic HTTPS via Let's Encrypt.
+
+For production deployment and recovery, see the [server runbook](docs/server-deployment.md).
+The deployment keeps an independent `/opt/lilly/infrastructure` reference for the
+database configuration and recovery scripts. After an application rollback, use
+`/opt/lilly/infrastructure/scripts/restore.sh` to restore data with the retained
+database version.
+
+Manual and scheduled backups use `/opt/lilly/shared/backup.sh`, which deployment
+updates independently of application rollback. Existing backup services need the
+one-time unit migration described in the server runbook before upgrading.
 
 The installable PWA is **offline-capable**: its service worker caches only the app shell and shared reference covers, while user-scoped IndexedDB stores the catalogue, personal collection, durable mutation queue, and explicit conflicts. Offline creates and edits are committed atomically, sent in batches of at most 100, and synchronized idempotently after reconnect. An attempted mutation keeps its original payload; later edits are queued as dependent changes. Tabs coordinate synchronization through an expiring IndexedDB lease. Logout warns about unsent changes, removes that user's private local data across tabs, and blocks stale session responses. Photos, messaging, and live trade matching remain online-only. The UI follows a **mobile-first** approach and is fully usable on all screen sizes.
 
@@ -204,7 +214,11 @@ lilly/
 
 ### Frontend
 
-Use Node.js **26.13.0 LTS** (see `.nvmrc`) and npm **12.2.1**.
+Use Node.js **26.13.1 LTS** (see `.nvmrc`) and npm **12.2.3**.
+
+Type checks run with the native **TypeScript 7.0.2** compiler. TypeScript **6.0.3**
+remains installed for the compiler API used by SvelteKit and ESLint. `npm run check`
+checks both Svelte code and the service worker; use `npm run check:watch` for watch mode.
 
 ```bash
 cd frontend
@@ -215,7 +229,7 @@ npm run dev          # Start dev server on http://localhost:5173
 ### Backend
 
 Requires [rustup](https://rustup.rs/) and a running MariaDB instance. The repository's
-`rust-toolchain.toml` selects Rust **1.99.1**, including Clippy and rustfmt.
+`rust-toolchain.toml` selects Rust **1.100.0**, including Clippy and rustfmt.
 
 ```bash
 cd backend
@@ -343,6 +357,12 @@ npm run test:coverage    # With coverage report
 ```
 
 ### Frontend E2E Tests (Playwright)
+
+Playwright is temporarily pinned to `1.66.0-alpha-2026-11-21` for the corrected
+Firefox build 1578. Stable Playwright 1.65.1 ships a Firefox build that can crash
+during accessibility checks; see the [upstream diagnosis](https://github.com/microsoft/playwright/issues/44135#issuecomment-6918863177).
+Run `npx playwright install` again after updating dependencies to install the
+matching browsers. CI installs them on every run.
 
 ```bash
 # From the repository root, start the isolated E2E stack:

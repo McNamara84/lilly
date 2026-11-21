@@ -7,7 +7,6 @@ readonly BACKUP_ROOT="${LILLY_ROOT}/backups"
 readonly SHARED_DIR="${LILLY_ROOT}/shared"
 readonly APP_ENV_FILE="${SHARED_DIR}/.env.production"
 readonly DEPLOYMENT_ENV_FILE="${SHARED_DIR}/.deployment.env"
-readonly CURRENT_COMPOSE_FILE="${LILLY_ROOT}/current/docker-compose.production.yml"
 readonly ERASURE_LEDGER="${SHARED_DIR}/erasure-ledger/account-erasure.log"
 
 case "${BACKUP_KIND}" in
@@ -25,15 +24,36 @@ for required_command in docker flock gzip sha256sum; do
   }
 done
 
+# Reuse deploy.sh's inherited open file description rather than locking it again
+# through a separate descriptor. Standalone backups open and acquire the same lock.
+umask 077
+if [[ ! "${SHARED_DIR}/.deploy.lock" -ef "/proc/$$/fd/8" ]]; then
+  exec 8>"${SHARED_DIR}/.deploy.lock"
+fi
+if ! flock -n 8; then
+  echo "Another LILLY deployment, backup or restore is already running." >&2
+  exit 1
+fi
+mkdir -p "${BACKUP_ROOT}"
+exec 9>"${BACKUP_ROOT}/.backup.lock"
+if ! flock -n 9; then
+  echo "Another LILLY backup or restore is already running." >&2
+  exit 1
+fi
+
+# The current release is only a bootstrap fallback before the first deployment
+# that records infrastructure independently of the application release.
+if [[ -e "${LILLY_ROOT}/infrastructure" || -L "${LILLY_ROOT}/infrastructure" ]]; then
+  readonly BACKUP_COMPOSE_FILE="${LILLY_ROOT}/infrastructure/docker-compose.production.yml"
+else
+  readonly BACKUP_COMPOSE_FILE="${LILLY_ROOT}/current/docker-compose.production.yml"
+fi
+
 for required_file in \
   "${APP_ENV_FILE}" \
   "${DEPLOYMENT_ENV_FILE}" \
-  "${CURRENT_COMPOSE_FILE}"; do
+  "${BACKUP_COMPOSE_FILE}"; do
   if [[ ! -f "${required_file}" ]]; then
-    if [[ "${BACKUP_KIND}" == "pre-deploy" ]]; then
-      echo "No active LILLY installation exists; no backup is required."
-      exit 0
-    fi
     echo "Required backup file is missing: ${required_file}" >&2
     exit 1
   fi
@@ -42,7 +62,7 @@ done
 ledger_available=1
 if [[ ! -f "${ERASURE_LEDGER}" ]]; then
   if [[ "${BACKUP_KIND}" == "pre-deploy" ]] \
-    && ! grep -q 'ACCOUNT_ERASURE_LEDGER_PATH' "${CURRENT_COMPOSE_FILE}"; then
+    && ! grep -q 'ACCOUNT_ERASURE_LEDGER_PATH' "${BACKUP_COMPOSE_FILE}"; then
     # A backup of the legacy release is still useful for an immediate rollout
     # rollback, but intentionally lacks the marker required by the new restore
     # path and must be retired before accepting deletion requests.
@@ -58,7 +78,7 @@ compose() {
     --project-name lilly \
     --env-file "${APP_ENV_FILE}" \
     --env-file "${DEPLOYMENT_ENV_FILE}" \
-    --file "${CURRENT_COMPOSE_FILE}" \
+    --file "${BACKUP_COMPOSE_FILE}" \
     "$@"
 }
 
@@ -75,14 +95,6 @@ if [[ ! "${resource_prefix}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
   exit 1
 fi
 readonly MEDIA_VOLUME="${resource_prefix}_media_data"
-
-umask 077
-mkdir -p "${BACKUP_ROOT}"
-exec 9>"${BACKUP_ROOT}/.backup.lock"
-if ! flock -n 9; then
-  echo "Another LILLY backup is already running." >&2
-  exit 1
-fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_name="${timestamp}-${BACKUP_KIND}"
@@ -122,7 +134,7 @@ compose exec -T db sh -ec \
 echo "Archiving LILLY media..."
 docker run --rm \
   --volume "${MEDIA_VOLUME}:/source:ro" \
-  caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 \
+  caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
   tar -C /source -czf - . >"${temporary_dir}/media.tar.gz"
 
 if (( ledger_available == 1 )); then
@@ -130,7 +142,7 @@ if (( ledger_available == 1 )); then
   # newer live ledger instead of replacing it with this point-in-time copy.
   docker run --rm \
     --volume "${SHARED_DIR}/erasure-ledger:/ledger:ro" \
-    caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 \
+    caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
     cat /ledger/account-erasure.log >"${temporary_dir}/account-erasure.log"
 fi
 
@@ -144,6 +156,7 @@ image_tag="$(sed -n 's/^LILLY_IMAGE_TAG=//p' "${DEPLOYMENT_ENV_FILE}" | tail -n 
   printf 'created_utc=%s\n' "${timestamp}"
   printf 'kind=%s\n' "${BACKUP_KIND}"
   printf 'release=%s\n' "${active_release}"
+  printf 'infrastructure_release=%s\n' "$(dirname -- "$(readlink -f -- "${BACKUP_COMPOSE_FILE}")")"
   printf 'image_tag=%s\n' "${image_tag}"
 } >"${temporary_dir}/metadata.env"
 

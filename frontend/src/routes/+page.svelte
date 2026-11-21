@@ -152,9 +152,13 @@
 		<section class="glass-elevated mb-6 rounded-lg p-6" data-testid="trade-suggestions">
 			<div class="mb-3 flex items-center justify-between gap-3">
 				<h3 class="text-lg font-semibold" style="color: var(--text-primary);">Tausch-Vorschläge</h3>
-				<a href={resolve('trades')} class="text-sm underline" style="color: var(--color-brand-500);"
-					>Alle anzeigen</a
+				<a
+					href={resolve('trades')}
+					class="text-sm underline"
+					style="color: var(--color-brand-500);"
 				>
+					Alle anzeigen
+				</a>
 			</div>
 			{#if tradeMatches.length === 0}
 				<p class="text-sm" style="color: var(--text-tertiary);">

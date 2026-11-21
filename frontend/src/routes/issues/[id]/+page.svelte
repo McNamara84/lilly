@@ -294,8 +294,10 @@
 									: `background: var(--glass); border: 1px solid var(--glass-border); color: var(--text-secondary);`}
 								role="radio"
 								aria-checked={isActive}
-								onclick={() => (status = s)}>{label}</button
+								onclick={() => (status = s)}
 							>
+								{label}
+							</button>
 						{/each}
 					</div>
 
@@ -303,7 +305,10 @@
 					{#if needsCondition}
 						<p class="text-xs mb-2" style="color: var(--text-tertiary);">Zustand</p>
 
-						<ConditionChips value={conditionGrade} onchange={(g) => (conditionGrade = g)} />
+						<ConditionChips
+							value={conditionGrade}
+							onchange={(grade: ConditionGrade) => (conditionGrade = grade)}
+						/>
 					{:else}
 						<p
 							class="text-xs"

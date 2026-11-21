@@ -10,6 +10,8 @@ This runbook covers the production Compose stack in `deploy/`. The stack is deli
 - Never change the shared Traefik stack, its certificates or the labels of other Compose projects as part of a LILLY deployment.
 - Never publish the LILLY host port on a public address; it is reserved for local health checks (`127.0.0.1:8091`).
 - Keep `/opt/lilly/shared/.env.production` on the server only, with mode `0600`.
+- Use `/opt/lilly/infrastructure/scripts/restore.sh` for recovery. Keep both release
+  directories referenced by `current` and `infrastructure` available.
 
 ## Prerequisites: Traefik ingress
 
@@ -119,6 +121,66 @@ The `Main Branch` GitHub Actions workflow performs all tests, publishes both com
 
 The script validates the Compose model, creates a mandatory backup when a previous release exists, pulls exact image tags, waits for all healthchecks and switches `/opt/lilly/current` only after the release is healthy.
 
+While holding the deployment lock, it atomically installs the candidate release's
+backup implementation as `/opt/lilly/shared/backup.sh`. Both the backup service
+and manual backups use this stable entry point. The pre-deployment backup invokes
+the same fresh helper and reuses the deployment lock inherited from `deploy.sh`.
+Its configuration still comes from the previous infrastructure release, with
+`current` as the bootstrap fallback before an infrastructure reference exists.
+
+Before starting containers, it atomically points `/opt/lilly/infrastructure` at the
+attempted release. This independent reference retains its Compose configuration
+and recovery scripts even if the application rolls back to an older release.
+`current` identifies the healthy application release; the infrastructure reference
+is retained after partial failures and must be recorded with offsite recovery
+information. Do not delete either referenced release directory.
+
+### One-time migration of an existing backup service
+
+An already installed service may still execute `current/scripts/backup.sh`, which
+can retain older, unlocked code after an application rollback. Update the loaded
+unit before the first deployment using the shared backup entry point. Provisioning
+a fresh server already installs the updated unit.
+
+Pause the timer and let any running backup finish before updating the service.
+Also let manually started legacy backups finish before this migration.
+
+```bash
+sudo systemctl stop lilly-backup.timer
+systemctl show --property=ActiveState lilly-backup.service
+# Continue when the service is inactive or failed and no old manual backup is running.
+sudo install -m 0644 /opt/lilly/releases/<NEW_RELEASE_SHA>/systemd/lilly-backup.service /etc/systemd/system/
+sudo systemctl daemon-reload
+systemctl show --property=ExecStart lilly-backup.service
+```
+
+The loaded `ExecStart` must point to `/opt/lilly/shared/backup.sh`. Deployment
+checks this setting and refuses an outdated unit or an unreadable service state
+before starting a backup or changing the database. It also refuses to continue
+while a service invocation from before the helper update is still running.
+The uploaded candidate release directory remains available when this preflight
+check aborts a workflow; update its unit and retry that deployment.
+
+After deployment has installed the shared helper, enable the timer again. The
+helper remains updated even if application startup subsequently fails:
+
+```bash
+test -x /opt/lilly/shared/backup.sh
+sudo systemctl start lilly-backup.timer
+```
+
+### MariaDB 13 upgrades
+
+The database uses MariaDB 13.0.2, a stable rolling release. Its community support
+currently ends in Q4 2026; plan the next server update according to the
+[MariaDB support policy](https://mariadb.org/about/).
+
+`MARIADB_AUTO_UPGRADE=1` lets the official image update existing system tables
+before normal startup. The image retains its automatic system-database backup;
+the mandatory pre-deployment backup separately protects the application database,
+media and erasure ledger. The first deployment on an existing 12.3 volume therefore
+performs a database-server upgrade. A fresh volume initializes directly on 13.0.
+
 Manual status checks:
 
 ```bash
@@ -126,7 +188,7 @@ docker compose \
   --project-name lilly \
   --env-file /opt/lilly/shared/.env.production \
   --env-file /opt/lilly/shared/.deployment.env \
-  --file /opt/lilly/current/docker-compose.production.yml \
+  --file /opt/lilly/infrastructure/docker-compose.production.yml \
   ps
 
 curl --fail http://127.0.0.1:8091/api/v1/health
@@ -134,11 +196,11 @@ curl --fail http://127.0.0.1:8091/api/v1/health
 
 ## Backups and restore
 
-After the first successful deployment, install/refresh the unit files from the active release and enable the timer:
+After the first successful deployment, install/refresh the unit files from the retained infrastructure release and enable the timer:
 
 ```bash
-sudo install -m 0644 /opt/lilly/current/systemd/lilly-backup.service /etc/systemd/system/
-sudo install -m 0644 /opt/lilly/current/systemd/lilly-backup.timer /etc/systemd/system/
+sudo install -m 0644 /opt/lilly/infrastructure/systemd/lilly-backup.service /etc/systemd/system/
+sudo install -m 0644 /opt/lilly/infrastructure/systemd/lilly-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now lilly-backup.timer
 sudo systemctl start lilly-backup.service
@@ -152,6 +214,16 @@ journalctl -u lilly-backup.service
 find /opt/lilly/backups -maxdepth 2 -type f -name COMPLETE -print
 ```
 
+For a manual backup, use the same maintained entry point as the service:
+
+```bash
+/opt/lilly/shared/backup.sh manual
+```
+
+Each backup records both the application release and the infrastructure
+configuration release in `metadata.env`. Use the shared helper after a rollback;
+an older release's `scripts/backup.sh` may not implement the current lock protocol.
+
 Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log`; it must be included in offsite copies and must never be replaced by an older backup copy. Its file mode is `0600`; the containing directory is owned by the deployment user and the backend container group (GID 999) with mode `0770`.
 
 Backups created before account-erasure support do not contain this marker and are intentionally rejected by `restore.sh`. After rolling out this version, create and verify a fresh backup before accepting deletion requests; retire all older restore sets according to the applicable retention policy.
@@ -159,12 +231,41 @@ Backups created before account-erasure support do not contain this marker and ar
 A restore is intentionally manual and destructive:
 
 ```bash
-/opt/lilly/current/scripts/restore.sh \
+/opt/lilly/infrastructure/scripts/restore.sh \
   --backup /opt/lilly/backups/<BACKUP_DIRECTORY> \
   --confirm RESTORE_LILLY
 ```
 
 The restore script refuses to proceed without the live erasure ledger. After restoring database and media, it runs `lilly-backend privacy replay-erasure-ledger` before starting any public service. The replay permanently removes every account recorded after the restored snapshot. A replay failure keeps the stack offline; investigate the ledger and database instead of bypassing this guard.
+
+Deployment, backups and restore all use `shared/.deploy.lock`. Backups and restore
+then acquire `backups/.backup.lock`, always in that order. A standalone backup
+acquires the deployment lock before reading configuration or inspecting containers.
+A deployment-invoked backup verifies and reuses the inherited descriptor for that
+same lock; it keeps the parent deployment locked after the backup finishes.
+Standalone backups fail immediately when either lock is busy. Restore waits up to
+15 minutes for each lock. Both backup and restore retain their locks through the
+entire operation, including cleanup; restore also holds them through the final
+health check. This prevents snapshots during deployment, upgrade or recovery.
+
+Before stopping application services or changing data, restore requires one
+running database container and compares its exact image reference, including the
+digest, with the configured database image. A missing container, an inspection
+failure or an image mismatch aborts recovery without changing the services or data.
+This command restores application data on the existing server version; it does not
+implicitly initialize or switch the database server.
+
+If a deployment failed before the database switched images, the infrastructure
+reference can identify the attempted upgrade while the older database is still
+running. Verify the running image and select its matching infrastructure release
+before retrying. If the database is stopped, first start the verified matching
+server with its existing volume. Never choose an older image for an upgraded data
+directory.
+
+On installations predating this infrastructure reference, run the updated
+deployment script to establish it before using the new recovery command. After a
+failed database upgrade, do not invoke `current/scripts/restore.sh`: `current` can
+still reference an older release whose restore script has no image guard.
 
 Verify a backup in a disposable environment before relying on it for production recovery.
 
@@ -180,11 +281,32 @@ Verify a backup in a disposable environment before relying on it for production 
 1. Install Docker and the Traefik stack (see prerequisites) and create the `proxy` network.
 2. Run `deploy/scripts/provision-server.sh` **on the empty host, before restoring any file below `/opt/lilly`**. It creates the deployment user and the empty account-erasure ledger; on a host where `/opt/lilly` already exists it deliberately refuses to create a replacement ledger.
 3. Restore `/opt/lilly/shared/.env.production` and `/opt/lilly/shared/.deployment.env` from the offsite copy, the backup directories below `/opt/lilly/backups/` and, if one exists, the live ledger `/opt/lilly/shared/erasure-ledger/account-erasure.log`. Never restore the ledger from an older snapshot than the newest available copy.
-4. Deploy the release (`workflow_dispatch` of the `Main Branch` workflow, or `deploy.sh <FULL_COMMIT_SHA>`) and then run `restore.sh` with the newest complete backup.
+4. Deploy the release matching the recorded infrastructure reference (`workflow_dispatch` of the `Main Branch` workflow, or `deploy.sh <FULL_COMMIT_SHA>`) and then run `/opt/lilly/infrastructure/scripts/restore.sh` with the newest complete backup. An application's rollback image tag alone does not identify the database server version.
 5. Update `LILLY_SERVER_KNOWN_HOSTS` if the host keys changed, re-enable `lilly-backup.timer` and verify one full backup.
 
 ## Rollback
 
-Container rollback is automatic when a deployment healthcheck fails. To select an older release manually, restore its commit tag in `.deployment.env` and run that release's `deploy.sh`.
+Application container rollback is automatic when a deployment healthcheck fails.
+It restores only `backend`, `frontend` and `caddy` with `--no-deps`; the database
+container and upgraded data directory remain at their current server version.
+The independent `infrastructure` reference remains on the attempted release, so
+recovery continues to use its database configuration and updated restore script.
+
+For an application-only rollback, set the earlier application's commit tag in
+`.deployment.env`, retain the infrastructure Compose configuration, and run:
+
+```bash
+docker compose \
+  --project-name lilly \
+  --env-file /opt/lilly/shared/.env.production \
+  --env-file /opt/lilly/shared/.deployment.env \
+  --file /opt/lilly/infrastructure/docker-compose.production.yml \
+  up -d --wait --no-deps backend frontend caddy
+```
+
+After upgrading a database server, do not invoke an older release's deployment
+script or restart its database image against the upgraded data directory. A
+server-version rollback requires a fresh volume for the earlier server and the
+pre-upgrade logical backup; the upgraded volume must not be reused for a downgrade.
 
 Database migrations run at backend startup. If an old image is not compatible with the migrated schema, stop and use the pre-deployment backup rather than repeatedly restarting versions. A data restore requires explicit administrative approval and must never target another Compose project's volumes.

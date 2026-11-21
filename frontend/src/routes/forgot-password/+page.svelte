@@ -120,9 +120,9 @@
 			</form>
 		{/if}
 		<p class="mt-6 text-center text-sm">
-			<a href={resolve('login')} class="font-medium" style="color: var(--color-brand-500);"
-				>Zurück zur Anmeldung</a
-			>
+			<a href={resolve('login')} class="font-medium" style="color: var(--color-brand-500);">
+				Zurück zur Anmeldung
+			</a>
 		</p>
 	</section>
 </main>

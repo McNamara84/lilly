@@ -109,22 +109,28 @@
 									onclick={() => deactivate(series)}
 									class="text-xs px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
 									style="background-color: var(--surface-raised); color: var(--text-secondary);"
-									data-testid="toggle-active-button">Deaktivieren</button
+									data-testid="toggle-active-button"
 								>
+									Deaktivieren
+								</button>
 							{:else if series.latest_import_job_id}
 								<a
 									href={resolve(`admin/import/${series.latest_import_job_id}`)}
 									class="text-xs px-3 py-1.5 rounded-lg transition-colors"
 									style="background-color: var(--surface-raised); color: var(--color-brand-500);"
-									data-testid="review-import-link">Import prüfen</a
+									data-testid="review-import-link"
 								>
+									Import prüfen
+								</a>
 							{:else}
 								<a
 									href={resolve('admin/import')}
 									class="text-xs px-3 py-1.5 rounded-lg transition-colors"
 									style="background-color: var(--surface-raised); color: var(--color-brand-500);"
-									data-testid="review-import-link">Import starten</a
+									data-testid="review-import-link"
 								>
+									Import starten
+								</a>
 							{/if}
 						</td>
 					</tr>

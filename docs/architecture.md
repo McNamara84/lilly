@@ -46,7 +46,7 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 | **Frontend**          | Svelte 5 / SvelteKit       | Runes-Reaktivität, SSR + CSR, Manifest und SvelteKit-Service-Worker                       |
 | **UI-Framework**      | Skeleton UI + Tailwind CSS | Svelte-native Komponentenbibliothek, Tailwind für Utility-First-Styling, Dark/Light Mode  |
 | **Backend / API**     | Rust + Axum                | Async HTTP-Framework auf Basis von Tokio, Tower-Middleware, modularer Router              |
-| **Datenbank**         | MariaDB 12.3 LTS           | Relationale Datenbank, InnoDB-Engine, Volltextsuche, bewährte MySQL-Kompatibilität        |
+| **Datenbank**         | MariaDB 13.0               | Stabiles Rolling Release; relationale Datenbank, InnoDB-Engine, Volltextsuche, MySQL-Kompatibilität |
 | **DB-Zugriff**        | SQLx                       | Compile-time verified SQL-Queries, async, kein ORM-Overhead, Migrations-System            |
 | **Authentifizierung** | Eigenbau: JWT + argon2id   | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub |
 | **API-Spezifikation** | OpenAPI 3.1 / Swagger      | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool                                |
@@ -109,10 +109,10 @@ Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
 
 | Container  | Image                                       | Port (intern)    | Aufgabe                                                                           |
 | ---------- | ------------------------------------------- | ---------------- | --------------------------------------------------------------------------------- |
-| `caddy`    | `caddy:2.11.7-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
-| `frontend` | `node:26.13.0-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
-| `backend`  | `rust:1.99.1-slim-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
-| `db`       | `mariadb:12.3.3`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex                                           |
+| `caddy`    | `caddy:2.11.9-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
+| `frontend` | `node:26.13.1-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
+| `backend`  | `rust:1.100.0-slim-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
+| `db`       | `mariadb:13.0.2`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex; automatische Aktualisierung der Systemtabellen |
 | `importer` | Rust CLI (eigener Build)                    | –                | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB                    |
 
 ### 3.3 Request-Flow
@@ -584,6 +584,22 @@ Der separate Befehl `npm run test:pwa:update` prüft zwei Produktionsbuilds unte
 ### 8.1 Docker Compose-Struktur
 
 Das gesamte System wird über eine einzige `docker-compose.yml`-Datei definiert. Empfohlene Mindestanforderungen an den VPS: 2 vCPU, 4 GB RAM, 40 GB SSD.
+
+Produktive Releases verwenden `deploy/docker-compose.production.yml`. Der Verweis
+`/opt/lilly/current` kennzeichnet die aktive Anwendung. Vor dem Containerstart hält
+`/opt/lilly/infrastructure` unabhängig davon die zuletzt versuchte Infrastruktur
+und deren Recovery-Skripte fest. Bei einem Anwendungsrollback bleibt dieser Verweis
+erhalten. Der Restore verwendet diese Compose-Konfiguration, sperrt parallele
+Deployments und Backups und prüft vor Änderungen das konfigurierte Datenbankimage
+gegen den laufenden Container. Einzelheiten stehen in [der Betriebsanleitung](server-deployment.md).
+
+Deployments aktualisieren den stabilen Backup-Einstieg
+`/opt/lilly/shared/backup.sh` atomar aus dem neuen Release. Dienst und manuelle
+Backups verwenden diesen auch nach einem Anwendungsrollback. Backups erwerben
+zuerst dieselbe Deployment-Sperre und anschließend die Backup-Sperre; das vom
+Deployment gestartete Backup verwendet den geerbten Sperrdeskriptor weiter.
+Ein noch auf alte Skripte zeigender systemd-Dienst verhindert das Upgrade bis zur
+Aktualisierung seiner geladenen Konfiguration.
 
 ### 8.2 Volumes
 

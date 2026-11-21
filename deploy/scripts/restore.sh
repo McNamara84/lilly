@@ -6,7 +6,7 @@ readonly BACKUP_ROOT="${LILLY_ROOT}/backups"
 readonly SHARED_DIR="${LILLY_ROOT}/shared"
 readonly APP_ENV_FILE="${SHARED_DIR}/.env.production"
 readonly DEPLOYMENT_ENV_FILE="${SHARED_DIR}/.deployment.env"
-readonly CURRENT_COMPOSE_FILE="${LILLY_ROOT}/current/docker-compose.production.yml"
+readonly INFRASTRUCTURE_COMPOSE_FILE="${LILLY_ROOT}/infrastructure/docker-compose.production.yml"
 readonly ERASURE_LEDGER="${SHARED_DIR}/erasure-ledger/account-erasure.log"
 
 backup_dir=""
@@ -53,12 +53,28 @@ for required_file in \
   "${backup_dir}/account-erasure.log" \
   "${APP_ENV_FILE}" \
   "${DEPLOYMENT_ENV_FILE}" \
-  "${CURRENT_COMPOSE_FILE}"; do
+  "${INFRASTRUCTURE_COMPOSE_FILE}"; do
   if [[ ! -f "${required_file}" ]]; then
     echo "Required restore file is missing: ${required_file}" >&2
     exit 1
   fi
 done
+
+# Keep the selected image and running database stable throughout recovery.
+umask 077
+exec 8>"${SHARED_DIR}/.deploy.lock"
+if ! flock -w 900 8; then
+  echo "Another LILLY deployment or restore did not finish within 15 minutes." >&2
+  exit 1
+fi
+
+# Deployments take the deployment lock before invoking the pre-deployment backup.
+# Use the same order and hold the backup lock through validation and recovery.
+exec 9>"${BACKUP_ROOT}/.backup.lock"
+if ! flock -w 900 9; then
+  echo "Another LILLY backup or restore did not finish within 15 minutes." >&2
+  exit 1
+fi
 
 (
   cd "${backup_dir}"
@@ -70,9 +86,25 @@ compose() {
     --project-name lilly \
     --env-file "${APP_ENV_FILE}" \
     --env-file "${DEPLOYMENT_ENV_FILE}" \
-    --file "${CURRENT_COMPOSE_FILE}" \
+    --file "${INFRASTRUCTURE_COMPOSE_FILE}" \
     "$@"
 }
+
+configured_db_image="$(compose config --images db)"
+db_container="$(compose ps --status running --quiet db)"
+if [[ -z "${configured_db_image}" || "${configured_db_image}" == *$'\n'* \
+  || -z "${db_container}" || "${db_container}" == *$'\n'* ]]; then
+  echo "Restore requires one configured database image and one running database container; refusing to start a database implicitly." >&2
+  exit 1
+fi
+running_db_image="$(docker inspect --format '{{.Config.Image}}' "${db_container}")"
+if [[ "${configured_db_image}" != "${running_db_image}" ]]; then
+  echo "Configured database image differs from the running server; refusing unsafe restore." >&2
+  echo "Configured: ${configured_db_image}" >&2
+  echo "Running: ${running_db_image}" >&2
+  echo "Select the infrastructure release matching the running database before retrying." >&2
+  exit 1
+fi
 
 resource_prefix="$(sed -n 's/^LILLY_RESOURCE_PREFIX=//p' "${DEPLOYMENT_ENV_FILE}" | tail -n 1)"
 resource_prefix="${resource_prefix:-lilly}"
@@ -105,7 +137,7 @@ gzip --decompress --stdout "${backup_dir}/database.sql.gz" \
 echo "Replacing the LILLY media volume..."
 docker run --rm --interactive \
   --volume "${MEDIA_VOLUME}:/restore" \
-  caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 \
+  caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
   sh -ec 'find /restore -mindepth 1 -delete; tar -C /restore -xzf -' \
   <"${backup_dir}/media.tar.gz"
 

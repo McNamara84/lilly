@@ -8,9 +8,10 @@ x-logging: &default-logging
 
 services:
   db:
-    image: mariadb:12.3.3@sha256:d46e102fa8b9b72bfcdeb56f9dd538742092119dc8b11f31fe662605cd234cd9
+    image: mariadb:13.0.2@sha256:54f493ea0d60b621a5bff84e5b20100f8b86b6efa6b79158e04756c5194a5e4d
     restart: unless-stopped
     environment:
+      MARIADB_AUTO_UPGRADE: "1"
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
       MARIADB_DATABASE: ${MARIADB_DATABASE:-lilly}
       MARIADB_USER: ${MARIADB_USER:-lilly}
@@ -138,7 +139,7 @@ services:
     logging: *default-logging
 
   caddy:
-    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
     restart: unless-stopped
     ports:
       - "${LILLY_BIND_ADDRESS:-127.0.0.1}:${LILLY_HOST_PORT:-8091}:80"
