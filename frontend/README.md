@@ -7,8 +7,17 @@ For project documentation, setup instructions, and architecture details, see the
 ## Development
 
 Use Node.js **26.13.1 LTS** and npm **12.2.3**. SvelteKit configuration lives in
-`vite.config.ts`; internal imports use the `#lib` package alias. TypeScript stays on
-6.0.3 until SvelteKit, svelte-check, and typescript-eslint support TypeScript 7 together.
+`vite.config.ts`; internal imports use the `#lib` package alias.
+
+TypeScript **7.0.2** runs the Svelte and service-worker type checks. TypeScript
+**6.0.3** remains under `typescript` for the JavaScript compiler API required by
+SvelteKit and ESLint. The native compiler is installed as
+`@typescript/native-preview: npm:typescript@^7.0.2`: this alias resolves to the stable
+TypeScript release. It avoids the `@typescript/native` peer dependency reserved by
+typescript-eslint for its experimental TypeScript 7.1 integration.
+
+Use the npm scripts below to select the compiler explicitly; a bare `tsc` command
+can resolve to either installed compiler.
 
 ```bash
 npm ci
@@ -37,5 +46,8 @@ npm run test:e2e:ui      # Chromium in Playwright UI mode
 ```bash
 npm run lint             # ESLint
 npm run format:check     # Prettier
-npm run check            # Svelte type check
+npm run check            # TypeScript 7: Svelte and service worker
+npm run check:svelte     # TypeScript 7: Svelte and application code
+npm run check:service-worker # TypeScript 7: service worker
+npm run check:watch      # TypeScript 7: watch Svelte and application code
 ```

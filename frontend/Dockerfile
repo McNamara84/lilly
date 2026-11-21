@@ -8,7 +8,7 @@ RUN npm ci
 FROM dependencies AS build
 
 COPY . .
-RUN npm run build
+RUN npm run check && npm run build
 
 FROM dependencies AS production-dependencies
 

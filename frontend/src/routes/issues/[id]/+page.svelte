@@ -305,7 +305,10 @@
 					{#if needsCondition}
 						<p class="text-xs mb-2" style="color: var(--text-tertiary);">Zustand</p>
 
-						<ConditionChips value={conditionGrade} onchange={(g) => (conditionGrade = g)} />
+						<ConditionChips
+							value={conditionGrade}
+							onchange={(grade: ConditionGrade) => (conditionGrade = grade)}
+						/>
 					{:else}
 						<p
 							class="text-xs"

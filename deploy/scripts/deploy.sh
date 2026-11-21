@@ -93,7 +93,8 @@ compose_new() {
 }
 
 rollback() {
-  echo "Deployment failed; attempting container rollback." >&2
+  echo "Deployment failed; attempting application container rollback." >&2
+  echo "The database image and data directory will remain at their current version." >&2
 
   if (( had_previous_env == 1 )); then
     install -m 600 "${previous_env_file}" "${DEPLOYMENT_ENV_FILE}"
@@ -107,8 +108,8 @@ rollback() {
       --env-file "${APP_ENV_FILE}" \
       --env-file "${DEPLOYMENT_ENV_FILE}" \
       --file "${previous_release}/docker-compose.production.yml" \
-      up -d --wait --remove-orphans; then
-      echo "Automatic container rollback also failed. Use the pre-deployment backup for manual recovery." >&2
+      up -d --wait --no-deps backend frontend caddy; then
+      echo "Automatic application rollback also failed. Use the pre-deployment backup for manual recovery." >&2
     fi
   else
     compose_new stop || true

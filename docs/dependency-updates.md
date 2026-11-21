@@ -16,10 +16,11 @@ Multiarch-Digests fixiert.
 | Tailwind CSS / Skeleton Svelte | 4.3.5 / 5.0.6 |
 | Vite / Vitest / Playwright | 8.3.8 / 5.1.1 / 1.65.1 |
 | Jest-DOM / jsdom | 8.0.0 / 31.0.1 |
+| TypeScript: nativer Compiler / JavaScript-Compiler-API | 7.0.2 / 6.0.3 |
 | Lighthouse / Lighthouse CI | 13.6.0 / 0.16.1 |
 | SQLx / jsonwebtoken / jsonschema | 0.9.1 / 12.0.0 / 0.62.0 |
 | Python-Zeitzonendaten | tzdata 2026.6, für Windows festgelegt |
-| MariaDB | 12.3.3 LTS mit erneuertem Image-Digest |
+| MariaDB | 13.0.2, stabiles Rolling Release, mit verifiziertem Multiarch-Digest |
 | Caddy / Mailpit | 2.11.9 / 1.34.0 |
 | Debian-Laufzeitimage | Trixie Slim mit erneuertem Image-Digest |
 
@@ -59,22 +60,71 @@ Lighthouse 13.6.0 und uuid 14.0.3. `tmp` kommt im aufgelösten Baum nicht mehr v
 `get-uri` erlaubt bereits die installierte neueste Version von `basic-ftp`.
 Der aufgelöste Paketbaum blieb beim Entfernen der letzten Overrides unverändert.
 
-Zwei Updates bleiben bewusst ausstehend:
+Die anschließend ebenfalls freigegebenen Umstellungen auf MariaDB 13 und den
+parallelen Betrieb von TypeScript 7 sind nun umgesetzt:
 
-- **TypeScript 7.0.2:** SvelteKit 3.4.0 verlangt TypeScript 6,
-  svelte-check 4.7.8 unterstützt höchstens Version 6 und typescript-eslint 8.73.0
-  verlangt eine Version unter 6.1. Die gemeinsam unterstützte Version bleibt 6.0.3.
-- **MariaDB 12.3.4:** Der Hersteller hat diese LTS-Wartungsversion am
-  17. November veröffentlicht. Die offiziellen Docker-Tags `12.3.4` und
-  `12.3.4-noble` lieferten bei der Prüfung noch HTTP 404; `12.3` und `12.3.3`
-  verwiesen auf denselben neuen Digest. Daher bleibt der tatsächlich verfügbare
-  Build von 12.3.3 gepinnt. Ein Wechsel auf MariaDB 13.0.2 wurde nicht freigegeben;
-  diese Rolling-Release-Linie ersetzt die LTS-Linie nicht. Siehe die
-  [offizielle Release-Liste](https://mariadb.org/mariadb/all-releases/) und das
-  [offizielle Image-Verzeichnis](https://github.com/docker-library/official-images/blob/master/library/mariadb),
-  das sowohl für Noble als auch UBI weiterhin 12.3.3 aufführt.
+- **MariaDB 13.0.2:** Entwicklung, Acceptance, E2E, Produktions-Compose und beide
+  CI-Datenbankdienste verwenden denselben verifizierten Image-Pin.
+  `MARIADB_AUTO_UPGRADE=1` aktiviert beim Wechsel eines vorhandenen Datenvolumes
+  die Aktualisierung der Systemtabellen einschließlich des offiziellen
+  Systemdatenbank-Backups. Das Deployment erstellt davor weiterhin sein separates
+  Anwendungsbackup. Der Community-Support der 13.0-Linie endet laut
+  [MariaDB-Supportübersicht](https://mariadb.org/about/) im vierten Quartal 2026;
+  Folgeupdates der Rolling-Release-Linie sind entsprechend einzuplanen.
+- **TypeScript 7.0.2 und 6.0.3:** `typescript` bleibt für die von SvelteKit und
+  ESLint benötigte JavaScript-Compiler-API auf 6.0.3. Der zusätzliche npm-Alias
+  `@typescript/native-preview: npm:typescript@^7.0.2` verweist auf das stabile
+  TypeScript-Paket. Der Aliasname vermeidet die optionale `@typescript/native`-
+  Peer-Abhängigkeit des aktuellen ESLint-Parsers, die bereits bestimmte
+  experimentelle 7.1-Versionen verlangt. Es werden keine Vorabversionen und keine
+  Peer-Overrides benötigt. Siehe auch
+  [Microsofts Anleitung zum Parallelbetrieb](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
+- `npm run check` prüft Svelte-Dateien über `svelte-check --tsgo` sowie den
+  separaten Service Worker über den expliziten TypeScript-7-CLI-Pfad. Beide
+  bestehenden CI-Workflows und der Frontend-Docker-Build führen diese Prüfung aus.
+  Drei Callback-Parameter wurden für die native Svelte-Typprüfung ausdrücklich
+  typisiert; die Laufzeitlogik bleibt dabei gleich.
+- Ein fehlgeschlagenes Deployment setzt ausschließlich die Anwendungscontainer
+  `backend`, `frontend` und `caddy` mit `--no-deps` zurück. Das bereits aktualisierte
+  Datenverzeichnis wird dadurch nicht mit einem älteren Datenbankimage gestartet.
+  Die Anleitung für manuelle Rollbacks unterscheidet Anwendungsrollback und
+  Wiederherstellung des Datenbankservers auf einem frischen Volume.
 
-## Aktuelle Prüfergebnisse
+## Nachprüfung mit MariaDB 13 und TypeScript 7
+
+- `npm ci` und der vollständige installierte npm-Abhängigkeitsbaum sind konsistent;
+  npm meldet keine Schwachstellen. Die Plattformpakete des nativen Compilers sind
+  auch für Linux in der Lockdatei erfasst.
+- Svelte- und Service-Worker-Typprüfung mit TypeScript 7.0.2 erfolgreich, unter
+  Windows und im Linux-Frontend-Build; SvelteKit und ESLint nutzen weiterhin die
+  TypeScript-6.0.3-API. ESLint und Prettier erfolgreich.
+- Alle 1.027 Frontend-Tests erfolgreich; Statement-Coverage 98,68 %.
+- Rustfmt, Clippy für alle Ziele mit `-D warnings` und alle 438 Rust-Tests
+  einschließlich Datenbanktests gegen eine eigene MariaDB-13-Datenbank erfolgreich.
+- Alle 16 Python-Tests unter Linux erfolgreich, einschließlich zweier neuer
+  Deployment-Regressionstests für Fehler beim Containerstart und bei der
+  anschließenden HTTP-Gesundheitsprüfung. Beide sichern den Verbleib der
+  Datenbankversion beim automatischen Anwendungsrollback ab. Der Start nur der
+  Anwendungsdienste mit `--no-deps` wurde auch im echten Docker-Teststack geprüft;
+  die ID des laufenden Datenbankcontainers blieb dabei unverändert.
+- Echtes Upgrade desselben isolierten Testvolumes von MariaDB 12.3.3 auf 13.0.2
+  erfolgreich: alle 35 Anwendungstabellen, 33 SQLx-Migrationseinträge und sämtliche
+  gesicherten Anwendungszeilen unverändert. Eine bestehende Sitzung und die
+  Sammlung mit Unicode-Notiz funktionieren nach dem Upgrade weiter. Das offizielle
+  Systemdatenbank-Backup und der Upgrade-Marker für Version 13.0.2 wurden geprüft.
+- Der vor dem Upgrade gesicherte Datenbestand wurde in einem zweiten, frischen
+  MariaDB-12.3-Volume wiederhergestellt. Der Vergleich aller gespeicherten
+  Anwendungszeilen stimmt sowohl nach dem Upgrade als auch nach der
+  Wiederherstellung überein.
+- Backend- und Frontend-Container-Builds sowie Produktions- und Acceptance-
+  Compose-Validierung erfolgreich. Alle fünf Dienste des isolierten E2E-Stacks
+  wurden gesund gestartet.
+- Chromium mit MariaDB 13: 106 Browserprüfungen ohne Wiederholung erfolgreich;
+  drei Prüfungen für den gesonderten Wechsel zwischen zwei Produktionsbuilds
+  wurden wie vorgesehen übersprungen. Die frühere vollständige Browsermatrix und
+  PWA-/Lighthouse-Prüfung sind nachfolgend separat dokumentiert.
+
+## Prüfung vor der zusätzlichen MariaDB-/TypeScript-Freigabe
 
 - `npm ci` bestätigt die Konsistenz von Manifest und Lockdatei.
 - ESLint, Prettier, Svelte-Typprüfung und separate Service-Worker-Typprüfung erfolgreich.

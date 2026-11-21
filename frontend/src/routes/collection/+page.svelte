@@ -236,7 +236,7 @@
 	issue={selectedIssue}
 	collection_entry={selectedEntry}
 	collection_entries={selectedEntries}
-	onselectentry={(entry) => (selectedEntry = entry)}
+	onselectentry={(entry: CollectionEntry) => (selectedEntry = entry)}
 	onaddcopy={() => (selectedEntry = null)}
 	onclose={closeSheet}
 	onsave={handleSave}

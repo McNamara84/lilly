@@ -119,6 +119,18 @@ The `Main Branch` GitHub Actions workflow performs all tests, publishes both com
 
 The script validates the Compose model, creates a mandatory backup when a previous release exists, pulls exact image tags, waits for all healthchecks and switches `/opt/lilly/current` only after the release is healthy.
 
+### MariaDB 13 upgrades
+
+The database uses MariaDB 13.0.2, a stable rolling release. Its community support
+currently ends in Q4 2026; plan the next server update according to the
+[MariaDB support policy](https://mariadb.org/about/).
+
+`MARIADB_AUTO_UPGRADE=1` lets the official image update existing system tables
+before normal startup. The image retains its automatic system-database backup;
+the mandatory pre-deployment backup separately protects the application database,
+media and erasure ledger. The first deployment on an existing 12.3 volume therefore
+performs a database-server upgrade. A fresh volume initializes directly on 13.0.
+
 Manual status checks:
 
 ```bash
@@ -185,6 +197,25 @@ Verify a backup in a disposable environment before relying on it for production 
 
 ## Rollback
 
-Container rollback is automatic when a deployment healthcheck fails. To select an older release manually, restore its commit tag in `.deployment.env` and run that release's `deploy.sh`.
+Application container rollback is automatic when a deployment healthcheck fails.
+It restores only `backend`, `frontend` and `caddy` with `--no-deps`; the database
+container and upgraded data directory remain at their current server version.
+
+For an application-only rollback, set the earlier application's commit tag in
+`.deployment.env`, retain the current Compose configuration, and run:
+
+```bash
+docker compose \
+  --project-name lilly \
+  --env-file /opt/lilly/shared/.env.production \
+  --env-file /opt/lilly/shared/.deployment.env \
+  --file /opt/lilly/current/docker-compose.production.yml \
+  up -d --wait --no-deps backend frontend caddy
+```
+
+After upgrading a database server, do not invoke an older release's deployment
+script or restart its database image against the upgraded data directory. A
+server-version rollback requires a fresh volume for the earlier server and the
+pre-upgrade logical backup; the upgraded volume must not be reused for a downgrade.
 
 Database migrations run at backend startup. If an old image is not compatible with the migrated schema, stop and use the pre-deployment backup rather than repeatedly restarting versions. A data restore requires explicit administrative approval and must never target another Compose project's volumes.
