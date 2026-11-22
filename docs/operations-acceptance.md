@@ -54,8 +54,14 @@ Die sieben Stufen des Durchlaufs sind:
    Stack aus den gesicherten Dateien. Prüfung von Notiz, Auflage und unabhängig
    aufgezeichnetem Foto-Hash. Ein nach dem Snapshot gelöschtes Konto und dessen
    Foto dürfen nach Replay des neueren Live-Ledgers weder als Datensatz noch
-   als gespeicherte JPEG-Datei zurückkehren. Der gesunde Neuaufbau erhält einen
-   aktiven Konfigurationsverweis für Vorabbackup und Rollback beim nächsten Update.
+   als gespeicherte JPEG-Datei zurückkehren. Ein absichtlich blockierter
+   `current`-Publikationsschritt hält alle öffentlichen Dienste gestoppt; nach
+   Beseitigung des Hindernisses gelingt der erneute Restore. Der Neuaufbau erhält
+   seinen Konfigurationsverweis vor dem öffentlichen Start, damit Vorabbackup und
+   Rollback beim nächsten Update verfügbar sind. Projektname und Ressourcenpräfix
+   unterscheiden sich absichtlich; die Fotoprüfung liest den wirklichen Volume-Namen
+   aus der aufgelösten Compose-Konfiguration. Der isolierte Zielstack bekommt ein
+   eigenes Präfix, während die produktive Wiederherstellung das gesicherte Präfix erhält.
    Das erste Backup über den wiederhergestellten gemeinsamen Einstiegspunkt
    besteht; der wiederhergestellte Fehlerhandler stellt seine Testmail zu.
 6. Gestoppte Datenbank: Readiness liefert 503, Liveness weiterhin 200 und der
@@ -89,11 +95,11 @@ werden durch diesen Containerlauf nicht als bestanden ausgegeben.
   ESLint, Prettier und Svelte-/Service-Worker-Typprüfung bestehen.
 - Die API-Vertragstests einschließlich Liveness und lokalem Swagger UI bestehen
   in Chromium, Firefox und WebKit: **sechs Tests**.
-- Die **166 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
+- Die **169 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
   atomare Erstinstallation, beschädigte/gefährliche Archive, Aufbewahrungsgrenzen,
   Eigentümerrechte, Fehler-E-Mails, Sperrkoordination, Datenbank-Imageprüfung
   sowie fehlgeschlagenes Fortsetzen des Backends. Gemeinsam mit dem echten
-  Containerlauf ergeben sich **93,27 % kombinierte Anweisungs-/Zweigabdeckung**
+  Containerlauf ergeben sich **93,23 % kombinierte Anweisungs-/Zweigabdeckung**
   für Python-Betriebswerkzeuge und Abnahmerunner, **99,12 %** für die gemeinsame
   Betriebslogik in `operations.py`. Die Messung verwendet frische Coverage-Daten.
 

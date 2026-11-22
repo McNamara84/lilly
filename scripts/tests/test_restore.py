@@ -169,6 +169,9 @@ elif args[0] == "compose":
         if os.environ["TEST_DATABASE_STATE"] == "running":
             print("test-" + command[-1])
     elif command[0] == "up":
+        if "db" not in command and os.environ.get("TEST_CURRENT_ON_START"):
+            current = Path(os.environ["LILLY_ROOT"]) / "current"
+            Path(os.environ["TEST_CURRENT_ON_START"]).write_text(str(current.resolve()) if current.is_symlink() else "missing")
         if "--no-deps" not in command:
             database.write_text(image)
         if str(config.resolve()) == os.environ.get("TEST_CANDIDATE_COMPOSE"):
@@ -336,12 +339,45 @@ else:
         self.assert_refused_before_changes(self.restore())
         self.assertEqual(self.database_image.read_text(), NEW_IMAGE)
 
-    def test_fresh_host_restore_records_healthy_configuration_for_the_next_deployment(self):
+    def test_fresh_host_restore_publishes_configuration_before_public_services_start(self):
         (self.deployment_root / "current").unlink()
+        started = self.root / "current-on-start"
+        self.env["TEST_CURRENT_ON_START"] = str(started)
         result = self.restore()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(started.read_text(), str(self.infrastructure))
         self.assertEqual((self.deployment_root / "current").resolve(), self.infrastructure)
         self.assertEqual((self.shared / ".deployment.env").read_text(), self.previous_environment)
+
+    def test_failed_fresh_host_reference_publication_keeps_public_services_stopped(self):
+        (self.deployment_root / "current").unlink()
+        self.use_real_locks()
+        for name in ("ln", "mv", "staged-directory"):
+            with self.subTest(command=name):
+                failing = self.root / "bin" / name
+                if name == "staged-directory":
+                    (self.deployment_root / "current.next").mkdir()
+                else:
+                    failing.write_text("#!/bin/bash\nexit 73\n")
+                    failing.chmod(0o755)
+                before = len(self.docker_calls())
+                try:
+                    result = self.restore()
+                finally:
+                    failing.unlink(missing_ok=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                calls = self.docker_calls()[before:]
+                starts = [args[args.index("--file") + 2:] for args in calls
+                          if args[0] == "compose" and args[args.index("--file") + 2] == "up"]
+                self.assertEqual(starts, [["up", "-d", "--wait", "db"]])
+                self.assertFalse((self.deployment_root / "current").exists())
+                self.assertFalse((self.deployment_root / "current").is_symlink())
+                self.assert_locks_available()
+                staged = self.deployment_root / "current.next"
+                if staged.is_dir() and not staged.is_symlink():
+                    staged.rmdir()
+                else:
+                    staged.unlink(missing_ok=True)
 
     def test_upgrade_configuration_refuses_to_restart_older_database(self):
         self.database_image.write_text(OLD_IMAGE)

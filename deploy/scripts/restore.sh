@@ -155,17 +155,18 @@ docker run --rm --interactive \
 echo "Replaying the live account-erasure ledger against the restored snapshot..."
 compose run --rm --no-deps backend ./lilly-backend privacy replay-erasure-ledger
 
+# A fresh-host restore has infrastructure files but no application reference yet.
+# Publish its recovered configuration before starting public services. A failed
+# publication leaves them stopped; the next deployment needs this backup and
+# rollback reference before the restored application can be made available.
+if [[ ! -e "${LILLY_ROOT}/current" && ! -L "${LILLY_ROOT}/current" ]]; then
+  ln -sfnT "$(readlink -f -- "${LILLY_ROOT}/infrastructure")" "${LILLY_ROOT}/current.next"
+  mv -Tf "${LILLY_ROOT}/current.next" "${LILLY_ROOT}/current"
+fi
+
 echo "Starting the restored LILLY stack..."
 compose up -d --wait --remove-orphans
 curl --fail --silent --show-error --max-time 5 \
   "http://127.0.0.1:${host_port}/api/v1/health" >/dev/null
-
-# A fresh-host restore has infrastructure files but no application reference yet.
-# Record its healthy configuration so the next deployment takes a mandatory
-# pre-deployment backup and has a working rollback target.
-if [[ ! -e "${LILLY_ROOT}/current" && ! -L "${LILLY_ROOT}/current" ]]; then
-  ln -sfn "$(readlink -f -- "${LILLY_ROOT}/infrastructure")" "${LILLY_ROOT}/current.next"
-  mv -Tf "${LILLY_ROOT}/current.next" "${LILLY_ROOT}/current"
-fi
 
 echo "Restore completed successfully from ${backup_dir}."

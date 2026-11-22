@@ -156,6 +156,35 @@ class StorageReadinessTests(unittest.TestCase):
             self.verify(directory, [{"Destination": "/media", "RW": False}], readiness=b"200")
 
 
+class MediaVolumeTests(unittest.TestCase):
+    def test_photo_inventory_uses_the_compose_volume_name_instead_of_the_project(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {"LILLY_ACCEPTANCE_STATE": directory}):
+            stack = acceptance.Stack("backend", "frontend")
+            self.assertNotEqual(stack.project, stack.resource_prefix)
+            volume = "restored-resource-prefix_media_data"
+            model = {"volumes": {"media_data": {"name": volume}}}
+            with patch.object(stack, "compose", return_value=SimpleNamespace(stdout=json.dumps(model).encode())) as compose, \
+                 patch.object(acceptance, "command", return_value=SimpleNamespace(stdout=b"/media/user-photos/restored.jpg\n")) as run:
+                self.assertEqual(stack.media_photo_files(), [b"/media/user-photos/restored.jpg"])
+            compose.assert_called_once_with("config", "--format", "json")
+            self.assertEqual(run.call_args.args[0][4], volume + ":/media:ro")
+            self.assertNotIn(stack.project + "_media_data:/media:ro", run.call_args.args[0])
+
+    def test_photo_inventory_rejects_missing_or_invalid_names_without_creating_a_volume(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {"LILLY_ACCEPTANCE_STATE": directory}):
+            stack = acceptance.Stack("backend", "frontend")
+            for volume in (None, "", "../unexpected", "unexpected:/media", 42):
+                model = {"volumes": {"media_data": {"name": volume}}} if volume is not None else {}
+                with self.subTest(volume=volume), \
+                     patch.object(stack, "compose", return_value=SimpleNamespace(stdout=json.dumps(model).encode())), \
+                     patch.object(acceptance, "command") as run:
+                    with self.assertRaisesRegex(RuntimeError, "named media volume"):
+                        stack.media_photo_files()
+                    run.assert_not_called()
+
+
 class CommandTests(unittest.TestCase):
     def test_linux_cli_builds_requested_candidates_before_acceptance(self):
         fake_os = SimpleNamespace(name="posix", environ={})

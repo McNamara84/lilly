@@ -380,11 +380,13 @@ A restore is intentionally manual and destructive:
 
 The restore script refuses to proceed without the live erasure ledger. After restoring database and media, it runs `lilly-backend privacy replay-erasure-ledger` before starting any public service. The replay permanently removes every account recorded after the restored snapshot. A replay failure keeps the stack offline; investigate the ledger and database instead of bypassing this guard.
 
-On a fresh host, successful readiness also establishes the missing `current`
-reference using the recovered infrastructure configuration. The restored image
-tag remains unchanged. This gives the next deployment a rollback configuration
-and ensures it takes its mandatory pre-deployment backup. In-place recovery keeps
-the existing application reference.
+On a fresh host, restore publishes the missing `current` reference after ledger
+replay and **before starting public services**, using the recovered infrastructure
+configuration. The restored image tag remains unchanged. A failed symlink creation
+or atomic rename aborts with public services still stopped. A directory at the
+temporary link path is rejected. This gives the next deployment a rollback
+configuration and ensures it takes its mandatory pre-deployment backup. In-place
+recovery keeps the existing application reference.
 
 Deployment, backups and restore all use `shared/.deploy.lock`. Backups and restore
 then acquire `backups/.backup.lock`, always in that order. A standalone backup

@@ -105,6 +105,9 @@ def png():
 class Stack:
     def __init__(self, backend, frontend, database_image=None):
         self.project = "lilly-ops-" + uuid.uuid4().hex[:12]
+        # Keep resource names independent of the Compose project to exercise
+        # restores whose volume prefix cannot be inferred from project metadata.
+        self.resource_prefix = self.project + "_resources"
         self.base = Path(os.environ.get("LILLY_ACCEPTANCE_STATE", tempfile.gettempdir())).resolve()
         self.root = Path(tempfile.mkdtemp(prefix=self.project + "-", dir=self.base))
         self.release_id = uuid.uuid4().hex + uuid.uuid4().hex[:8]
@@ -172,7 +175,7 @@ class Stack:
 
     def materialize(self):
         ops.private_write(self.shared / ".deployment.env",
-                          f"LILLY_IMAGE_TAG={self.release_id}\nLILLY_RESOURCE_PREFIX={self.project}\nLILLY_BIND_ADDRESS=127.0.0.1\nLILLY_HOST_PORT={self.port}\n")
+                          f"LILLY_IMAGE_TAG={self.release_id}\nLILLY_RESOURCE_PREFIX={self.resource_prefix}\nLILLY_BIND_ADDRESS=127.0.0.1\nLILLY_HOST_PORT={self.port}\n")
         # Only fixture transport/namespace settings differ from the production model.
         model = json.loads(command(ops.compose_command(self.root, ROOT / "deploy/docker-compose.production.yml", self.project)
                                    + ["config", "--format", "json"], env=self.environment()).stdout)
@@ -230,6 +233,14 @@ class Stack:
     def backup(self, check=True):
         return command(["bash", self.shared / "backup.sh", "manual"], env=self.environment(), check=check)
 
+    def media_photo_files(self):
+        model = json.loads(self.compose("config", "--format", "json").stdout)
+        volume = model.get("volumes", {}).get("media_data", {}).get("name")
+        if not isinstance(volume, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", volume):
+            raise RuntimeError("Compose did not resolve a valid named media volume")
+        return command(["docker", "run", "--rm", "--volume", volume + ":/media:ro",
+                        MEDIA_IMAGE, "find", "/media", "-type", "f", "-name", "*.jpg"]).stdout.splitlines()
+
     def cleanup(self):
         if self.model_ready:
             model = json.loads((self.release / "docker-compose.production.yml").read_text())
@@ -264,7 +275,19 @@ def verify_recovery(source, target, admin, password, entry, photo, erased_email)
     copied.parent.mkdir(exist_ok=True)
     shutil.copytree(snapshot, copied)
     target.compose("up", "-d", "--wait", "db")
-    command(["bash", target.shared / "backup-tools/restore.sh", "--backup", copied, "--confirm", "RESTORE_LILLY"], env=target.environment())
+    restore = ["bash", target.shared / "backup-tools/restore.sh", "--backup", copied, "--confirm", "RESTORE_LILLY"]
+    # A directory at the temporary link path makes atomic publication fail.
+    # The real restore must keep all public application services stopped.
+    next_reference = target.root / "current.next"
+    next_reference.mkdir()
+    try:
+        failed = command(restore, env=target.environment(), check=False)
+        running = target.compose("ps", "--status", "running", "--quiet", "caddy", "frontend", "backend").stdout.strip()
+        if failed.returncode == 0 or running or (target.root / "current").exists():
+            raise RuntimeError("Failed fresh-host reference publication exposed public services")
+    finally:
+        shutil.rmtree(next_reference)
+    command(restore, env=target.environment())
     if not (target.root / "current").is_symlink() or (target.root / "current").resolve() != target.release:
         raise RuntimeError("Fresh-host restore did not record its healthy application configuration")
     client = Client(target.port)
@@ -280,8 +303,7 @@ def verify_recovery(source, target, admin, password, entry, photo, erased_email)
         raise RuntimeError("Ledger replay resurrected an erased account")
     if target.sql("SELECT COUNT(*) FROM collection_photos;") != "1":
         raise RuntimeError("Ledger replay failed to remove erased-user photos")
-    stored_files = command(["docker", "run", "--rm", "--volume", target.project + "_media_data:/media:ro",
-                            MEDIA_IMAGE, "find", "/media", "-type", "f", "-name", "*.jpg"]).stdout.splitlines()
+    stored_files = target.media_photo_files()
     if len(stored_files) != 1:
         raise RuntimeError("Ledger replay left erased-user photo files in storage")
     client.request("/api/v1/admin/series")
