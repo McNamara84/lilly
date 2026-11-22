@@ -194,6 +194,13 @@
 				Meine Sammlung
 			</h1>
 			<a
+				href={resolve('collection/import')}
+				class="rounded-lg px-3 py-2 text-sm underline"
+				data-testid="collection-transfer-link"
+			>
+				Import / Export
+			</a>
+			<a
 				href={resolve('collection/add')}
 				class="rounded-lg px-4 py-2 text-sm font-semibold"
 				style="background: var(--color-brand-500); color: #000;"

@@ -105,6 +105,7 @@ impl Default for PhotoUploadConfig {
 }
 
 pub struct AppConfig {
+    pub transfer: crate::services::data_transfer::TransferConfig,
     pub api_docs_enabled: bool,
     pub database_url: String,
     pub jwt_secret: String,
@@ -169,7 +170,7 @@ impl AppConfig {
         let google_oauth = oauth_credentials(&get, "GOOGLE");
         let github_oauth = oauth_credentials(&get, "GITHUB");
         let privacy_policy_version = get("PRIVACY_POLICY_VERSION")
-            .unwrap_or_else(|| "2026-08-14".to_string())
+            .unwrap_or_else(|| "2026-11-22".to_string())
             .trim()
             .to_string();
         assert!(
@@ -197,6 +198,7 @@ impl AppConfig {
 
         Self {
             database_url: get("DATABASE_URL").expect("DATABASE_URL must be set"),
+            transfer: crate::services::data_transfer::TransferConfig::from_lookup(&get),
             jwt_secret: get("JWT_SECRET").expect("JWT_SECRET must be set"),
             jwt_access_token_expiry: get("JWT_ACCESS_TOKEN_EXPIRY")
                 .unwrap_or_else(|| "900".to_string())
@@ -474,7 +476,7 @@ mod tests {
         assert!(!config.cookie_secure);
         assert!(config.google_oauth.is_none());
         assert!(config.github_oauth.is_none());
-        assert_eq!(config.privacy_policy_version, "2026-08-14");
+        assert_eq!(config.privacy_policy_version, "2026-11-22");
         assert!(config.admin_email.is_none());
         assert_eq!(config.media_path, "/media");
         assert_eq!(config.media_url_prefix, "/media");

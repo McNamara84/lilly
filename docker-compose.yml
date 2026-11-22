@@ -32,7 +32,7 @@ services:
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
-      PRIVACY_POLICY_VERSION: ${PRIVACY_POLICY_VERSION:-2026-08-14}
+      PRIVACY_POLICY_VERSION: ${PRIVACY_POLICY_VERSION:-2026-11-22}
       RUST_LOG: ${RUST_LOG}
       BACKEND_PORT: ${BACKEND_PORT}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
@@ -61,6 +61,11 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       MEDIA_PATH: /media
+      DATA_TRANSFER_PATH: /data-transfer
+      DATA_IMPORT_MAX_BYTES: ${DATA_IMPORT_MAX_BYTES:-10485760}
+      DATA_IMPORT_MAX_ROWS: ${DATA_IMPORT_MAX_ROWS:-10000}
+      DATA_EXPORT_MAX_BYTES: ${DATA_EXPORT_MAX_BYTES:-2147483648}
+      DATA_TRANSFER_MAX_JOBS_PER_DAY: ${DATA_TRANSFER_MAX_JOBS_PER_DAY:-24}
       ACCOUNT_ERASURE_LEDGER_PATH: /erasure-ledger/account-erasure.log
       MEDIA_URL_PREFIX: ${MEDIA_URL_PREFIX:-/media}
       PHOTO_MAX_UPLOAD_BYTES: ${PHOTO_MAX_UPLOAD_BYTES:-5242880}
@@ -75,6 +80,7 @@ services:
       IMPORT_SCHEDULED_ADAPTERS: ${IMPORT_SCHEDULED_ADAPTERS:-maddrax,john-sinclair}
     volumes:
       - media_data:/media
+      - transfer_data:/data-transfer
       - erasure_ledger:/erasure-ledger
     depends_on:
       db:
@@ -135,3 +141,5 @@ volumes:
   caddy_data:
   media_data:
   erasure_ledger:
+
+  transfer_data:

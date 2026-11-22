@@ -110,7 +110,7 @@ def main() -> None:
         "GOOGLE_OAUTH_CLIENT_SECRET": "",
         "GITHUB_OAUTH_CLIENT_ID": "",
         "GITHUB_OAUTH_CLIENT_SECRET": "",
-        "PRIVACY_POLICY_VERSION": "2026-08-14",
+        "PRIVACY_POLICY_VERSION": "2026-11-22",
         "ADMIN_EMAIL": args.admin_email.strip(),
         "APP_BASE_URL": args.app_base_url,
         "COOKIE_SECURE": cookie_secure,

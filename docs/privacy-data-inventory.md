@@ -39,7 +39,47 @@ Nach Ablauf beansprucht ein Worker den Job atomar. Bevor er Daten löscht, schre
 | Datenbank-/Medienbackups                             | historischer Snapshot                                             | reguläre Aufbewahrung maximal 14 Tage                                   | nicht nachträglich verändern; Restore-Ledger vor Freigabe zwingend abspielen                     |
 | Restore-Ledger                                       | zufälliger 256-Bit-`erasure_subject`                              | append-only Eintrag unmittelbar vor finaler Löschung                    | getrennt persistent erhalten; niemals durch älteren Snapshot ersetzen; aktuelles Betriebsmodell ausschließlich lokal |
 
-## Gemeinsame Historie
+## Sammlungsübertragung und Datenauskunft
+
+Die Feldlisten und Archivstruktur sind im [Auskunftshandbuch](personal-data-export.md)
+dokumentiert. Jeder neue nutzerbezogene Speicher benötigt eine bewusste Zuordnung
+zur Auskunft oder einen dokumentierten Ausschluss. Es werden keine kompletten
+Datenbankzeilen ungeprüft exportiert.
+
+| Neuer Speicher | Personenbezug und Auskunft | Aufbewahrung und Löschung |
+| --- | --- | --- |
+| `collection_transfer_keys` | Eigene Exemplar-Kennung, Eintragszuordnung und Erstellungszeit; im Export enthalten. Leere Eintragsreferenzen verhindern die Wiederanlage gelöschter oder abgegebener Kopien. | Bis zur Kontolöschung erhalten, dann kaskadierend entfernen. |
+| `transfer_jobs` | Eigene Art, Format, Status, Zeiten, Zähler und nicht vertrauliche Fehlercodes werden ausgegeben. | Nach sieben Tagen zur Bereinigung fällig; Dateilöschung muss vorher abgeschlossen sein. Bei Kontolöschung Nutzerreferenz entfernen und nötigen Dateilöschverweis bis zur Bereinigung erhalten. |
+| `collection_import_results` | Eigene Datensatznummer, Kennung, Status, Fehlercode und Eintragsreferenz; keine Rohkopien privater Texte. | Mit Auftrag entfernen; bei endgültiger Kontolöschung eigene Ergebnisse unmittelbar löschen. |
+| `data_export_subjects` | Interne Zuordnung der im Snapshot beteiligten Konten mit Gültigkeitsstand; nicht als private Kontodaten des Gegenübers exportieren. | Mit Auftrag entfernen; entfernte Partnerreferenzen werden `NULL`. Anonymisierung invalidiert noch abrufbare betroffene Archive. |
+| Private Importdatei | Noch gespeicherte aktive eigene Uploads werden der Auskunft beigelegt. | Nach Verarbeitung, Abbruch oder Ablauf der 30-minütigen Vorschau löschen; Fehler retry-fähig behandeln. |
+| ZIP und Staging-Dateien in `transfer_data` | Aus den berechtigten eigenen Daten abgeleitete, besonders geschützte Kopien; kein rekursives Beilegen anderer Exportarchive. | ZIP-Zugriff genau 24 Stunden ab Fertigstellung. Danach beziehungsweise bei Kontolöschanforderung sperren und physisch bereinigen. Keine Aufnahme in dauerhafte Medienbackups. |
+| Schreib-Leases im Backend | Nur laufende technische Auftragskennungen, keine Inhalte. | Prozesslokal bis zum Ende des Dateiproduzenten; sie verhindern ein Rennen zwischen Erstellung und Bereinigung. |
+
+Auskunftsprojektionen umfassen auch eigene Einwilligungen, Provideridentitäten,
+Session-Metadaten, bestätigte Offline-Mutationen, Benachrichtigungen, Historie und
+administrative Aktivitäten. Gemeinsame Tausch-/Nachrichteninhalte werden nur aus
+der Teilnehmerperspektive ausgegeben. Bibliografische Importdetailbefunde und
+abgeleitete Katalog-/Match-Fingerprints bleiben technische beziehungsweise
+öffentliche Katalogdaten; eigene Akteursbezüge und fachliche Zeiten sind enthalten.
+
+Geheime Werte aus `refresh_tokens`, `password_reset_tokens`,
+`account_erasure_recovery_tokens`, `oauth_authorization_flows` und
+`pending_oauth_links` werden nicht ausgegeben. Das gilt auch für Passwort-Hashes,
+Anforderungs-Fingerprints, den zufälligen `erasure_subject`, Ledgerdaten und interne
+Storage-Schlüssel. Ephemere Sicherheitszustände, Logs mit ausschließlich
+technischen Fehlerkategorien und abgeleitete Browser-Caches sind keine zusätzlichen
+unverändert kopierten Exportdatensätze. Kommentare/Bewertungen sind als noch nicht
+implementierte Bereiche ausdrücklich gekennzeichnet.
+
+Das serverseitige Archiv enthält den bestätigten Serverstand. Noch nicht
+synchronisierte lokale Browseränderungen sind darin nicht enthalten; beim
+Sammlungsimport/-export prüft die Oberfläche ausstehende Mutationen und Konflikte.
+Neue private API-Antworten und ZIP-Dateien werden nicht in IndexedDB oder
+Service-Worker-Caches geschrieben. Beim Logout oder Nutzerwechsel verwirft der
+Client verspätete Antworten anhand der bestehenden Sitzungsversion.
+
+## Gemeinsame Historie und Sichtbarkeit
 
 Abgeschlossene und abgebrochene Tausche gehören beiden Teilnehmern. Deshalb bleibt der sachliche Vorgang für das verbleibende Konto bestehen, verliert aber alle Referenzen und Texte des gelöschten Kontos. Die UI und API verwenden ausschließlich den neutralen Namen „Gelöschtes Konto“. Aus dem verbleibenden Datensatz darf weder E-Mail noch Anzeigename, Profil-ID, Avatar, Ort oder Sammlung des gelöschten Kontos rekonstruierbar sein.
 

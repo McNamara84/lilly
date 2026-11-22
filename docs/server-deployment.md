@@ -82,6 +82,44 @@ Sign in again to receive the updated role. Verify an ordinary collection entry
 and photo, a clean stop/start and a host reboot with the same data volumes.
 Complete the backup/restore checks below before enabling the daily timer.
 
+## Collection transfer and personal data archives
+
+The backend additionally mounts the private `transfer_data` volume at
+`/data-transfer`; production names it `${LILLY_RESOURCE_PREFIX:-lilly}_transfer_data`.
+The runtime image creates the mount point for UID/GID 999. Do not mount this volume
+into Caddy or the frontend or expose it through static routes. Native backend
+development can explicitly set `DATA_TRANSFER_PATH`.
+
+Defaults are `DATA_IMPORT_MAX_BYTES=10485760`, `DATA_IMPORT_MAX_ROWS=10000`,
+`DATA_EXPORT_MAX_BYTES=2147483648` and `DATA_TRANSFER_MAX_JOBS_PER_DAY=24`.
+Allow disk space for retained archives and one active archive plus its private media
+staging files. A limit failure produces a failed job rather than a truncated archive.
+The supported single-backend deployment remains the reference topology.
+
+Archives are readable for 24 hours after completion, without extension on download.
+Prepared imports expire after 30 minutes. Cleanup retries failed file deletions;
+operational job metadata becomes eligible for deletion after seven days. Check worker
+error categories and volume write access when transfers fail; do not copy contents
+into routine logs.
+
+The private volume is excluded from database/media backup payloads. After restore,
+startup reconciliation marks jobs with missing files as failed and removes orphan
+directories whose database job no longer exists. Users can request a fresh export.
+Account-erasure replay still runs before public startup and now also waits for
+pending transfer-file cleanup.
+
+Before rolling back to a revision without the transfer worker, stop the backend and
+finish or explicitly clean private transfer jobs using the new release first.
+Preserve database and original media volumes. Keep the additive migration and its
+key trigger; do not apply a destructive down migration. Verify health and persistent
+data before resuming public access.
+
+The privacy-text revision is `2026-11-22`. New environments use this default.
+Existing production files must update `PRIVACY_POLICY_VERSION=2026-11-22` when
+adopting the revised text; historical consent records retain the original version.
+See [collection transfer](collection-transfer-format.md) and
+[personal export](personal-data-export.md) for data and access rules.
+
 ## Prerequisites: Traefik ingress
 
 The LILLY `caddy` service joins the external Docker network `proxy` and announces itself to Traefik through container labels. Before the first deployment the host must provide:

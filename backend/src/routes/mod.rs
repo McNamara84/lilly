@@ -14,6 +14,7 @@ pub mod account_erasure;
 pub mod admin;
 pub mod auth;
 pub mod collection;
+pub mod collection_transfer;
 pub mod health;
 pub mod media;
 pub mod messages;
@@ -29,6 +30,7 @@ pub struct AppState {
 }
 
 pub struct AppStateInner {
+    pub transfer_config: crate::services::data_transfer::TransferConfig,
     pub pool: sqlx::MySqlPool,
     pub jwt_secret: String,
     pub jwt_access_expiry: u64,

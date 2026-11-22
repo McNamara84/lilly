@@ -183,6 +183,7 @@ async fn main() {
             media_storage,
             erasure_ledger,
             import_scheduler_config: import_scheduler_config.clone(),
+            transfer_config: config.transfer,
             request_security,
         }),
     };
@@ -208,6 +209,7 @@ async fn main() {
     )
     .expect("Invalid import scheduler configuration");
     services::account_erasure::spawn_worker(app_state.inner.clone());
+    services::data_transfer::spawn_worker(app_state.inner.clone());
 
     let app = api::application(app_state, config.api_docs_enabled);
 

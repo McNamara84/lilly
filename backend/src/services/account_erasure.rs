@@ -285,6 +285,7 @@ async fn process_claimed_job(
 }
 
 async fn process_storage_pending(state: &AppStateInner) -> Result<(), anyhow::Error> {
+    crate::services::data_transfer::cleanup(state, Utc::now().naive_utc()).await?;
     let _ = crate::services::media::reconcile_storage(&state.pool, &state.media_storage).await?;
     let now = Utc::now().naive_utc();
     for job_id in account_erasure::storage_pending_job_ids(&state.pool).await? {
@@ -436,6 +437,7 @@ mod tests {
                 timezone: "Europe/Berlin".to_string(),
                 adapters: Vec::new(),
             },
+            transfer_config: crate::services::data_transfer::TransferConfig::for_tests(),
             request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
         }
     }

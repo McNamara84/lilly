@@ -5,6 +5,40 @@ maschinenlesbare Vertrag steht in [openapi.json](openapi.json) (OpenAPI 3.1). Er
 die implementierten Operationen für Anmeldung/OAuth, Kontolöschung, Serien und Hefte,
 Sammlung und Offline-Abgleich, Profile und Medien, Tausch, Nachrichten,
 Benachrichtigungen sowie administrative Importe und Freigaben.
+Zusätzlich umfasst er Sammlungsimport/-export und persönliche ZIP-Datenauskünfte.
+
+## Sammlung übertragen und persönliche Auskunft
+
+`GET /me/collection/export?format=csv|json` liefert die vollständige eigene Sammlung
+als Download. `GET /me/collection/import/template?format=csv|json` liefert eine Vorlage.
+Beide Dateien entsprechen dem [Übertragungsvertrag](collection-transfer-format.md).
+
+`POST /me/collection/imports/preview?format=csv|json` erwartet genau das Multipart-Feld
+`file` und antwortet mit `201` und dem eigenen Vorschauauftrag. Die Vorschau ist
+30 Minuten gültig und verändert keine Sammlungseinträge. Nach ausdrücklicher
+Bestätigung über `POST /me/collection/imports/{id}/commit` (`202`) verarbeitet der
+Worker ausschließlich neue gültige Exemplare. Wiederholte Bestätigungen sind
+idempotent. `GET /me/collection/imports/{id}?page=1` liefert Zähler und jeweils bis
+zu 100 Zeilenergebnisse. Die Antwort enthält auch das gespeicherte Dateiformat.
+
+`POST /me/data-exports` reiht die vollständige eigene Auskunft ein (`202`).
+`GET /me/data-exports?page=1` liefert bis zu 20 eigene Aufträge, der Detailpfad
+`GET /me/data-exports/{id}` Status und Frist. Der geschützte Download erfolgt über
+`GET /me/data-exports/{id}/download`. Anforderung und Download verlangen eine
+höchstens zehn Minuten alte Passwort-/OAuth-Authentifizierung; der Optionspfad
+`GET /me/reauthentication/options` benennt die verfügbaren Verfahren.
+
+Alle Auftragskennungen sind kontogebunden. Auch Admins können keine fremden
+Aufträge abrufen. JSON-Antworten und Downloads sind privat und nicht cachebar.
+Die ZIP-Frist liegt genau 24 Stunden nach Fertigstellung und wird durch einen
+Download nicht verlängert. Anonymisierung, Ablauf und fehlende Restore-Dateien
+verhindern weitere Downloads. Details stehen im [Auskunftshandbuch](personal-data-export.md).
+
+Typische Konfliktcodes sind `preview_expired`, `transfer_active`,
+`export_invalidated` und `export_unavailable`. Zeilenergebnisse unterscheiden
+`created`, `unchanged`, `conflict`, `invalid` und `failed`; während der Vorschau
+beziehungsweise vor Verarbeitung wird `new` verwendet. Die vollständigen
+Statuscodes und Response-Schemas werden aus den Handlern generiert.
 
 ## Erzeugen und prüfen
 

@@ -46,7 +46,7 @@ RUN groupadd --system --gid 999 appuser && \
     useradd --system --uid 999 --gid appuser --no-create-home appuser
 
 # Create persistent mount points writable by appuser.
-RUN mkdir -p /media /erasure-ledger && chown appuser:appuser /media /erasure-ledger
+RUN mkdir -p /media /erasure-ledger /data-transfer && chown appuser:appuser /media /erasure-ledger /data-transfer
 
 WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/target/release/lilly-backend ./
