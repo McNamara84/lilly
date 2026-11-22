@@ -33,6 +33,7 @@ __pycache__/
 frontend/test-results/
 frontend/playwright-report/
 frontend/coverage/
+performance-results/
 
 # Docker
 docker-compose.override.yml

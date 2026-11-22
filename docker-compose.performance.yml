@@ -1,0 +1,92 @@
+# Dedicated, disposable collection-search reference environment.
+# Started only by scripts/collection_performance.py with generated credentials.
+services:
+  db:
+    image: mariadb:13.0.2@sha256:54f493ea0d60b621a5bff84e5b20100f8b86b6efa6b79158e04756c5194a5e4d
+    cpus: 1
+    mem_limit: 1g
+    command: ["--innodb-buffer-pool-size=256M"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${PERF_DB_ROOT_PASSWORD:?}
+      MARIADB_DATABASE: lilly_performance
+      MARIADB_USER: lilly_performance
+      MARIADB_PASSWORD: ${PERF_DB_PASSWORD:?}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+  backend:
+    image: lilly-backend:collection-performance
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: development
+    cpus: 1
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: mysql://lilly_performance:${PERF_DB_PASSWORD:?}@db:3306/lilly_performance # ggignore
+      JWT_SECRET: ${PERF_JWT_SECRET:?}
+      JWT_ACCESS_TOKEN_EXPIRY: "3600"
+      JWT_REFRESH_TOKEN_EXPIRY: "7200"
+      BACKEND_PORT: "8080"
+      APP_BASE_URL: http://localhost
+      COOKIE_SECURE: "false"
+      PRIVACY_POLICY_VERSION: performance-v1
+      RUST_LOG: error
+      MEDIA_PATH: /media
+      ACCOUNT_ERASURE_LEDGER_PATH: /erasure-ledger/account-erasure.log
+      ENABLE_DEMO_SEED: "false"
+      E2E_WORKER_COUNT: "0"
+      ENABLE_E2E_FIXTURE_ADAPTER: "false"
+      IMPORT_SCHEDULER_ENABLED: "false"
+      RATE_LIMIT_AUTHENTICATED_API: "1000000/60"
+    ports:
+      - "127.0.0.1::8080"
+    volumes:
+      - media_data:/media
+      - erasure_ledger:/erasure-ledger
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/api/v1/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+  frontend:
+    profiles: [browser]
+    image: lilly-frontend:collection-performance
+    build:
+      context: ./frontend
+    environment:
+      PROTOCOL_HEADER: x-forwarded-proto
+    depends_on:
+      backend:
+        condition: service_healthy
+  caddy:
+    profiles: [browser]
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    ports:
+      - "127.0.0.1::80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - media_data:/srv/media:ro
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+volumes:
+  db_data:
+  media_data:
+  erasure_ledger:
+  caddy_data:

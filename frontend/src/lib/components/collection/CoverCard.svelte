@@ -68,6 +68,7 @@
 		: undefined}
 	aria-label={accessibleName}
 	data-testid="cover-card"
+	data-entry-id={entry.id}
 >
 	<!-- Cover image -->
 	<div class="aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden">

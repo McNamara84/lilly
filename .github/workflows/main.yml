@@ -123,6 +123,12 @@ jobs:
           JWT_SECRET: test-jwt-secret
           SQLX_OFFLINE: "true"
 
+  collection-performance:
+    name: Collection Performance
+    uses: ./.github/workflows/collection-performance.yml
+    with:
+      profile: full
+
   e2e:
     name: E2E Tests (${{ matrix.browser }})
     strategy:
@@ -142,6 +148,7 @@ jobs:
       - frontend-build
       - backend-lint
       - backend-test
+      - collection-performance
       - e2e
     runs-on: ubuntu-latest
     permissions:

@@ -128,6 +128,9 @@ describe('collection responses across a session change', () => {
 
 	it('discards a collection response when logout interrupts the cached profile lookup', async () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [entry], total: 1 })));
+		vi.spyOn(database, 'mergeOnlineCollectionEntries').mockRejectedValueOnce(
+			new Error('Queue unavailable')
+		);
 		vi.spyOn(database, 'getCachedProfile').mockImplementationOnce(async () => {
 			changeOfflineSession(1, true);
 			return profile(1);
@@ -135,6 +138,107 @@ describe('collection responses across a session change', () => {
 		const merge = vi.spyOn(database, 'mergeCollectionEntries');
 		await expect(fetchCollection()).rejects.toThrow('Sitzung');
 		expect(merge).not.toHaveBeenCalled();
+	});
+
+	it('returns online results without reading the profile or the full clean collection', async () => {
+		const result = { data: [entry], total: 1, page: 1, per_page: 50 };
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(result)));
+		const profileLookup = vi
+			.spyOn(database, 'getCachedProfile')
+			.mockReturnValue(new Promise(() => {}));
+		const collectionLookup = vi.spyOn(database, 'listStoredCollectionEntries');
+		const merge = vi.spyOn(database, 'mergeOnlineCollectionEntries');
+		await expect(fetchCollection()).resolves.toEqual(result);
+		expect(profileLookup).not.toHaveBeenCalled();
+		expect(collectionLookup).not.toHaveBeenCalled();
+		expect(merge).toHaveBeenCalledWith(1, [entry]);
+	});
+
+	it('rejects a session change while the atomic page merge is waiting', async () => {
+		const probe = Promise.withResolvers<boolean>();
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [entry], total: 1 })));
+		const lookup = vi
+			.spyOn(database, 'mergeOnlineCollectionEntries')
+			.mockReturnValueOnce(probe.promise);
+		const merge = vi.spyOn(database, 'mergeCollectionEntries');
+		const request = fetchCollection();
+		await vi.waitFor(() => expect(lookup).toHaveBeenCalledOnce());
+		changeOfflineSession(2, false);
+		probe.resolve(false);
+		await expect(request).rejects.toThrow('Sitzung');
+		expect(merge).not.toHaveBeenCalled();
+	});
+
+	it('keeps durable pending changes visible in a confirmed online session', async () => {
+		const { queueCollectionUpdate } = await import('#lib/offline/queue.js');
+		await queueCollectionUpdate(1, entry.id, { notes: 'Unsent local note' });
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(Response.json({ data: [entry], total: 1, page: 1, per_page: 50 }))
+		);
+		const result = await fetchCollection();
+		expect(result.data[0].notes).toBe('Unsent local note');
+		expect(await database.listMutations(1)).toHaveLength(1);
+	});
+
+	it('keeps a stored conflict visible even when no mutation is waiting to be sent', async () => {
+		const { queueCollectionUpdate } = await import('#lib/offline/queue.js');
+		await queueCollectionUpdate(1, entry.id, { notes: 'Conflict note' });
+		const [mutation] = await database.listMutations(1);
+		await database.putConflict({
+			mutation_id: mutation.mutation_id,
+			user_id: 1,
+			created_at: mutation.created_at,
+			mutation,
+			server_entry: entry,
+			error: 'Revision conflict',
+			code: 'revision_conflict',
+			status: 'conflict'
+		});
+		await database.deleteMutation(mutation.mutation_id);
+		await database.mergeCollectionEntries(1, [
+			{ ...entry, notes: 'Conflict note', sync_state: 'conflict' }
+		]);
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(Response.json({ data: [entry], total: 1, page: 1, per_page: 50 }))
+		);
+		const result = await fetchCollection();
+		expect(result.data[0].notes).toBe('Conflict note');
+		expect(result.data[0].sync_state).toBe('conflict');
+		expect(await database.listConflicts(1)).toHaveLength(1);
+	});
+
+	it('checks cancellation after atomically merging the server page', async () => {
+		const controller = new AbortController();
+		const probe = Promise.withResolvers<boolean>();
+		const lookup = vi
+			.spyOn(database, 'mergeOnlineCollectionEntries')
+			.mockReturnValueOnce(probe.promise);
+		const merge = vi.spyOn(database, 'mergeCollectionEntries');
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [entry], total: 1 })));
+		const request = fetchCollection({}, controller.signal);
+		await vi.waitFor(() => expect(lookup).toHaveBeenCalledOnce());
+		controller.abort();
+		probe.resolve(false);
+		await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+		expect(merge).not.toHaveBeenCalled();
+	});
+
+	it('does not treat an aborted WebKit-style load error as an offline search', async () => {
+		const controller = new AbortController();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				controller.abort();
+				throw new TypeError('Load failed');
+			})
+		);
+		const profileLookup = vi.spyOn(database, 'getCachedProfile');
+		await expect(fetchCollection({}, controller.signal)).rejects.toMatchObject({
+			name: 'AbortError'
+		});
+		expect(profileLookup).not.toHaveBeenCalled();
 	});
 
 	it('discards an online update to an uncached entry if the account changed in flight', async () => {

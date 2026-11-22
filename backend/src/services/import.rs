@@ -2677,7 +2677,10 @@ mod tests {
                 cover_downloads: cover_downloads.clone(),
             }))
             .unwrap();
-        let media_path = format!("/tmp/lilly-synchronization-import-test-{suffix}");
+        let media_path = std::env::temp_dir()
+            .join(format!("lilly-synchronization-import-test-{suffix}"))
+            .to_string_lossy()
+            .into_owned();
         let state = test_state(pool.clone(), adapter_registry, &media_path);
 
         let first = start_import(

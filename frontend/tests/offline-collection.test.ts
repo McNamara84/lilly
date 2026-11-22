@@ -75,7 +75,7 @@ describe('offline collection queue', () => {
 		expect(
 			filterLocalCollection(entries, { sort: 'issue_number', sort_dir: 'desc' }).data[0].id
 		).toBe(31);
-		expect(filterLocalCollection(entries, { sort: 'condition' }).data.at(-1)?.id).toBe(32);
+		expect(filterLocalCollection(entries, { sort: 'condition' }).data[0].id).toBe(32);
 		expect(filterLocalCollection(entries, { sort: 'title' }).data[0].title).toBe('Alpha');
 		expect(filterLocalCollection(entries, { sort: 'added', sort_dir: 'desc' }).data[0].id).toBe(31);
 		expect(filterLocalCollection(entries, {}).data.map((item) => item.id)).toContain(33);

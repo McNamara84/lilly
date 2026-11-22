@@ -1,4 +1,5 @@
 import { expect, test, unauthenticatedTest } from './fixtures';
+import { waitForOfflineData } from './pwa-helpers';
 
 // ---------------------------------------------------------------------------
 // Collection overview page
@@ -55,6 +56,79 @@ test.describe('Collection Overview', () => {
 		await toggle.click();
 		const textAfter = await toggle.textContent();
 		expect(textBefore).not.toEqual(textAfter);
+	});
+
+	test.describe('Delayed collection responses', () => {
+		test.use({ serviceWorkers: 'block' });
+		test('keeps filters usable and shows the latest query while an older response is delayed', async ({
+			page
+		}) => {
+			const response = await page.request.get('/api/v1/me/collection?per_page=50');
+			expect(response.ok()).toBe(true);
+			const original = await response.json();
+			expect(original.data.length).toBeGreaterThan(0);
+			if (process.env.PLAYWRIGHT_COLLECTION_TOTAL) {
+				test.setTimeout(60_000);
+				expect(original.total).toBe(Number(process.env.PLAYWRIGHT_COLLECTION_TOTAL));
+			}
+			const oldStarted = Promise.withResolvers<void>();
+			const releaseOld = Promise.withResolvers<void>();
+			const oldHandled = Promise.withResolvers<void>();
+			let oldWasRequested = false;
+			await page.route('**/api/v1/me/collection?**', async (route) => {
+				const title = new URL(route.request().url()).searchParams.get('title');
+				if (title !== 'Previous query' && title !== 'Latest query') {
+					await route.continue();
+					return;
+				}
+				if (title === 'Previous query') {
+					oldWasRequested = true;
+					oldStarted.resolve();
+					await releaseOld.promise;
+				}
+				try {
+					await route.fulfill({
+						json: {
+							...original,
+							data: [{ ...original.data[0], title }],
+							total: 1,
+							page: 1,
+							per_page: 50
+						}
+					});
+				} finally {
+					if (title === 'Previous query') oldHandled.resolve();
+				}
+			});
+			try {
+				await page.goto('/collection');
+				await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden();
+				const advanced = page.getByTestId('advanced-filter-toggle');
+				if (await advanced.isVisible()) await advanced.click();
+				const title = page.getByTestId('title-filter');
+				await title.fill('Previous query');
+				await oldStarted.promise;
+				await expect(page.getByTestId('cover-grid-skeleton')).toBeVisible();
+				await expect(title).toBeEnabled();
+				await title.fill('Latest query');
+				await expect(
+					page.getByTestId('cover-card').filter({ hasText: 'Latest query' })
+				).toBeVisible();
+				releaseOld.resolve();
+				await oldHandled.promise;
+				await expect(
+					page.getByTestId('cover-card').filter({ hasText: 'Latest query' })
+				).toBeVisible();
+				await expect(
+					page.getByTestId('cover-card').filter({ hasText: 'Previous query' })
+				).toHaveCount(0);
+				await expect(page.getByTestId('collection-error')).toHaveCount(0);
+				await expect(page).toHaveURL(/title=Latest\+query/);
+			} finally {
+				releaseOld.resolve();
+				if (oldWasRequested) await oldHandled.promise;
+			}
+		});
 	});
 
 	test('combined metadata filters survive reload and can be reset', async ({ page }) => {
@@ -277,6 +351,8 @@ test.describe('Collection End-to-End Workflow', () => {
 		try {
 			await page.goto('/collection');
 			await expect(page.getByTestId('cover-grid-skeleton')).toBeHidden({ timeout: 10000 });
+			// Creating another copy requires the cached catalogue references.
+			await waitForOfflineData(page);
 			await page.getByTestId('cover-card').filter({ hasText: original.title }).first().click();
 			await page.getByTestId('edition-input').fill(firstEdition);
 			await page.getByTestId('save-button').click();

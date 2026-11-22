@@ -30,8 +30,8 @@ async function authenticateWorker(
 	try {
 		const response = await request.post('/api/v1/auth/login', {
 			data: {
-				email: `e2e-worker-${parallelIndex}@lilly.app`,
-				password: 'e2e-worker-password'
+				email: process.env.PLAYWRIGHT_LOGIN_EMAIL ?? `e2e-worker-${parallelIndex}@lilly.app`,
+				password: process.env.PLAYWRIGHT_LOGIN_PASSWORD ?? 'e2e-worker-password'
 			}
 		});
 		if (!response.ok()) {

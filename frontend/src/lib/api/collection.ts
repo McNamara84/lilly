@@ -1,6 +1,7 @@
 import type { ConditionGrade } from '#lib/collection/conditions.js';
 import {
 	getCachedProfile,
+	mergeOnlineCollectionEntries,
 	listStoredCollectionEntries,
 	mergeCollectionEntries,
 	replaceOfflineSnapshot
@@ -170,8 +171,29 @@ export async function fetchCollection(
 	try {
 		const response = await fetch(`${API_BASE}/me/collection${qs}`, init);
 		const result = await handleResponse<PaginatedCollection>(response);
+		signal?.throwIfAborted();
 		if (!isCurrentOfflineSession(version)) throw new Error('Die Sitzung wurde inzwischen beendet.');
+		const confirmed = /^active:([1-9]\d*):/.exec(version);
+		const userId = confirmed ? Number(confirmed[1]) : 0;
+		if (userId > 0 && Number.isSafeInteger(userId)) {
+			// The decision and page merge share one transaction with local edits.
+			// Only queue counts and this page are read for a clean online session.
+			const hasLocalChanges = await mergeOnlineCollectionEntries(
+				userId,
+				result.data.filter((entry) => entry.id > 0)
+			).catch(() => null);
+			signal?.throwIfAborted();
+			if (!isCurrentOfflineSession(version))
+				throw new Error('Die Sitzung wurde inzwischen beendet.');
+			if (hasLocalChanges !== null) {
+				return currentSessionResult(
+					version,
+					hasLocalChanges ? await readLocalCollection(userId, params) : result
+				);
+			}
+		}
 		const profile = await getCachedProfile().catch(() => null);
+		signal?.throwIfAborted();
 		if (!isCurrentOfflineSession(version)) throw new Error('Die Sitzung wurde inzwischen beendet.');
 		if (profile) {
 			await mergeCollectionEntries(
@@ -184,6 +206,7 @@ export async function fetchCollection(
 		}
 		return currentSessionResult(version, result);
 	} catch (error) {
+		signal?.throwIfAborted();
 		if (!isCurrentOfflineSession(version))
 			throw new Error('Die Sitzung wurde inzwischen beendet.', { cause: error });
 		if (!isNetworkFailure(error)) throw error;

@@ -236,6 +236,45 @@ cd backend
 cargo run            # Start API server on http://localhost:8080
 ```
 
+### Collection search performance
+
+The collection-search benchmark uses an isolated Docker Compose project, a release
+backend, and synthetic data: 10,000 personal entries and 100,000 entries belonging to
+other users. It checks complete authenticated HTTP responses against an independent
+result oracle. Every scenario must achieve **p95 < 500 ms** with one and five concurrent
+requests, using 20 warm-up requests and 200 measured responses per scenario and mode.
+
+Requires Docker Compose and Python 3.12 or later:
+
+```bash
+python scripts/collection_performance.py
+```
+
+Pull requests use a shorter regression profile: 12 fixed critical scenarios with the
+complete dataset, five concurrent requests, and the same 20 warm-up/200 measured
+responses and strict 500 ms threshold. This profile measures 2,400 responses and
+does not establish full acceptance or compare dataset scaling:
+
+```bash
+python scripts/collection_performance.py --profile smoke
+```
+
+To also check delayed searches with the full collection in Chromium, Firefox, and
+WebKit, install the frontend dependencies with `npm ci` and the browsers with
+`npx playwright install --with-deps chromium firefox webkit` from `frontend/`, then
+run `python scripts/collection_performance.py --browser-check` from the repository
+root. Browser builds and checks start after all API measurements have finished.
+
+The runner creates and removes its own containers and volumes. Reports, raw timings,
+executed SQL plans, versions, and resource limits are saved in
+`performance-results/collection/`, with the selected profile clearly recorded.
+Pull requests run the smoke profile without additional browser installation or
+checks in that job. On `main`, the complete profile and large-collection browser
+checks must pass before release image publication and deployment. Manual workflow
+runs default to the full profile; both profiles are available in the Actions UI.
+See the [collection performance acceptance report](docs/collection-performance-acceptance.md)
+for the scenario matrix, measurement definition, and validation evidence.
+
 ### OAuth and privacy consent
 
 OAuth providers are optional and are enabled only when both values for that provider are set.

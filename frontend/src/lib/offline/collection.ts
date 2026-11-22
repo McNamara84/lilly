@@ -17,32 +17,59 @@ function conditionRank(condition: string | null): number {
 	return condition ? Number(condition.slice(1)) : Number.POSITIVE_INFINITY;
 }
 
+const textOrder = new Intl.Collator('de', { sensitivity: 'base' });
+
+function compareText(left: string, right: string): number {
+	// The database's text keys ignore case, accents and trailing ASCII spaces.
+	return textOrder.compare(left.replace(/ +$/u, ''), right.replace(/ +$/u, ''));
+}
+
 function compareEntries(
 	left: CollectionEntry,
 	right: CollectionEntry,
 	sort: string,
-	direction: 'asc' | 'desc'
+	direction: 'asc' | 'desc',
+	firstAuthors: ReadonlyMap<number, string>
 ): number {
 	let comparison: number;
 	switch (sort) {
-		case 'issue_number':
-			comparison = left.issue_number - right.issue_number;
+		case 'series':
+			comparison = compareText(left.series_name, right.series_name);
 			break;
 		case 'condition':
-			comparison = conditionRank(left.condition_grade) - conditionRank(right.condition_grade);
+			// FIELD(NULL, ...) is zero; named grades start at one.
+			comparison =
+				(left.condition_grade === null ? 0 : conditionRank(left.condition_grade) + 1) -
+				(right.condition_grade === null ? 0 : conditionRank(right.condition_grade) + 1);
 			break;
 		case 'title':
-			comparison = left.title.localeCompare(right.title, 'de');
+			comparison = compareText(left.title, right.title);
 			break;
-		case 'added':
-			comparison = (left.created_at ?? '').localeCompare(right.created_at ?? '');
+		case 'author':
+			comparison = compareText(
+				firstAuthors.get(left.issue_id) ?? '',
+				firstAuthors.get(right.issue_id) ?? ''
+			);
 			break;
+		case 'added': {
+			const leftTime =
+				left.created_at === null ? Number.NEGATIVE_INFINITY : Date.parse(left.created_at);
+			const rightTime =
+				right.created_at === null ? Number.NEGATIVE_INFINITY : Date.parse(right.created_at);
+			comparison = leftTime === rightTime ? 0 : leftTime - rightTime;
+			break;
+		}
 		default:
-			comparison = left.series_name.localeCompare(right.series_name, 'de');
-			if (comparison === 0) comparison = left.issue_number - right.issue_number;
+			comparison = left.issue_number - right.issue_number;
 	}
-	if (comparison === 0) comparison = left.id - right.id;
-	return direction === 'desc' ? -comparison : comparison;
+	// Only the selected key changes direction. SQL keeps all secondary keys ascending.
+	return (
+		(direction === 'desc' ? -comparison : comparison) ||
+		compareText(left.series_name, right.series_name) ||
+		left.issue_number - right.issue_number ||
+		(left.status === 'missing' ? left.issue_id : left.id) -
+			(right.status === 'missing' ? right.issue_id : right.id)
+	);
 }
 
 export function filterLocalCollection(
@@ -93,8 +120,22 @@ export function filterLocalCollection(
 	});
 
 	const direction = params.sort_dir === 'desc' ? 'desc' : 'asc';
+	const firstAuthors = new Map<number, string>();
+	if (params.sort === 'author') {
+		for (const entry of filtered) {
+			if (firstAuthors.has(entry.issue_id)) continue;
+			const authors = authorsByIssue.get(entry.issue_id) ?? [];
+			firstAuthors.set(
+				entry.issue_id,
+				authors.reduce(
+					(minimum, author) => (compareText(author, minimum) < 0 ? author : minimum),
+					authors[0] ?? ''
+				)
+			);
+		}
+	}
 	filtered = filtered.sort((left, right) =>
-		compareEntries(left, right, params.sort ?? 'series', direction)
+		compareEntries(left, right, params.sort ?? 'issue_number', direction, firstAuthors)
 	);
 	const total = filtered.length;
 	const page = Math.max(1, params.page ?? 1);

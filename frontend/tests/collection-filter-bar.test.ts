@@ -170,6 +170,34 @@ describe('CollectionFilterBar', () => {
 		vi.useRealTimers();
 	});
 
+	it('keeps inputs usable and emits only the latest rapid edit while a request is pending', async () => {
+		vi.useFakeTimers();
+		try {
+			const pendingRequest = Promise.withResolvers<void>();
+			const onChange = vi.fn(() => pendingRequest.promise);
+			render(CollectionFilterBar, {
+				props: { series_options: seriesOptions, onfilterchange: onChange }
+			});
+			const title = screen.getByTestId('title-filter');
+			await fireEvent.input(title, { target: { value: 'First search' } });
+			await vi.advanceTimersByTimeAsync(300);
+			expect(onChange).toHaveBeenCalledTimes(1);
+			await fireEvent.input(title, { target: { value: 'Second' } });
+			await vi.advanceTimersByTimeAsync(150);
+			await fireEvent.input(title, { target: { value: 'Latest search' } });
+			await vi.advanceTimersByTimeAsync(299);
+			expect(onChange).toHaveBeenCalledTimes(1);
+			expect(title).toBeEnabled();
+			expect(title).toHaveValue('Latest search');
+			await vi.advanceTimersByTimeAsync(1);
+			expect(onChange).toHaveBeenCalledTimes(2);
+			expect(onChange).toHaveBeenLastCalledWith({ title: 'Latest search' });
+			pendingRequest.resolve();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('combines issue number, condition, title and author filters', async () => {
 		vi.useFakeTimers();
 		render(CollectionFilterBar, {
