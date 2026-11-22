@@ -3,6 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import CollectionPage from '../src/routes/collection/+page.svelte';
 import { activateWaitingServiceWorker } from '#lib/offline/pwa.svelte.js';
 import { mockWaitingUpdate } from './fixtures/pwa-update';
+import { setCollectionTestURL } from '../test-support/collection-navigation.svelte.js';
+
+vi.mock('$app/state', async () => {
+	const { collectionTestPage } = await import('../test-support/collection-navigation.svelte.js');
+	return { page: collectionTestPage };
+});
 
 const mockGetAuthState = vi.fn();
 
@@ -121,6 +127,7 @@ describe('Collection Page', () => {
 	});
 	beforeEach(() => {
 		vi.clearAllMocks();
+		setCollectionTestURL();
 		mockFetchSeries.mockResolvedValue([]);
 		mockFetchCollection.mockResolvedValue({ data: [], page: 1, per_page: 20, total: 0 });
 		mockFetchCollectionEntriesByIssue.mockResolvedValue([sampleEntry]);
@@ -433,5 +440,81 @@ describe('Collection Page', () => {
 			replace: false,
 			reset: false
 		});
+	});
+
+	it.each(['success', 'failure'])(
+		'keeps the latest results after a superseded %s',
+		async (outcome) => {
+			const previous = Promise.withResolvers<unknown>();
+			const latest = Promise.withResolvers<unknown>();
+			mockGetAuthState.mockReturnValue(authedState());
+			mockFetchCollection.mockReturnValueOnce(previous.promise).mockReturnValueOnce(latest.promise);
+			render(CollectionPage);
+			await waitFor(() => expect(mockFetchCollection).toHaveBeenCalledTimes(1));
+			const previousSignal = mockFetchCollection.mock.calls[0][1] as AbortSignal;
+			setCollectionTestURL('/collection?title=Newest');
+			await waitFor(() => expect(mockFetchCollection).toHaveBeenCalledTimes(2));
+			expect(previousSignal.aborted).toBe(true);
+			latest.resolve({
+				data: [{ ...sampleEntry, title: 'Newest result' }],
+				page: 1,
+				per_page: 50,
+				total: 222
+			});
+			await screen.findByText('Newest result');
+			if (outcome === 'success') {
+				previous.resolve({ data: [sampleEntry], page: 1, per_page: 50, total: 1 });
+			} else {
+				previous.reject(new Error('Superseded failure'));
+			}
+			await previous.promise.catch(() => undefined);
+			await waitFor(() =>
+				expect(screen.queryByTestId('cover-grid-skeleton')).not.toBeInTheDocument()
+			);
+			expect(screen.getByText('Newest result')).toBeInTheDocument();
+			expect(screen.getByText('1 von 222 Einträgen')).toBeInTheDocument();
+			expect(screen.queryByText(sampleEntry.title)).not.toBeInTheDocument();
+			expect(screen.queryByTestId('collection-error')).not.toBeInTheDocument();
+		}
+	);
+
+	it.each(['success', 'failure', 'abort'])(
+		'keeps a newer request loading after an old %s',
+		async (outcome) => {
+			const previous = Promise.withResolvers<unknown>();
+			const latest = Promise.withResolvers<unknown>();
+			mockGetAuthState.mockReturnValue(authedState());
+			mockFetchCollection.mockReturnValueOnce(previous.promise).mockReturnValueOnce(latest.promise);
+			render(CollectionPage);
+			await waitFor(() => expect(mockFetchCollection).toHaveBeenCalledTimes(1));
+			setCollectionTestURL('/collection?author=Latest');
+			await waitFor(() => expect(mockFetchCollection).toHaveBeenCalledTimes(2));
+			if (outcome === 'success') {
+				previous.resolve({ data: [sampleEntry], page: 1, per_page: 50, total: 1 });
+			} else {
+				previous.reject(
+					outcome === 'abort'
+						? new DOMException('Cancelled', 'AbortError')
+						: new Error('Old failure')
+				);
+			}
+			await previous.promise.catch(() => undefined);
+			expect(screen.getByTestId('cover-grid-skeleton')).toBeInTheDocument();
+			expect(screen.queryByTestId('collection-error')).not.toBeInTheDocument();
+			expect(screen.getByLabelText('Autor')).toBeEnabled();
+			latest.resolve({ data: [sampleEntry], page: 1, per_page: 50, total: 1 });
+			await screen.findByText(sampleEntry.title);
+		}
+	);
+
+	it('aborts the active request when the collection page is unmounted', async () => {
+		mockGetAuthState.mockReturnValue(authedState());
+		mockFetchCollection.mockReturnValueOnce(new Promise(() => {}));
+		const { unmount } = render(CollectionPage);
+		await waitFor(() => expect(mockFetchCollection).toHaveBeenCalledTimes(1));
+		const signal = mockFetchCollection.mock.calls[0][1] as AbortSignal;
+		expect(signal.aborted).toBe(false);
+		unmount();
+		expect(signal.aborted).toBe(true);
 	});
 });

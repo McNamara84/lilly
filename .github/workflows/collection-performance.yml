@@ -1,0 +1,85 @@
+name: Collection Performance
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: Full acceptance or the short pull request regression check
+        required: false
+        default: full
+        type: string
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Benchmark profile
+        required: true
+        default: full
+        type: choice
+        options: [full, smoke]
+
+permissions:
+  contents: read
+
+env:
+  PERFORMANCE_PROFILE: ${{ inputs.profile || 'full' }}
+
+jobs:
+  benchmark:
+    name: Collection search p95
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.profile == 'smoke' && 20 || 60 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate benchmark profile
+        run: |
+          case "$PERFORMANCE_PROFILE" in
+            full|smoke) ;;
+            *) echo "Unsupported benchmark profile" >&2; exit 1 ;;
+          esac
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the reviewed release backend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: development
+          load: true
+          push: false
+          tags: lilly-backend:collection-performance
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=collection-performance
+          cache-to: type=gha,mode=max,scope=collection-performance
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ env.PERFORMANCE_PROFILE == 'full' }}
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@12.2.3
+        if: ${{ env.PERFORMANCE_PROFILE == 'full' }}
+      - run: npm ci
+        if: ${{ env.PERFORMANCE_PROFILE == 'full' }}
+        working-directory: frontend
+      - name: Install browsers for the large collection check
+        if: ${{ env.PERFORMANCE_PROFILE == 'full' }}
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Verify the selected collection performance profile
+        id: performance
+        run: |
+          args=(--skip-build --profile "$PERFORMANCE_PROFILE")
+          if [[ "$PERFORMANCE_PROFILE" == "full" ]]; then
+            args+=(--browser-check)
+          fi
+          python3 scripts/collection_performance.py "${args[@]}"
+      - name: Publish readable measurement table
+        if: ${{ always() && steps.performance.outcome != 'skipped' }}
+        run: cat performance-results/collection/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain performance evidence, including failures
+        if: ${{ always() && steps.performance.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: collection-performance
+          path: performance-results/collection/
+          if-no-files-found: error
+          retention-days: 14

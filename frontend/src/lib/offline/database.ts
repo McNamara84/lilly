@@ -27,6 +27,8 @@ const STORES = {
 } as const;
 
 let databasePromise: Promise<IDBDatabase> | null = null;
+const snapshotTransactions = new Set<IDBTransaction>();
+const interruptedSnapshots = new WeakSet<IDBTransaction>();
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
 	return new Promise((resolve, reject) => {
@@ -131,83 +133,113 @@ export async function getCachedProfile(): Promise<MeResponse | null> {
 
 export async function replaceOfflineSnapshot(snapshot: OfflineSnapshot): Promise<void> {
 	const version = offlineSessionVersion();
-	if (isOfflineUserBlocked(snapshot.user_id)) return;
+	while (isCurrentOfflineSession(version) && !isOfflineUserBlocked(snapshot.user_id)) {
+		if (!(await writeOfflineSnapshot(snapshot, version))) return;
+		// Interactive page merges can roll back a large cache refresh. Retry it
+		// after a pause; the previous snapshot and durable local edits stay intact.
+		await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+	}
+}
+
+async function writeOfflineSnapshot(snapshot: OfflineSnapshot, version: string): Promise<boolean> {
 	const database = await openDatabase();
+	if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(snapshot.user_id)) return false;
 	const transaction = database.transaction(
 		[STORES.series, STORES.issues, STORES.collection, STORES.metadata],
 		'readwrite'
 	);
+	snapshotTransactions.add(transaction);
 	const done = transactionDone(transaction);
-	const [localSeries, localIssues, localEntries] = await Promise.all([
-		requestResult<StoredSeries[]>(
-			transaction.objectStore(STORES.series).index('user_id').getAll(snapshot.user_id)
-		),
-		requestResult<StoredIssue[]>(
-			transaction.objectStore(STORES.issues).index('user_id').getAll(snapshot.user_id)
-		),
-		requestResult<StoredCollectionEntry[]>(
-			transaction.objectStore(STORES.collection).index('user_id').getAll(snapshot.user_id)
-		)
-	]);
-	const retained = localEntries.filter(
-		(entry) => entry.sync_state === 'pending' || entry.sync_state === 'conflict'
-	);
-	const retainedIssueIds = new Set(retained.map((entry) => entry.issue_id));
-	const retainedSeriesIds = new Set(retained.map((entry) => entry.series_id));
-	if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(snapshot.user_id)) {
-		await done;
-		return;
-	}
-	// Avoid rewriting the whole catalog on every navigation. In WebKit, hundreds of
-	// redundant writes hold the transaction lock long enough to block interactive reads.
-	const reconcile = <T extends { id: number }>(
-		storeName: string,
-		before: (T & { key: string; user_id: number })[],
-		after: T[]
-	) => {
-		const store = transaction.objectStore(storeName);
-		const previous = new Map(before.map((item) => [item.id, item]));
-		for (const item of after) {
-			const stored = {
-				...item,
-				key: userKey(snapshot.user_id, item.id),
-				user_id: snapshot.user_id
-			};
-			if (JSON.stringify(previous.get(item.id)) !== JSON.stringify(stored)) store.put(stored);
-			previous.delete(item.id);
+	try {
+		const [localSeries, localIssues, localEntries] = await Promise.all([
+			requestResult<StoredSeries[]>(
+				transaction.objectStore(STORES.series).index('user_id').getAll(snapshot.user_id)
+			),
+			requestResult<StoredIssue[]>(
+				transaction.objectStore(STORES.issues).index('user_id').getAll(snapshot.user_id)
+			),
+			requestResult<StoredCollectionEntry[]>(
+				transaction.objectStore(STORES.collection).index('user_id').getAll(snapshot.user_id)
+			)
+		]);
+		const retained = localEntries.filter(
+			(entry) => entry.sync_state === 'pending' || entry.sync_state === 'conflict'
+		);
+		const retainedIssueIds = new Set(retained.map((entry) => entry.issue_id));
+		const retainedSeriesIds = new Set(retained.map((entry) => entry.series_id));
+		if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(snapshot.user_id)) {
+			await done;
+			return false;
 		}
-		for (const item of previous.values()) store.delete(item.key);
-	};
-	// Pending entries override the server view; retain their catalog references too.
-	reconcile(STORES.series, localSeries, [
-		...snapshot.series,
-		...localSeries.filter(
-			(item) =>
-				retainedSeriesIds.has(item.id) && !snapshot.series.some((series) => series.id === item.id)
-		)
-	]);
-	reconcile(STORES.issues, localIssues, [
-		...snapshot.issues,
-		...localIssues.filter(
-			(item) =>
-				retainedIssueIds.has(item.id) && !snapshot.issues.some((issue) => issue.id === item.id)
-		)
-	]);
-	const pendingIds = new Set(retained.map((entry) => entry.id));
-	reconcile(STORES.collection, localEntries, [
-		...snapshot.collection_entries.filter((entry) => !pendingIds.has(entry.id)),
-		...retained
-	]);
-	transaction.objectStore(STORES.metadata).put({
-		key: snapshotMetadataKey(snapshot.user_id),
-		user_id: snapshot.user_id,
-		value: JSON.stringify({
-			schema_version: snapshot.schema_version,
-			snapshot_version: snapshot.snapshot_version,
-			generated_at: snapshot.generated_at
-		})
-	} satisfies OfflineMetadata);
-	await done;
+		// Avoid rewriting the whole catalog on every navigation. In WebKit, hundreds of
+		// redundant writes hold the transaction lock long enough to block interactive reads.
+		const reconcile = <T extends { id: number }>(
+			storeName: string,
+			before: (T & { key: string; user_id: number })[],
+			after: T[]
+		) => {
+			const store = transaction.objectStore(storeName);
+			const previous = new Map(before.map((item) => [item.id, item]));
+			for (const item of after) {
+				const stored = {
+					...item,
+					key: userKey(snapshot.user_id, item.id),
+					user_id: snapshot.user_id
+				};
+				if (JSON.stringify(previous.get(item.id)) !== JSON.stringify(stored)) store.put(stored);
+				previous.delete(item.id);
+			}
+			for (const item of previous.values()) store.delete(item.key);
+		};
+		// Pending entries override the server view; retain their catalog references too.
+		reconcile(STORES.series, localSeries, [
+			...snapshot.series,
+			...localSeries.filter(
+				(item) =>
+					retainedSeriesIds.has(item.id) && !snapshot.series.some((series) => series.id === item.id)
+			)
+		]);
+		reconcile(STORES.issues, localIssues, [
+			...snapshot.issues,
+			...localIssues.filter(
+				(item) =>
+					retainedIssueIds.has(item.id) && !snapshot.issues.some((issue) => issue.id === item.id)
+			)
+		]);
+		const pendingIds = new Set(retained.map((entry) => entry.id));
+		reconcile(STORES.collection, localEntries, [
+			...snapshot.collection_entries.filter((entry) => !pendingIds.has(entry.id)),
+			...retained
+		]);
+		transaction.objectStore(STORES.metadata).put({
+			key: snapshotMetadataKey(snapshot.user_id),
+			user_id: snapshot.user_id,
+			value: JSON.stringify({
+				schema_version: snapshot.schema_version,
+				snapshot_version: snapshot.snapshot_version,
+				generated_at: snapshot.generated_at
+			})
+		} satisfies OfflineMetadata);
+		await done;
+		return false;
+	} catch (error) {
+		await done.catch(() => undefined);
+		if (interruptedSnapshots.has(transaction)) return true;
+		throw error;
+	} finally {
+		snapshotTransactions.delete(transaction);
+	}
+}
+
+function interruptSnapshotRefreshes(): void {
+	for (const transaction of snapshotTransactions) {
+		try {
+			transaction.abort();
+			interruptedSnapshots.add(transaction);
+		} catch {
+			/* A completed transaction may still be waiting for its cleanup microtask. */
+		}
+	}
 }
 
 export async function mergeCollectionEntries(
@@ -220,23 +252,79 @@ export async function mergeCollectionEntries(
 	const transaction = database.transaction(STORES.collection, 'readwrite');
 	const done = transactionDone(transaction);
 	const store = transaction.objectStore(STORES.collection);
+	await mergeCollectionRows(store, userId, entries, version);
+	await done;
+}
+
+/** Read local intent and merge one server page under the same cross-tab lock. */
+export async function mergeOnlineCollectionEntries(
+	userId: number,
+	entries: CollectionEntry[]
+): Promise<boolean> {
+	const version = offlineSessionVersion();
+	const database = await openDatabase();
+	interruptSnapshotRefreshes();
+	const transaction = database.transaction(
+		[STORES.collection, STORES.mutations, STORES.conflicts],
+		'readwrite'
+	);
+	const done = transactionDone(transaction);
+	try {
+		const [mutations, conflicts, retained] = await Promise.all([
+			requestResult(transaction.objectStore(STORES.mutations).index('user_id').count(userId)),
+			requestResult(transaction.objectStore(STORES.conflicts).index('user_id').count(userId)),
+			mergeCollectionRows(
+				transaction.objectStore(STORES.collection),
+				userId,
+				entries,
+				version,
+				true
+			)
+		]);
+		if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(userId))
+			throw new Error('Die lokale Sitzung wurde beendet.');
+		await done;
+		if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(userId))
+			throw new Error('Die lokale Sitzung wurde beendet.');
+		return mutations > 0 || conflicts > 0 || retained;
+	} catch (error) {
+		try {
+			transaction.abort();
+		} catch {
+			/* The transaction may already have completed or aborted. */
+		}
+		await done.catch(() => undefined);
+		throw error;
+	}
+}
+
+async function mergeCollectionRows(
+	store: IDBObjectStore,
+	userId: number,
+	entries: CollectionEntry[],
+	version: string,
+	preserveLocalChanges = false
+): Promise<boolean> {
 	const existing = await Promise.all(
 		entries.map((entry) =>
 			requestResult<StoredCollectionEntry | undefined>(store.get(userKey(userId, entry.id)))
 		)
 	);
+	let retained = false;
 	for (const [index, entry] of entries.entries()) {
 		const current = existing[index];
 		if (!isCurrentOfflineSession(version) || isOfflineUserBlocked(userId)) break;
 		if (
-			!entry.sync_state &&
+			(preserveLocalChanges || !entry.sync_state) &&
 			(current?.sync_state === 'pending' || current?.sync_state === 'conflict')
-		)
+		) {
+			retained = true;
 			continue;
+		}
 		const stored = { ...entry, key: userKey(userId, entry.id), user_id: userId };
 		if (JSON.stringify(current) !== JSON.stringify(stored)) store.put(stored);
 	}
-	await done;
+	return retained;
 }
 
 export async function putCollectionEntry(userId: number, entry: CollectionEntry): Promise<void> {

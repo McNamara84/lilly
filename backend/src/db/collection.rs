@@ -379,25 +379,89 @@ pub async fn find_collection_entries(
         .saturating_mul(u64::from(per_page))
         .min(1_000_000);
 
-    let (where_clause, order_clause) = build_filter_clauses(params);
+    let sql = build_collection_page_query(params);
+    let query = sqlx::query_as::<_, CollectionEntryRow>(sqlx::AssertSqlSafe(sql)).bind(user_id);
+    let query = if params.sort.as_deref() == Some("author") {
+        query.bind(user_id)
+    } else {
+        query
+    };
+    let query = bind_filters!(query, params);
+    query.bind(per_page).bind(offset).fetch_all(pool).await
+}
 
-    let sql = format!(
+fn build_collection_page_query(params: &CollectionQueryParams) -> String {
+    let (where_clause, order_clause) = build_filter_clauses(params);
+    let original_sort_field = collection_sort_field(params);
+    let candidate_order = order_clause
+        .replacen(original_sort_field, "sort_value", 1)
+        .replace("s.name", "s.name_rank");
+    let result_order = order_clause.replacen(original_sort_field, "page_entries.sort_value", 1);
+    // Anchor author-sorted candidates to the user's covering collection index.
+    let join_order = if params.sort.as_deref() == Some("author") {
+        "STRAIGHT_JOIN "
+    } else {
+        ""
+    };
+    // Compute author names once per logical issue instead of once per physical
+    // copy. The grouped relation keeps multi-author issues from duplicating rows.
+    let (sort_field, author_join) = if params.sort.as_deref() == Some("author") {
+        (
+            "COALESCE(issue_authors.sort_rank, 0)",
+            "LEFT JOIN (
+                 SELECT issue_id,
+                        DENSE_RANK() OVER (ORDER BY first_author COLLATE utf8mb4_unicode_ci) - 1 AS sort_rank
+                 FROM (
+                     SELECT collected_issues.issue_id,
+                            MIN(p.name COLLATE utf8mb4_unicode_ci) AS first_author
+                     FROM (
+                         SELECT DISTINCT ce_authors.issue_id
+                         FROM collection_entries ce_authors WHERE ce_authors.user_id = ?
+                     ) collected_issues
+                     JOIN issue_persons ip ON ip.issue_id = collected_issues.issue_id AND ip.role = 'author'
+                     JOIN persons p ON p.id = ip.person_id
+                     GROUP BY collected_issues.issue_id
+                     UNION ALL SELECT NULL, ''
+                 ) issue_author_names
+             ) issue_authors ON issue_authors.issue_id = i.id",
+        )
+    } else if params.sort.as_deref() == Some("series") {
+        ("s.name_rank", "")
+    } else {
+        (original_sort_field, "")
+    };
+    // Collation-equivalent names share an integer rank. Including the empty-name
+    // sentinel preserves COALESCE(name, '') ordering for missing/empty authors,
+    // while sorting/grouping thousands of copies no longer compares wide strings.
+
+    // Sort only candidate IDs and their sort key. Materializing complete entries
+    // (especially notes and cover URLs) before LIMIT makes large collections costly.
+    // LIMIT prevents derived-table merging; the outer joins fetch at most one page.
+    format!(
         "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
                 ce.condition_grade,
                 ce.status, ce.notes, ce.revision, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,
                 s.id AS series_id, s.name AS series_name, s.slug AS series_slug
-         FROM collection_entries ce
+         FROM (
+             SELECT {join_order}ce.id AS entry_id, {sort_field} AS sort_value
+             FROM collection_entries ce
+             JOIN issues i ON ce.issue_id = i.id
+             JOIN (
+                 SELECT id, slug, active,
+                        DENSE_RANK() OVER (ORDER BY name) AS name_rank
+                 FROM series
+             ) s ON i.series_id = s.id
+             {author_join}
+             WHERE ce.user_id = ? AND s.active = TRUE {where_clause}
+             ORDER BY {candidate_order}
+             LIMIT ? OFFSET ?
+         ) page_entries
+         JOIN collection_entries ce ON ce.id = page_entries.entry_id
          JOIN issues i ON ce.issue_id = i.id
          JOIN series s ON i.series_id = s.id
-         WHERE ce.user_id = ? AND s.active = TRUE {where_clause}
-         ORDER BY {order_clause}
-         LIMIT ? OFFSET ?"
-    );
-
-    let query = sqlx::query_as::<_, CollectionEntryRow>(sqlx::AssertSqlSafe(sql)).bind(user_id);
-    let query = bind_filters!(query, params);
-    query.bind(per_page).bind(offset).fetch_all(pool).await
+         ORDER BY {result_order}"
+    )
 }
 
 pub async fn find_all_collection_entries_for_user(
@@ -486,13 +550,29 @@ pub async fn count_collection_entries(
 ) -> Result<u32, sqlx::Error> {
     let (where_clause, _) = build_filter_clauses(params);
 
-    let sql = format!(
-        "SELECT COUNT(*) as cnt
-         FROM collection_entries ce
-         JOIN issues i ON ce.issue_id = i.id
-         JOIN series s ON i.series_id = s.id
-         WHERE ce.user_id = ? AND s.active = TRUE {where_clause}"
-    );
+    let sql = if where_clause.is_empty() {
+        // Count copies through one covering user-index range before looking up
+        // issue metadata. This avoids thousands of point probes during concurrent
+        // unfiltered/author-sorted requests, while inactive series stay excluded.
+        "SELECT CAST(COALESCE(SUM(owned.copy_count), 0) AS SIGNED) AS cnt
+         FROM (
+             SELECT ce.issue_id, COUNT(*) AS copy_count
+             FROM collection_entries ce WHERE ce.user_id = ?
+             GROUP BY ce.issue_id
+         ) owned
+         JOIN issues i ON i.id = owned.issue_id
+         JOIN series s ON s.id = i.series_id
+         WHERE s.active = TRUE"
+            .to_owned()
+    } else {
+        format!(
+            "SELECT COUNT(*) as cnt
+             FROM collection_entries ce
+             JOIN issues i ON ce.issue_id = i.id
+             JOIN series s ON i.series_id = s.id
+             WHERE ce.user_id = ? AND s.active = TRUE {where_clause}"
+        )
+    };
 
     let query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql)).bind(user_id);
     let query = bind_filters!(query, params);
@@ -746,18 +826,7 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
 
     let where_clause = where_parts.join(" ");
 
-    let sort_field = match params.sort.as_deref() {
-        Some("series") => "s.name",
-        Some("title") => "i.title",
-        Some("condition") => "FIELD(ce.condition_grade, 'Z0','Z1','Z2','Z3','Z4')",
-        Some("author") => {
-            "COALESCE((SELECT MIN(p.name COLLATE utf8mb4_unicode_ci) FROM issue_persons ip \
-             JOIN persons p ON ip.person_id = p.id \
-             WHERE ip.issue_id = i.id AND ip.role = 'author'), '')"
-        }
-        Some("added") => "ce.created_at",
-        _ => "i.issue_number",
-    };
+    let sort_field = collection_sort_field(params);
 
     let sort_dir = match params.sort_dir.as_deref() {
         Some("desc") => "DESC",
@@ -768,6 +837,21 @@ fn build_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
         format!("{sort_field} {sort_dir}, s.name ASC, i.issue_number ASC, ce.id ASC");
 
     (where_clause, order_clause)
+}
+
+fn collection_sort_field(params: &CollectionQueryParams) -> &'static str {
+    match params.sort.as_deref() {
+        Some("series") => "s.name",
+        Some("title") => "i.title",
+        Some("condition") => "FIELD(ce.condition_grade, 'Z0','Z1','Z2','Z3','Z4')",
+        Some("author") => {
+            "COALESCE((SELECT MIN(p.name COLLATE utf8mb4_unicode_ci) FROM issue_persons ip \
+             JOIN persons p ON ip.person_id = p.id \
+             WHERE ip.issue_id = i.id AND ip.role = 'author'), '')"
+        }
+        Some("added") => "ce.created_at",
+        _ => "i.issue_number",
+    }
 }
 
 fn build_missing_filter_clauses(params: &CollectionQueryParams) -> (String, String) {
@@ -836,6 +920,469 @@ fn build_missing_filter_clauses(params: &CollectionQueryParams) -> (String, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn author_window_rows(value: &serde_json::Value, rows: &mut Vec<u64>) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object
+                    .get("sort_key")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|key| key.contains("collate utf8mb4_unicode_ci"))
+                {
+                    rows.push(object["r_output_rows"].as_u64().unwrap());
+                }
+                for child in object.values() {
+                    author_window_rows(child, rows);
+                }
+            }
+            serde_json::Value::Array(children) => {
+                for child in children {
+                    author_window_rows(child, rows);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::too_many_lines)]
+    async fn paged_candidates_preserve_filters_privacy_and_author_ties() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+        let pool = sqlx::mysql::MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        crate::db::migrate_test_database(&pool).await.unwrap();
+        let mut cleanup = crate::db::test_cleanup::DatabaseTestCleanup::new(pool.clone());
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let id =
+            |result: sqlx::mysql::MySqlQueryResult| u32::try_from(result.last_insert_id()).unwrap();
+        let mut users = Vec::new();
+        for name in ["owner", "foreign", "empty"] {
+            let user = id(
+                sqlx::query("INSERT INTO users (email, display_name) VALUES (?, ?)")
+                    .bind(format!("paged-{name}-{suffix}@example.test"))
+                    .bind(name)
+                    .execute(&pool)
+                    .await
+                    .unwrap(),
+            );
+            cleanup.defer("DELETE FROM users WHERE id = ?", &[user]);
+            users.push(user);
+        }
+        let mut series = Vec::new();
+        for (name, active) in [("A", true), ("Z", true), ("Hidden", false)] {
+            let series_id = id(sqlx::query(
+                "INSERT INTO series (name, slug, active) VALUES (?, ?, ?)",
+            )
+            .bind(format!("Paged {name} {suffix}"))
+            .bind(format!("paged-{name}-{suffix}"))
+            .bind(active)
+            .execute(&pool)
+            .await
+            .unwrap());
+            cleanup.defer("DELETE FROM series WHERE id = ?", &[series_id]);
+            series.push(series_id);
+        }
+        let mut issues = Vec::new();
+        for (series_id, number, title) in [
+            (series[0], 2, "Target"),
+            (series[1], 1, "Other"),
+            (series[1], 2, "No author"),
+            (series[2], 1, "Hidden"),
+            (series[0], 9, "Missing"),
+        ] {
+            issues.push(id(sqlx::query(
+                "INSERT INTO issues (series_id, issue_number, title) VALUES (?, ?, ?)",
+            )
+            .bind(series_id)
+            .bind(number)
+            .bind(title)
+            .execute(&pool)
+            .await
+            .unwrap()));
+        }
+        let mut people = Vec::new();
+        for name in ["Béla", "Anna", "Zoe", "Aardvark"] {
+            let person = id(sqlx::query("INSERT INTO persons (name) VALUES (?)")
+                .bind(format!("{name} {suffix}"))
+                .execute(&pool)
+                .await
+                .unwrap());
+            cleanup.defer("DELETE FROM persons WHERE id = ?", &[person]);
+            people.push(person);
+        }
+        for (issue, person, role) in [
+            (issues[0], people[0], "author"),
+            (issues[0], people[3], "cover_artist"),
+            (issues[1], people[1], "author"),
+            (issues[1], people[2], "author"),
+            (issues[4], people[1], "author"),
+        ] {
+            sqlx::query("INSERT INTO issue_persons (issue_id, person_id, role) VALUES (?, ?, ?)")
+                .bind(issue)
+                .bind(person)
+                .bind(role)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let note = "Private long note ".repeat(400);
+        let mut entries = Vec::new();
+        for (issue, copy, condition, status) in [
+            (issues[0], 1, Some("Z1"), "owned"),
+            (issues[0], 2, Some("Z2"), "owned"),
+            (issues[1], 1, None, "wanted"),
+            (issues[2], 1, Some("Z4"), "duplicate"),
+            (issues[3], 1, Some("Z0"), "owned"),
+        ] {
+            entries.push(
+                add_entry(
+                    &pool,
+                    NewCollectionEntry {
+                        user_id: users[0],
+                        issue_id: issue,
+                        copy_number: copy,
+                        condition_grade: condition,
+                        status,
+                        notes: Some(&note),
+                        edition_label: Some("Edition"),
+                    },
+                )
+                .await
+                .unwrap(),
+            );
+        }
+        add_entry(
+            &pool,
+            NewCollectionEntry {
+                user_id: users[1],
+                issue_id: issues[0],
+                copy_number: 1,
+                condition_grade: Some("Z0"),
+                status: "owned",
+                notes: Some("Foreign secret"),
+                edition_label: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut params = CollectionQueryParams {
+            sort: Some("author".into()),
+            page: 1,
+            per_page: 2,
+            ..Default::default()
+        };
+        assert_eq!(
+            count_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap(),
+            4
+        );
+        assert_eq!(
+            count_collection_entries(&pool, users[1], &params)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            count_collection_entries(&pool, users[2], &params)
+                .await
+                .unwrap(),
+            0
+        );
+        let first = find_collection_entries(&pool, users[0], &params)
+            .await
+            .unwrap();
+        assert_eq!(
+            first.iter().map(|e| e.id).collect::<Vec<_>>(),
+            vec![entries[3], entries[2]]
+        );
+        params.page = 2;
+        let second = find_collection_entries(&pool, users[0], &params)
+            .await
+            .unwrap();
+        assert_eq!(
+            second.iter().map(|e| e.id).collect::<Vec<_>>(),
+            vec![entries[0], entries[1]]
+        );
+        assert!(
+            second
+                .iter()
+                .all(|e| e.user_id == users[0] && e.notes.as_deref() == Some(note.as_str()))
+        );
+        params.sort_dir = Some("desc".into());
+        params.page = 1;
+        assert_eq!(
+            find_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap()
+                .iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>(),
+            vec![entries[0], entries[1]]
+        );
+        for sort in [
+            "series",
+            "issue_number",
+            "title",
+            "condition",
+            "author",
+            "added",
+        ] {
+            params.sort = Some(sort.into());
+            params.per_page = 500;
+            let rows = find_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap();
+            assert_eq!(
+                rows.len(),
+                4,
+                "sort {sort} must keep copies distinct and hide inactive/foreign entries"
+            );
+        }
+        params = CollectionQueryParams {
+            series_slug: Some(format!("paged-A-{suffix}")),
+            title: Some("Target".into()),
+            author: Some("bela".into()),
+            status: Some("owned".into()),
+            condition: Some("Z2".into()),
+            sort: Some("author".into()),
+            page: 1,
+            per_page: 50,
+            ..Default::default()
+        };
+        assert_eq!(
+            count_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            find_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap()[0]
+                .id,
+            entries[1]
+        );
+        params.page = u32::MAX;
+        assert!(
+            find_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        // Equal collation weights and empty author names must retain the same
+        // secondary ordering as the original MIN(name)/COALESCE expression.
+        let mut extra_entries = Vec::new();
+        for (number, author) in [(1, format!("béla {suffix}")), (3, String::new())] {
+            let person = id(sqlx::query("INSERT INTO persons (name) VALUES (?)")
+                .bind(author)
+                .execute(&pool)
+                .await
+                .unwrap());
+            cleanup.defer("DELETE FROM persons WHERE id = ?", &[person]);
+            let issue = id(sqlx::query("INSERT INTO issues (series_id, issue_number, title) VALUES (?, ?, 'Collation target')")
+                .bind(series[0]).bind(number).execute(&pool).await.unwrap());
+            sqlx::query(
+                "INSERT INTO issue_persons (issue_id, person_id, role) VALUES (?, ?, 'author')",
+            )
+            .bind(issue)
+            .bind(person)
+            .execute(&pool)
+            .await
+            .unwrap();
+            extra_entries.push(
+                add_entry(
+                    &pool,
+                    NewCollectionEntry {
+                        user_id: users[0],
+                        issue_id: issue,
+                        copy_number: 1,
+                        condition_grade: Some("Z1"),
+                        status: "owned",
+                        notes: None,
+                        edition_label: None,
+                    },
+                )
+                .await
+                .unwrap(),
+            );
+        }
+        params = CollectionQueryParams {
+            sort: Some("author".into()),
+            page: 1,
+            per_page: 100,
+            ..Default::default()
+        };
+        assert_eq!(
+            find_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap()
+                .iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>(),
+            vec![
+                extra_entries[1],
+                entries[3],
+                entries[2],
+                extra_entries[0],
+                entries[0],
+                entries[1]
+            ]
+        );
+        params.sort_dir = Some("desc".into());
+        assert_eq!(
+            find_collection_entries(&pool, users[0], &params)
+                .await
+                .unwrap()
+                .iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>(),
+            vec![
+                extra_entries[0],
+                entries[0],
+                entries[1],
+                entries[2],
+                extra_entries[1],
+                entries[3]
+            ]
+        );
+        // Series names are unique under the column's collation. Check case/accent
+        // ordering between valid names, plus stable copy ties within each series.
+        let mut series_ties = Vec::new();
+        for (index, name) in ["Équal A", "equal B"].iter().enumerate() {
+            let series_id = id(sqlx::query(
+                "INSERT INTO series (name, slug, active) VALUES (?, ?, TRUE)",
+            )
+            .bind(format!("{name} {suffix}"))
+            .bind(format!("series-tie-{index}-{suffix}"))
+            .execute(&pool)
+            .await
+            .unwrap());
+            cleanup.defer("DELETE FROM series WHERE id = ?", &[series_id]);
+            let issue = id(sqlx::query(
+                "INSERT INTO issues (series_id, issue_number, title) VALUES (?, 1, 'Series tie')",
+            )
+            .bind(series_id)
+            .execute(&pool)
+            .await
+            .unwrap());
+            for copy_number in 1..=2 {
+                series_ties.push(
+                    add_entry(
+                        &pool,
+                        NewCollectionEntry {
+                            user_id: users[0],
+                            issue_id: issue,
+                            copy_number,
+                            condition_grade: Some("Z1"),
+                            status: "owned",
+                            notes: None,
+                            edition_label: None,
+                        },
+                    )
+                    .await
+                    .unwrap(),
+                );
+            }
+        }
+        for sort in ["series", "author", "issue_number"] {
+            for direction in ["asc", "desc"] {
+                params = CollectionQueryParams {
+                    sort: Some(sort.into()),
+                    sort_dir: Some(direction.into()),
+                    title: Some("Series tie".into()),
+                    page: 1,
+                    per_page: 1,
+                    ..Default::default()
+                };
+                let expected = if sort == "series" && direction == "desc" {
+                    [
+                        series_ties[2],
+                        series_ties[3],
+                        series_ties[0],
+                        series_ties[1],
+                    ]
+                } else {
+                    [
+                        series_ties[0],
+                        series_ties[1],
+                        series_ties[2],
+                        series_ties[3],
+                    ]
+                };
+                for (page, expected_id) in expected.iter().enumerate() {
+                    params.page = u32::try_from(page + 1).unwrap();
+                    assert_eq!(
+                        find_collection_entries(&pool, users[0], &params)
+                            .await
+                            .unwrap()[0]
+                            .id,
+                        *expected_id
+                    );
+                }
+            }
+        }
+        // Unrelated catalogue people must not enter a small collection's author
+        // ranking. Inspect the production query's executed window cardinality.
+        let mut unrelated = sqlx::QueryBuilder::<sqlx::MySql>::new("INSERT INTO persons (name) ");
+        unrelated.push_values(0..10_000, |mut row, index| {
+            row.push_bind(format!("Unrelated {suffix} {index}"));
+        });
+        let first_unrelated = id(unrelated.build().execute(&pool).await.unwrap());
+        cleanup.defer(
+            "DELETE FROM persons WHERE id BETWEEN ? AND ?",
+            &[first_unrelated, first_unrelated + 9_999],
+        );
+        params = CollectionQueryParams {
+            sort: Some("author".into()),
+            page: 1,
+            per_page: 50,
+            ..Default::default()
+        };
+        let analyzed = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(format!(
+            "ANALYZE FORMAT=JSON {}",
+            build_collection_page_query(&params)
+        )))
+        .bind(users[1])
+        .bind(users[1])
+        .bind(50_u32)
+        .bind(0_u64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let analyzed: serde_json::Value = serde_json::from_str(&analyzed).unwrap();
+        let mut ranked_rows = Vec::new();
+        author_window_rows(&analyzed, &mut ranked_rows);
+        assert_eq!(
+            ranked_rows,
+            vec![2],
+            "one owned issue plus the empty sentinel"
+        );
+        assert_eq!(
+            find_collection_entries(&pool, users[1], &params)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            find_collection_entries(&pool, users[2], &params)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        cleanup.finish().await.unwrap();
+    }
 
     #[test]
     fn collection_filters_are_combined_and_sorted_stably() {
