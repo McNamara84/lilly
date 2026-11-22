@@ -7147,7 +7147,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Checks the database, media directory and erasure ledger within two seconds. External integrations are not readiness dependencies. The database field reports only database connectivity.",
+        "description": "Checks the database, writable photo and staging directories, media root and erasure ledger within two seconds. Temporary write probes are cleaned up even if the request times out. External integrations are not readiness dependencies. The database field reports only database connectivity.",
         "operationId": "health_health_check",
         "responses": {
           "200": {

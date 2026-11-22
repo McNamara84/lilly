@@ -205,6 +205,26 @@ def compose_command(root: Path, compose: Path, project: str | None = None) -> li
             "--env-file", str(root / "shared/.deployment.env"), "--file", str(compose)]
 
 
+RECOVERY_SCRIPTS = ("backup.sh", "restore.sh", "operations.py", "configure-environment.py",
+                    "configure-operations.py", "notify-backup-failure.py")
+
+
+def current_recovery_scripts() -> Path:
+    # The running helper belongs to the candidate/tool bundle, which can differ
+    # from the database-matching infrastructure during a pre-upgrade snapshot.
+    return Path(__file__).resolve().parent
+
+
+def validate_recovery_tools(path: Path) -> None:
+    validate_archive(path)
+    with tarfile.open(path, "r:gz") as archive:
+        members = archive.getmembers()
+        if (len(members) != len(RECOVERY_SCRIPTS)
+                or {member.name for member in members} != set(RECOVERY_SCRIPTS)
+                or not all(member.isfile() for member in members)):
+            raise OperationsError("Recovery archive must contain the complete supported tool bundle")
+
+
 def finish_snapshot(settings: Settings, directory: Path, compose: Path) -> None:
     created = snapshot_time(directory.name)
     if created is None or directory.is_symlink() or directory.resolve().parent != settings.backup_dir:
@@ -217,20 +237,28 @@ def finish_snapshot(settings: Settings, directory: Path, compose: Path) -> None:
         private_write(configuration / destination, (settings.root / "shared" / source).read_bytes())
     infrastructure = compose.resolve().parent
     with tarfile.open(directory / "deployment.tar.gz", "w:gz") as archive:
-        for name in ("docker-compose.production.yml", "Caddyfile", "scripts", "systemd"):
+        for name in ("docker-compose.production.yml", "Caddyfile", "systemd"):
             source = infrastructure / name
             if source.exists():
                 archive.add(source, arcname=name, filter=lambda member: member if "__pycache__" not in member.name else None)
+    tools = current_recovery_scripts()
+    with tarfile.open(directory / "recovery-tools.tar.gz", "w:gz") as archive:
+        for name in RECOVERY_SCRIPTS:
+            source = tools / name
+            if source.is_symlink() or not source.is_file():
+                raise OperationsError("Current recovery tool bundle is incomplete")
+            archive.add(source, arcname=name)
     result = subprocess.run([*compose_command(settings.root, compose), "config", "--images", "db"],
                             check=True, capture_output=True, text=True)
     image = result.stdout.strip()
     if not image or "\n" in image:
         raise OperationsError("Cannot determine the database image")
-    manifest = {"format": 2, "created_utc": created.isoformat(),
-                "database_image": image, "infrastructure_release": infrastructure.name}
+    manifest = {"format": 3, "created_utc": created.isoformat(),
+                "database_image": image, "infrastructure_release": infrastructure.name,
+                "recovery_tools_sha256": file_hash(directory / "recovery-tools.tar.gz")}
     private_write(directory / "manifest.json", json.dumps(manifest, sort_keys=True) + "\n")
     names = ["database.sql.gz", "media.tar.gz", "account-erasure.log", "metadata.env",
-             "deployment.tar.gz", "manifest.json", "configuration/production.env",
+             "deployment.tar.gz", "recovery-tools.tar.gz", "manifest.json", "configuration/production.env",
              "configuration/deployment.env", "configuration/operations.env"]
     checksums = "".join(f"{file_hash(directory / name)}  {name}\n" for name in names)
     private_write(directory / "SHA256SUMS", checksums)
@@ -253,8 +281,9 @@ def verify_snapshot(directory: Path) -> dict:
     if directory.is_symlink() or not (directory / "COMPLETE").is_file():
         raise OperationsError("Snapshot is incomplete")
     required = {"database.sql.gz", "media.tar.gz", "account-erasure.log"}
-    allowed = required | {"metadata.env", "deployment.tar.gz", "manifest.json",
+    versioned_files = required | {"metadata.env", "deployment.tar.gz", "manifest.json",
                           "configuration/production.env", "configuration/deployment.env", "configuration/operations.env"}
+    allowed = versioned_files | {"recovery-tools.tar.gz"}
     checked = set()
     for line in (directory / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
         digest, separator, name = line.partition("  ")
@@ -271,15 +300,20 @@ def verify_snapshot(directory: Path) -> dict:
         raise OperationsError("Snapshot checksums omit required files")
     manifest = {}
     if (directory / "manifest.json").exists():
-        if checked != allowed:
-            raise OperationsError("Version 2 snapshot is missing recovery files")
         manifest = json.loads((directory / "manifest.json").read_text())
-        if (not isinstance(manifest, dict) or manifest.get("format") != 2
+        if (not isinstance(manifest, dict) or manifest.get("format") not in (2, 3)
                 or not isinstance(manifest.get("infrastructure_release"), str)
                 or not re.fullmatch(r"[a-f0-9]{40}", manifest["infrastructure_release"])
                 or not isinstance(manifest.get("database_image"), str)
                 or not re.fullmatch(r"[A-Za-z0-9./:_@-]{1,512}", manifest["database_image"])):
             raise OperationsError("Invalid snapshot manifest")
+        expected = allowed if manifest["format"] == 3 else versioned_files
+        if checked != expected:
+            raise OperationsError("Versioned snapshot is missing recovery files")
+        if manifest["format"] == 3:
+            if manifest.get("recovery_tools_sha256") != file_hash(directory / "recovery-tools.tar.gz"):
+                raise OperationsError("Recovery tool bundle does not match its manifest")
+            validate_recovery_tools(directory / "recovery-tools.tar.gz")
         validate_archive(directory / "deployment.tar.gz")
     with gzip.open(directory / "database.sql.gz", "rb") as stream:
         while stream.read(1024 * 1024):
@@ -288,11 +322,24 @@ def verify_snapshot(directory: Path) -> dict:
     return manifest
 
 
+def check_database_restore(source: str, target: str) -> None:
+    """Permit exact images and tested forward logical imports, never a downgrade."""
+    if not source or source == target:
+        return
+    pattern = r"(?:docker\.io/(?:library/)?)?mariadb:([0-9]+)\.([0-9]+)\.([0-9]+)@sha256:[a-f0-9]{64}"
+    original, running = re.fullmatch(pattern, source), re.fullmatch(pattern, target)
+    if original and running:
+        before, after = tuple(map(int, original.groups())), tuple(map(int, running.groups()))
+        if before <= after and (before[:2] == after[:2] or (before[:2], after[:2]) == ((12, 3), (13, 0))):
+            return
+    raise OperationsError("Unsupported logical database restore; use an isolated rebuild with the recorded image")
+
+
 def recover_configuration(directory: Path, root: Path, live_ledger: Path, owner: str | None = None) -> None:
     """Prepare an empty installation; never replace a live configuration or ledger."""
     manifest = verify_snapshot(directory)
     if not manifest:
-        raise OperationsError("Fresh-host recovery requires a version 2 snapshot")
+        raise OperationsError("Fresh-host recovery requires a version 2 or 3 snapshot")
     if live_ledger.resolve() == (directory / "account-erasure.log").resolve():
         raise OperationsError("Provide the latest separately retained live ledger")
     ledger = live_ledger.read_bytes()
@@ -303,6 +350,9 @@ def recover_configuration(directory: Path, root: Path, live_ledger: Path, owner:
     if any((root / name).is_symlink() for name in ("shared", "releases", "infrastructure")):
         raise OperationsError("Recovery requires fresh configuration and release directories")
     targets = [shared / name for name in (".env.production", ".deployment.env", ".env.operations")]
+    entrypoints = [shared / name for name in ("backup.sh", "backup-tools", "recovery-tools")]
+    if any(path.exists() or path.is_symlink() for path in [*entrypoints, root / "infrastructure", root / "current"]):
+        raise OperationsError("Recovery refuses to overwrite existing tools or release references")
     target_ledger = shared / "erasure-ledger/account-erasure.log"
     if any(path.exists() or path.is_symlink() for path in targets) or target_ledger.is_symlink() or target_ledger.parent.is_symlink():
         raise OperationsError("Recovery refuses to overwrite an existing installation")
@@ -318,16 +368,37 @@ def recover_configuration(directory: Path, root: Path, live_ledger: Path, owner:
         uid_gid = account.pw_uid, account.pw_gid
     release.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".recover-", dir=release.parent))
+    temporary_tools = Path(tempfile.mkdtemp(prefix=".recover-tools-", dir=release.parent))
     try:
         with tarfile.open(directory / "deployment.tar.gz", "r:gz") as archive:
             archive.extractall(temporary, filter="data")
+        if manifest["format"] == 3:
+            with tarfile.open(directory / "recovery-tools.tar.gz", "r:gz") as archive:
+                archive.extractall(temporary_tools, filter="data")
+            tools_id = manifest["recovery_tools_sha256"]
+        else:
+            # Old snapshots did not separate recovery code. Use this current,
+            # explicitly invoked helper bundle rather than archived legacy scripts.
+            for name in RECOVERY_SCRIPTS:
+                shutil.copyfile(current_recovery_scripts() / name, temporary_tools / name)
+            tools_id = hashlib.sha256(b"".join(name.encode() + (temporary_tools / name).read_bytes()
+                                              for name in RECOVERY_SCRIPTS)).hexdigest()
+        for path in temporary_tools.iterdir():
+            os.chmod(path, 0o700 if path.suffix == ".sh" else 0o600)
+        tools_parent = shared / "recovery-tools"
+        tools_parent.mkdir(mode=0o750, parents=True)
+        tools = tools_parent / tools_id
+        os.replace(temporary_tools, tools)
+        os.chmod(tools, 0o750)
         os.replace(temporary, release)
         os.chmod(release, 0o750)
         if uid_gid:
-            for path in (root, shared, release.parent, release):
+            for path in (root, shared, release.parent, release, tools_parent, tools):
                 path.mkdir(mode=0o750, parents=True, exist_ok=True)
                 os.chown(path, *uid_gid)
             for path in release.rglob("*"):
+                os.chown(path, *uid_gid)
+            for path in tools.iterdir():
                 os.chown(path, *uid_gid)
         for source, target in zip(("production.env", "deployment.env", "operations.env"), targets, strict=True):
             content = (directory / "configuration" / source).read_bytes()
@@ -344,9 +415,17 @@ def recover_configuration(directory: Path, root: Path, live_ledger: Path, owner:
             os.chown(target_ledger.parent, uid_gid[0] if uid_gid else os.geteuid(), 999)
             os.chown(target_ledger, 999, 999)
         (root / "infrastructure").symlink_to(release, target_is_directory=True)
+        private_write(shared / "backup.sh", (tools / "backup.sh").read_bytes())
+        os.chmod(shared / "backup.sh", 0o700)
+        (shared / "backup-tools").symlink_to(tools, target_is_directory=True)
+        if uid_gid:
+            os.chown(shared / "backup.sh", *uid_gid)
+            os.chown(shared / "backup-tools", *uid_gid, follow_symlinks=False)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
+        if temporary_tools.exists():
+            shutil.rmtree(temporary_tools)
 
 
 @contextmanager
@@ -458,6 +537,9 @@ def main(command: str | None = None) -> int:
     verify = sub.add_parser("verify")
     verify.add_argument("directory", type=Path)
     verify.add_argument("--database-image", action="store_true")
+    database = sub.add_parser("check-database-restore")
+    database.add_argument("--source-image", required=True)
+    database.add_argument("--target-image", required=True)
     notice = sub.add_parser("notify")
     notice.add_argument("--run-id", default=os.environ.get("MONITOR_INVOCATION_ID") or os.environ.get("INVOCATION_ID") or uuid.uuid4().hex)
     notice.add_argument("--kind", default="service")
@@ -484,6 +566,8 @@ def main(command: str | None = None) -> int:
             manifest = verify_snapshot(args.directory)
             if args.database_image:
                 print(manifest.get("database_image", ""))
+        elif args.command == "check-database-restore":
+            check_database_restore(args.source_image, args.target_image)
         elif args.command == "recover-files":
             recover_configuration(args.directory, args.root, args.live_ledger, args.owner)
         elif args.command == "notify":

@@ -47,9 +47,10 @@ Abgeschlossene und abgebrochene Tausche gehören beiden Teilnehmern. Deshalb ble
 
 Das bestätigte Betriebsmodell sichert ausschließlich lokal, täglich gegen 03:30
 Uhr in `Europe/Berlin`, mit maximal 14 Tagen Aufbewahrung. Die Host-Konfiguration
-liegt in `.env.operations`. Sicherungen der Version 2 enthalten zusätzlich
+liegt in `.env.operations`. Sicherungen ab Version 2 enthalten zusätzlich
 private Konfigurationskopien und die für den Wiederaufbau benötigten
-Release-Dateien. Diese Kopien unterliegen denselben Zugriffsrechten und
+Release-Dateien. Ab Version 3 werden aktuelle Wiederherstellungswerkzeuge getrennt
+von der datenbankgebundenen Infrastruktur archiviert. Diese Kopien unterliegen denselben Zugriffsrechten und
 Aufbewahrungsfristen wie der Datenbankdump. Ohne erhaltene lokale Dateien besteht
 kein Wiederherstellungsnachweis für einen vollständigen Verlust des VPS.
 

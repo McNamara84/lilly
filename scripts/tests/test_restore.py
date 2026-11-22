@@ -97,7 +97,13 @@ fi
         executable("systemctl", r'''#!/bin/bash
 [[ "$TEST_SYSTEMD_FAILURE" != 1 ]] || exit 1
 case "$2" in
-  --property=LoadState) printf '%s\n' "$TEST_SYSTEMD_LOAD_STATE" ;;
+  --property=LoadState)
+    if [[ "${@: -1}" == lilly-backup-failure.service ]]; then
+      printf '%s\n' "${TEST_SYSTEMD_HANDLER_LOAD_STATE-loaded}"
+    else
+      printf '%s\n' "$TEST_SYSTEMD_LOAD_STATE"
+    fi
+    ;;
   --property=ExecStart)
     if [[ "$TEST_SYSTEMD_ROUTE" == shared ]]; then
       path="$LILLY_ROOT/shared/backup.sh"
@@ -354,6 +360,35 @@ else:
                 self.env["TEST_DATABASE_STATE"] = state
                 self.assert_refused_before_changes(self.restore())
 
+    def versioned_snapshot(self, database_image):
+        # Version 2 is the already-published pre-upgrade format under review.
+        configuration = self.backup / "configuration"
+        configuration.mkdir()
+        for source, destination in ((".env.production", "production.env"),
+                                    (".deployment.env", "deployment.env"), (".env.operations", "operations.env")):
+            shutil.copyfile(self.shared / source, configuration / destination)
+        (self.backup / "metadata.env").write_text("kind=pre-deploy\n")
+        with tarfile.open(self.backup / "deployment.tar.gz", "w:gz") as archive:
+            archive.add(self.previous / "docker-compose.production.yml", arcname="docker-compose.production.yml")
+        (self.backup / "manifest.json").write_text(json.dumps({"format": 2, "database_image": database_image,
+                                                               "infrastructure_release": self.previous.name}))
+        names = ("database.sql.gz", "media.tar.gz", "account-erasure.log", "metadata.env", "deployment.tar.gz",
+                 "manifest.json", "configuration/production.env", "configuration/deployment.env", "configuration/operations.env")
+        (self.backup / "SHA256SUMS").write_text("".join(
+            f"{hashlib.sha256((self.backup / name).read_bytes()).hexdigest()}  {name}\n" for name in names))
+
+    def test_preupgrade_v2_backup_is_restored_logically_on_the_matching_new_server(self):
+        self.versioned_snapshot(OLD_IMAGE)
+        result = self.restore()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.database_image.read_text(), NEW_IMAGE)
+        self.assertTrue(any("replay-erasure-ledger" in args for args in self.docker_calls()))
+        self.assertEqual((self.deployment_root / "current").resolve(), self.previous)
+
+    def test_versioned_backup_cannot_be_imported_backward_or_from_an_unknown_engine(self):
+        self.versioned_snapshot("mariadb:14.0.1@sha256:" + "c" * 64)
+        self.assert_refused_before_changes(self.restore())
+
     def test_missing_infrastructure_does_not_fall_back_to_current(self):
         (self.deployment_root / "infrastructure").unlink()
         self.assert_refused_before_changes(self.restore())
@@ -585,6 +620,16 @@ else:
         result = self.deploy(candidate)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Cannot inspect lilly-backup.service", result.stderr)
+        self.assertFalse(any("up" in args or "exec" in args or "run" in args for args in self.docker_calls()))
+
+    def test_configured_but_missing_failure_handler_blocks_deployment_before_tool_changes(self):
+        candidate = self.prepare_deployment()
+        self.env["TEST_SYSTEMD_HANDLER_LOAD_STATE"] = "not-found"
+        result = self.deploy(candidate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Install lilly-backup-failure.service", result.stderr)
+        self.assertEqual((self.shared / "backup-tools").resolve(), self.infrastructure / "scripts")
+        self.assertEqual((self.deployment_root / "infrastructure").resolve(), self.infrastructure)
         self.assertFalse(any("up" in args or "exec" in args or "run" in args for args in self.docker_calls()))
 
     def test_deployment_without_installed_backup_unit(self):

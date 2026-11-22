@@ -181,8 +181,9 @@ The application is designed for **self-hosting** on your own server or VPS. All 
 
 For production deployment and recovery, see the [server runbook](docs/server-deployment.md).
 The deployment keeps an independent `/opt/lilly/infrastructure` reference for the
-database configuration and recovery scripts. After an application rollback, use
-`/opt/lilly/infrastructure/scripts/restore.sh` to restore data with the retained
+database configuration. Current recovery scripts remain under `shared/backup-tools`.
+After an application rollback, use
+`/opt/lilly/shared/backup-tools/restore.sh` to restore data with the retained
 database version.
 
 Manual and scheduled backups use `/opt/lilly/shared/backup.sh`, which deployment
@@ -192,8 +193,12 @@ one-time unit migration described in the server runbook before upgrading.
 Host-only backup settings live in `/opt/lilly/shared/.env.operations`: daily at
 03:30 Europe/Berlin (up to 15 minutes of jitter), 14-day local retention and
 failure emails to explicit operations recipients using the existing SMTP server.
-Versioned snapshots include database, media, recovery configuration and the erasure
-ledger. Readiness at `/api/v1/health` checks mandatory dependencies within two
+Versioned snapshots include database, media, recovery configuration, a separate
+current recovery-tool bundle and the erasure ledger. Fresh-host recovery also
+reinstalls the shared backup/notification entrypoints. The documented logical
+restore policy supports the tested MariaDB 12.3 to 13.0 upgrade without switching
+the running server image. Readiness at `/api/v1/health` checks mandatory dependencies,
+including writable photo and staging directories, within two
 seconds; `/api/v1/health/live` checks the HTTP process independently.
 
 Run `python scripts/operations_acceptance.py --build` for an isolated production-

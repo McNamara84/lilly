@@ -103,7 +103,7 @@ compose_new() {
 rollback() {
   echo "Deployment failed; attempting application container rollback." >&2
   echo "The database image and data directory will remain at their current version." >&2
-  echo "Recovery tooling: ${INFRASTRUCTURE_LINK}/scripts/restore.sh" >&2
+  echo "Recovery tooling: ${SHARED_DIR}/backup-tools/restore.sh" >&2
 
   if (( had_previous_env == 1 )); then
     install -m 600 "${previous_env_file}" "${DEPLOYMENT_ENV_FILE}"
@@ -118,7 +118,7 @@ rollback() {
       --env-file "${DEPLOYMENT_ENV_FILE}" \
       --file "${previous_release}/docker-compose.production.yml" \
       up -d --wait --no-deps backend frontend caddy; then
-      echo "Automatic application rollback also failed. Use ${INFRASTRUCTURE_LINK}/scripts/restore.sh with the pre-deployment backup for recovery." >&2
+      echo "Automatic application rollback also failed. Use ${SHARED_DIR}/backup-tools/restore.sh with the pre-deployment backup for recovery." >&2
     fi
   else
     compose_new stop || true
@@ -150,6 +150,11 @@ if [[ "${backup_service_state}" == "loaded" ]]; then
   backup_failure_unit="$(systemctl show --property=OnFailure --value lilly-backup.service)"
   if [[ "${backup_failure_unit}" != "lilly-backup-failure.service" ]]; then
     echo "Update lilly-backup.service and lilly-backup-failure.service before deploying." >&2
+    exit 1
+  fi
+  if ! backup_failure_state="$(systemctl show --property=LoadState --value lilly-backup-failure.service)" \
+    || [[ "${backup_failure_state}" != "loaded" ]]; then
+    echo "Install lilly-backup-failure.service and run systemctl daemon-reload before deploying." >&2
     exit 1
   fi
 elif [[ "${backup_service_state}" != "not-found" ]]; then

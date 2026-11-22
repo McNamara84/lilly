@@ -227,7 +227,7 @@ class RotationTests(OperationsFixture):
 
 
 class SnapshotTests(OperationsFixture):
-    def snapshot(self, legacy=False):
+    def snapshot(self, legacy=False, version=3):
         directory = self.backups / "20261122T033000Z-aabbccdd-daily"
         directory.mkdir()
         (directory / "database.sql.gz").write_bytes(gzip.compress(b"SELECT 1;\n"))
@@ -248,6 +248,16 @@ class SnapshotTests(OperationsFixture):
             (infrastructure / "scripts/backup.sh").write_text("#!/bin/bash\n")
             with patch.object(ops.subprocess, "run", return_value=MagicMock(stdout="mariadb:13.0.2\n")):
                 ops.finish_snapshot(self.settings(), directory, infrastructure / "docker-compose.production.yml")
+            if version == 2:
+                manifest = json.loads((directory / "manifest.json").read_text())
+                manifest["format"] = 2
+                manifest.pop("recovery_tools_sha256")
+                (directory / "manifest.json").write_text(json.dumps(manifest))
+                (directory / "recovery-tools.tar.gz").unlink()
+                checksums = directory / "SHA256SUMS"
+                checksums.write_text("\n".join(line for line in checksums.read_text().splitlines()
+                                              if not line.endswith("  recovery-tools.tar.gz")) + "\n")
+                self.rewrite_hash(directory, "manifest.json")
         (directory / "COMPLETE").touch()
         return directory
 
@@ -259,11 +269,16 @@ class SnapshotTests(OperationsFixture):
     def test_snapshot_contains_recovery_configuration_and_verifies(self):
         directory = self.snapshot()
         manifest = ops.verify_snapshot(directory)
-        self.assertEqual(manifest["format"], 2)
+        self.assertEqual(manifest["format"], 3)
         self.assertEqual(manifest["database_image"], "mariadb:13.0.2")
         self.assertEqual((directory / "configuration/production.env").read_bytes(), (self.shared / ".env.production").read_bytes())
         with tarfile.open(directory / "deployment.tar.gz") as archive:
-            self.assertIn("scripts/backup.sh", archive.getnames())
+            self.assertIn("docker-compose.production.yml", archive.getnames())
+            self.assertNotIn("scripts/backup.sh", archive.getnames())
+        with tarfile.open(directory / "recovery-tools.tar.gz") as archive:
+            self.assertCountEqual(archive.getnames(), ops.RECOVERY_SCRIPTS)
+            self.assertIn(b"backend ./lilly-backend privacy replay-erasure-ledger",
+                          archive.extractfile("restore.sh").read())
         if os.name == "posix":
             self.assertEqual((directory / "configuration/production.env").stat().st_mode & 0o777, 0o600)
 
@@ -315,7 +330,7 @@ class SnapshotTests(OperationsFixture):
         directory = self.snapshot()
         path = directory / "manifest.json"
         valid = json.loads(path.read_text())
-        for value in ([], {}, {**valid, "format": 3}, {**valid, "infrastructure_release": None},
+        for value in ([], {}, {**valid, "format": 4}, {**valid, "infrastructure_release": None},
                       {**valid, "infrastructure_release": "../outside"},
                       {**valid, "database_image": None}, {**valid, "database_image": "image\nextra"}):
             with self.subTest(value=value):
@@ -338,7 +353,11 @@ class SnapshotTests(OperationsFixture):
         self.assertEqual((target / "shared/erasure-ledger/account-erasure.log").read_bytes(), latest.read_bytes())
         self.assertEqual(ops.read_env(target / "shared/.env.operations")["BACKUP_DIR"], str(target / "backups"))
         self.assertEqual((target / "infrastructure").resolve(), target / "releases" / ("b" * 40))
-        self.assertTrue((target / "infrastructure/scripts/backup.sh").is_file())
+        self.assertTrue((target / "shared/backup.sh").is_file())
+        self.assertTrue((target / "shared/backup-tools/operations.py").is_file())
+        self.assertTrue((target / "shared/backup-tools/notify-backup-failure.py").is_file())
+        self.assertFalse((target / "infrastructure/scripts/restore.sh").exists())
+        self.assertEqual((target / "shared/backup.sh").stat().st_mode & 0o777, 0o700)
         with self.assertRaises(ops.OperationsError):
             ops.recover_configuration(directory, target, latest)
 
@@ -398,10 +417,13 @@ class SnapshotTests(OperationsFixture):
         latest = self.root / "latest-ledger"
         latest.write_text("f" * 64 + "\n")
         target = self.root.parent / "owned-recovery"
+        account = pwd.getpwnam("nobody") if os.getuid() == 0 else pwd.getpwuid(os.getuid())
         result, _ = self.cli("recover-files", directory, "--live-ledger", latest,
-                             "--owner", pwd.getpwuid(os.getuid()).pw_name, root=target)
+                             "--owner", account.pw_name, root=target)
         self.assertEqual(result, 0)
-        self.assertEqual((target / "shared/.env.production").stat().st_uid, os.getuid())
+        for name in (".env.production", "backup.sh", "backup-tools", "backup-tools/operations.py",
+                     "backup-tools/notify-backup-failure.py", "recovery-tools"):
+            self.assertEqual((target / "shared" / name).lstat().st_uid, account.pw_uid)
         self.assertEqual((target / "infrastructure").stat().st_mode & 0o777, 0o750)
 
     @unittest.skipUnless(os.name == "posix", "Recovery guard checks Linux symlinks")
@@ -430,6 +452,85 @@ class SnapshotTests(OperationsFixture):
             ops.recover_configuration(directory, target, latest)
         self.assertFalse((target / "shared/.env.production").exists())
         self.assertEqual(list((target / "releases").iterdir()), [])
+
+
+    def test_recovery_does_not_overwrite_existing_shared_entrypoints(self):
+        directory = self.snapshot()
+        latest = self.root / "latest-ledger"
+        latest.write_text("f" * 64 + "\n")
+        for index, name in enumerate(("backup.sh", "backup-tools", "recovery-tools")):
+            for linked in (False, True):
+                target = self.root.parent / f"existing-tools-{index}-{linked}"
+                existing = target / "shared" / name
+                existing.parent.mkdir(parents=True)
+                if linked:
+                    existing.symlink_to(target / "missing")
+                else:
+                    existing.write_text("existing tool")
+                with self.subTest(name=name, linked=linked), self.assertRaises(ops.OperationsError):
+                    ops.recover_configuration(directory, target, latest)
+                self.assertFalse((target / "shared/.env.production").exists())
+                self.assertTrue(existing.is_symlink() if linked else existing.read_text() == "existing tool")
+
+    def test_v2_recovery_uses_current_tools_instead_of_archived_legacy_scripts(self):
+        directory = self.snapshot(version=2)
+        with tarfile.open(directory / "deployment.tar.gz", "w:gz") as archive:
+            legacy = tarfile.TarInfo("scripts/restore.sh")
+            legacy.size = len(b"broken legacy restore")
+            archive.addfile(legacy, io.BytesIO(b"broken legacy restore"))
+        self.rewrite_hash(directory, "deployment.tar.gz")
+        latest = self.root / "latest-ledger"
+        latest.write_text("f" * 64 + "\n")
+        target = self.root.parent / "v2-recovery"
+        ops.recover_configuration(directory, target, latest)
+        self.assertEqual((target / "infrastructure/scripts/restore.sh").read_text(), "broken legacy restore")
+        self.assertIn("backend ./lilly-backend privacy replay-erasure-ledger",
+                      (target / "shared/backup-tools/restore.sh").read_text())
+
+    def test_recovery_tool_archive_requires_all_files_and_matches_its_manifest(self):
+        directory = self.snapshot()
+        manifest_path = directory / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest_path.write_text(json.dumps({**manifest, "recovery_tools_sha256": "0" * 64}))
+        self.rewrite_hash(directory, "manifest.json")
+        with self.assertRaisesRegex(ops.OperationsError, "manifest"):
+            ops.verify_snapshot(directory)
+        with tarfile.open(directory / "recovery-tools.tar.gz", "w:gz"):
+            pass
+        manifest["recovery_tools_sha256"] = ops.file_hash(directory / "recovery-tools.tar.gz")
+        manifest_path.write_text(json.dumps(manifest))
+        self.rewrite_hash(directory, "manifest.json")
+        self.rewrite_hash(directory, "recovery-tools.tar.gz")
+        with self.assertRaisesRegex(ops.OperationsError, "complete"):
+            ops.verify_snapshot(directory)
+
+    def test_snapshot_requires_the_complete_current_tool_bundle(self):
+        with patch.object(ops, "current_recovery_scripts", return_value=self.root / "missing"):
+            with self.assertRaisesRegex(ops.OperationsError, "incomplete"):
+                self.snapshot()
+
+
+class DatabaseRestoreTests(OperationsFixture):
+    def test_only_tested_forward_logical_restores_are_accepted(self):
+        def image(version, digest="a"):
+            return "mariadb:" + version + "@sha256:" + digest * 64
+        for source, target in ((image("12.3.3"), image("13.0.2")),
+                               (image("13.0.1"), image("13.0.2")),
+                               (image("13.0.2"), image("13.0.2", "b")),
+                               ("custom:immutable", "custom:immutable"), ("", image("13.0.2"))):
+            with self.subTest(source=source, target=target):
+                ops.check_database_restore(source, target)
+        for source, target in ((image("13.0.2"), image("12.3.3")),
+                               (image("13.0.2"), image("13.0.1")),
+                               (image("12.2.1"), image("13.0.2")),
+                               (image("13.0.2"), image("14.0.1")),
+                               ("mysql:9.0", image("13.0.2")),
+                               ("custom:mariadb-12.3.3", image("13.0.2")),
+                               ("mariadb:12.3.3", image("13.0.2"))):
+            with self.subTest(source=source, target=target), self.assertRaises(ops.OperationsError):
+                ops.check_database_restore(source, target)
+        self.assertEqual(self.cli("check-database-restore", "--source-image", image("12.3.3"),
+                                  "--target-image", image("13.0.2"))[0], 0)
 
 
 @unittest.skipUnless(os.name == "posix", "Production alert locking uses Linux flock")

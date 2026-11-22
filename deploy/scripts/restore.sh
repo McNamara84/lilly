@@ -108,10 +108,8 @@ if [[ "${configured_db_image}" != "${running_db_image}" ]]; then
   echo "Select the infrastructure release matching the running database before retrying." >&2
   exit 1
 fi
-if [[ -n "${snapshot_db_image}" && "${snapshot_db_image}" != "${running_db_image}" ]]; then
-  echo "Backup database image differs from the running server; rebuild with the recorded infrastructure release." >&2
-  exit 1
-fi
+python3 "${OPS_HELPER}" --root "${LILLY_ROOT}" check-database-restore \
+  --source-image "${snapshot_db_image}" --target-image "${running_db_image}"
 
 resource_prefix="$(sed -n 's/^LILLY_RESOURCE_PREFIX=//p' "${DEPLOYMENT_ENV_FILE}" | tail -n 1)"
 resource_prefix="${resource_prefix:-lilly}"

@@ -10,7 +10,7 @@ This runbook covers the production Compose stack in `deploy/`. The stack is deli
 - Never change the shared Traefik stack, its certificates or the labels of other Compose projects as part of a LILLY deployment.
 - Never publish the LILLY host port on a public address; it is reserved for local health checks (`127.0.0.1:8091`).
 - Keep `/opt/lilly/shared/.env.production` on the server only, with mode `0600`.
-- Use `/opt/lilly/infrastructure/scripts/restore.sh` for recovery. Keep both release
+- Use `/opt/lilly/shared/backup-tools/restore.sh` for recovery. Keep both release
   directories referenced by `current`, `infrastructure` and `shared/backup-tools` available.
 
 ## Supported host and first installation
@@ -236,7 +236,9 @@ Before this upgrade also create the private `.env.operations` from the example,
 set actual alert recipients, and run the new release's `configure-operations.py
 --root /opt/lilly --apply`. The loaded `OnFailure` must be
 `lilly-backup-failure.service`. Deployment refuses missing operations configuration
-and incomplete unit migration before changing application data. Its helper-bundle
+and incomplete unit migration before changing application data. It checks the
+handler's own `LoadState=loaded` as well as the configured `OnFailure` name.
+Its helper-bundle
 link is published under the deployment lock and remains current after rollback.
 
 After deployment has installed the shared helper, enable the timer again. The
@@ -350,19 +352,28 @@ Use a new run ID when intentionally sending another test; a confirmed recipient
 is deduplicated for the same ID. Inspect `journalctl -u lilly-backup.service
 -u lilly-backup-failure.service` for failures before the script could start.
 
-Version 2 snapshots include a manifest, checked configuration copies and a release
-configuration archive in addition to database, media and ledger. These contain
+Version 3 snapshots include a manifest, checked configuration copies, the
+database-matching infrastructure configuration and a **separate current recovery
+tool archive** in addition to database, media and ledger. A pre-upgrade backup
+therefore retains new restore/notification code even when its infrastructure
+belongs to the previous release. Tool archive contents and its manifest hash are
+validated before extraction. These snapshots contain
 credentials and require the same restricted access as the database dump. Before
 destructive restore, the tool checks required hashes, gzip integrity and archive
 paths/types; it rejects traversal, symlinks and device files. Existing snapshots
 with the required ledger and hashes remain readable for an in-place restore.
+Version 2 fresh-host recovery uses the current checkout's recovery tools because
+that old format did not archive tools independently; archived legacy scripts are
+never selected as the maintained recovery entrypoint.
+On replacement hosts, keep the units installed by current provisioning; do not
+replace them with legacy units from the archived infrastructure configuration.
 
 Backups created before account-erasure support do not contain this marker and are intentionally rejected by `restore.sh`. After rolling out this version, create and verify a fresh backup before accepting deletion requests; retire all older restore sets according to the applicable retention policy.
 
 A restore is intentionally manual and destructive:
 
 ```bash
-/opt/lilly/infrastructure/scripts/restore.sh \
+/opt/lilly/shared/backup-tools/restore.sh \
   --backup /opt/lilly/backups/<BACKUP_DIRECTORY> \
   --confirm RESTORE_LILLY
 ```
@@ -392,6 +403,22 @@ failure or an image mismatch aborts recovery without changing the services or da
 This command restores application data on the existing server version; it does not
 implicitly initialize or switch the database server.
 
+Logical dumps are not physical data-directory backups. The restore policy accepts
+an exact image, forward patch versions in the same pinned official MariaDB series,
+and the tested **12.3 → 13.0** transition. This permits restoring the pre-deployment
+application dump after a MariaDB upgrade and failed application rollback while
+keeping the upgraded server and volume. Configured and running image references
+must still match exactly. Downgrades, unknown engines, unpinned cross-image changes
+and other major-version transitions fail before services are stopped. For an
+unsupported transition, rebuild an isolated empty volume using the snapshot's
+recorded database image and the current recovery tools; verify the restored data
+before moving traffic. Never start an older image against the upgraded volume.
+
+This deliberately limited application policy follows MariaDB's description of
+[logical dump portability](https://mariadb.com/docs/server/server-usage/backup-and-restore/backup-and-restore-overview):
+SQL can cross server versions when its statements are compatible. The automated
+acceptance actually upgrades 12.3.3 to 13.0.2 and imports the pre-upgrade dump.
+
 If a deployment failed before the database switched images, the infrastructure
 reference can identify the attempted upgrade while the older database is still
 running. Verify the running image and select its matching infrastructure release
@@ -417,9 +444,9 @@ Verify a backup in a disposable environment before relying on it for production 
 
 1. Install Docker and the Traefik stack (see prerequisites) and create the `proxy` network.
 2. Run `deploy/scripts/provision-server.sh` **on the empty host, before restoring any file below `/opt/lilly`**. It creates the deployment user and the empty account-erasure ledger; on a host where `/opt/lilly` already exists it deliberately refuses to create a replacement ledger.
-3. Supply a surviving complete version 2 backup and the latest separately retained live ledger. From the recovery checkout run `sudo python3 deploy/scripts/operations.py --root /opt/lilly recover-files /path/to/backup --live-ledger /path/to/latest-live-ledger --owner lilly-deploy`. The helper refuses to overwrite private configuration or a nonempty ledger, restores the infrastructure release and keeps the supplied current ledger. Copy the selected backup into the configured local backup directory. Review the restored hostname, SMTP settings and deployment bindings for the new host.
-4. Using `/opt/lilly/infrastructure/docker-compose.production.yml` and both restored environment files, start **only the database** with `docker compose ... up -d --wait db`; then run `/opt/lilly/infrastructure/scripts/restore.sh --backup <local-backup> --confirm RESTORE_LILLY`. The manifest records the exact database image; the restore checks it against the running server. The backend executable is invoked explicitly for ledger replay before public services start. Do not publish restored user data before that replay succeeds.
-5. Update `LILLY_SERVER_KNOWN_HOSTS` if the host keys changed, re-enable `lilly-backup.timer` and verify one full backup.
+3. Supply a surviving complete version 3 (or legacy version 2) backup and the latest separately retained live ledger. From the current recovery checkout run `sudo python3 deploy/scripts/operations.py --root /opt/lilly recover-files /path/to/backup --live-ledger /path/to/latest-live-ledger --owner lilly-deploy`. The helper refuses to overwrite private configuration, shared entrypoints, existing release references or a nonempty ledger. It restores the infrastructure release, publishes the current tools under `shared/recovery-tools/`, creates `shared/backup-tools` and executable `shared/backup.sh`, assigns deployment-user ownership and keeps the supplied current ledger. Copy the selected backup into the configured local backup directory. Review the restored hostname, SMTP settings and deployment bindings for the new host.
+4. Using `/opt/lilly/infrastructure/docker-compose.production.yml` and both restored environment files, start **only the database** with `docker compose ... up -d --wait db`; then run `/opt/lilly/shared/backup-tools/restore.sh --backup <local-backup> --confirm RESTORE_LILLY`. By default the fresh server uses the snapshot's recorded database image. The current backend replay command runs before public services start. Do not publish restored user data before that replay succeeds.
+5. Run `sudo python3 /opt/lilly/shared/backup-tools/configure-operations.py --root /opt/lilly --apply`, then execute `/opt/lilly/shared/backup.sh manual` and the explicit notification test above as `lilly-deploy`. Verify a new complete snapshot and a delivered email before re-enabling `lilly-backup.timer`. Update `LILLY_SERVER_KNOWN_HOSTS` if the host keys changed.
 
 The database-only start and subsequent restore in step 4 use these complete commands:
 
@@ -429,7 +456,7 @@ docker compose --project-name lilly \
   --env-file /opt/lilly/shared/.deployment.env \
   --file /opt/lilly/infrastructure/docker-compose.production.yml \
   up -d --wait db
-sudo -u lilly-deploy bash /opt/lilly/infrastructure/scripts/restore.sh \
+sudo -u lilly-deploy bash /opt/lilly/shared/backup-tools/restore.sh \
   --backup /opt/lilly/backups/<BACKUP_DIRECTORY> --confirm RESTORE_LILLY
 ```
 
@@ -443,8 +470,11 @@ The automated equivalent and the host commissioning boundaries are documented in
 ## Health monitoring
 
 `GET /api/v1/health` is readiness: HTTP 200 with
-`{"status":"ok","database":true}` only when the database, media directory and
-live ledger are usable. Probes run concurrently within a two-second budget,
+`{"status":"ok","database":true}` only when the database, media root, writable
+`user-photos` and `user-photos/.tmp` directories, and live ledger are usable.
+Tiny private write probes are removed before success; their blocking tasks retain
+cleanup guards even if the HTTP request is cancelled or times out.
+Probes run concurrently within a two-second budget,
 including pool acquisition. Failure returns HTTP 503 with `status: "degraded"`;
 `database` still describes only the database. No internal paths or diagnostic
 secrets are returned. SMTP, OAuth and wiki availability do not gate readiness.
@@ -461,8 +491,9 @@ of assuming 8091.
 Application container rollback is automatic when a deployment healthcheck fails.
 It restores only `backend`, `frontend` and `caddy` with `--no-deps`; the database
 container and upgraded data directory remain at their current server version.
-The independent `infrastructure` reference remains on the attempted release, so
-recovery continues to use its database configuration and updated restore script.
+The independent `infrastructure` reference remains on the attempted release.
+Recovery combines its database configuration with the maintained restore script
+under `shared/backup-tools`.
 
 For an application-only rollback, set the earlier application's commit tag in
 `.deployment.env`, retain the infrastructure Compose configuration, and run:

@@ -32,6 +32,8 @@ import operations as ops
 MAILPIT = "axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e"
 MEDIA_IMAGE = "caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0"
 SMTP_TEST_PASSWORD = 'literal $HOME ${UNSET_VARIABLE} $$ \\ quote"'
+LEGACY_DATABASE = "mariadb:12.3.3@sha256:d46e102fa8b9b72bfcdeb56f9dd538742092119dc8b11f31fe662605cd234cd9"
+CURRENT_DATABASE = "mariadb:13.0.2@sha256:54f493ea0d60b621a5bff84e5b20100f8b86b6efa6b79158e04756c5194a5e4d"
 
 
 def command(arguments, *, env=None, input=None, check=True):
@@ -101,7 +103,7 @@ def png():
 
 
 class Stack:
-    def __init__(self, backend, frontend):
+    def __init__(self, backend, frontend, database_image=None):
         self.project = "lilly-ops-" + uuid.uuid4().hex[:12]
         self.base = Path(os.environ.get("LILLY_ACCEPTANCE_STATE", tempfile.gettempdir())).resolve()
         self.root = Path(tempfile.mkdtemp(prefix=self.project + "-", dir=self.base))
@@ -110,6 +112,7 @@ class Stack:
         self.shared = self.root / "shared"
         self.port, self.mail_port, self.smtp_port = free_port(), free_port(), free_port()
         self.backend, self.frontend = backend, frontend
+        self.database_image = database_image
         self.network = self.project + "-proxy"
         self.network_created = False
         self.model_ready = False
@@ -156,6 +159,16 @@ class Stack:
         ops.private_write(self.shared / "erasure-ledger/account-erasure.log", b"")
         self.ledger_permissions()
         self.materialize()
+        # Simulate the first upgrade: current recovery tools are published before
+        # backing up infrastructure whose scripts predate operations support.
+        tools = self.root / "upgrade-recovery-tools"
+        shutil.copytree(ROOT / "deploy/scripts", tools, ignore=shutil.ignore_patterns("__pycache__"))
+        (self.shared / "backup-tools").symlink_to(tools, target_is_directory=True)
+        ops.private_write(self.shared / "backup.sh", (tools / "backup.sh").read_bytes())
+        os.chmod(self.shared / "backup.sh", 0o700)
+        (self.release / "scripts/restore.sh").write_text("#!/bin/bash\nexit 92 # Legacy replay entrypoint\n")
+        for name in self.release.joinpath("scripts").glob("*.py"):
+            name.unlink()
 
     def materialize(self):
         ops.private_write(self.shared / ".deployment.env",
@@ -166,6 +179,8 @@ class Stack:
         model.pop("name", None)
         model["services"]["backend"]["image"] = self.backend
         model["services"]["frontend"]["image"] = self.frontend
+        if self.database_image:
+            model["services"]["db"]["image"] = self.database_image
         model["services"]["backend"]["environment"].update(SMTP_HOST="mailpit", SMTP_PORT="1025", SMTP_TLS_MODE="none")
         model["services"]["caddy"]["labels"] = {"traefik.enable": "false"}
         for service in model["services"].values():
@@ -184,7 +199,7 @@ class Stack:
         command(["docker", "network", "create", "--label", "lilly.operations=" + self.project, self.network])
         self.network_created = True
         self.model_ready = True
-        command([sys.executable, self.release / "scripts/configure-operations.py", "--root", self.root,
+        command([sys.executable, ROOT / "deploy/scripts/configure-operations.py", "--root", self.root,
                  "--systemd-directory", self.root / "units"], env=self.environment())
 
     def register(self, email):
@@ -213,7 +228,7 @@ class Stack:
                               "multipart/form-data; boundary=" + boundary)
 
     def backup(self, check=True):
-        return command(["bash", self.release / "scripts/backup.sh", "manual"], env=self.environment(), check=check)
+        return command(["bash", self.shared / "backup.sh", "manual"], env=self.environment(), check=check)
 
     def cleanup(self):
         if self.model_ready:
@@ -237,6 +252,7 @@ def verify_recovery(source, target, admin, password, entry, photo, erased_email)
     ops.private_write(latest, source.ledger("cat", "/ledger/account-erasure.log").stdout)
     ops.recover_configuration(snapshot, target.root, latest)
     target.release_id = ops.verify_snapshot(snapshot)["infrastructure_release"]
+    target.database_image = ops.verify_snapshot(snapshot)["database_image"]
     target.release = target.root / "releases" / target.release_id
     target.shared = target.root / "shared"
     target.ledger_permissions()
@@ -248,7 +264,7 @@ def verify_recovery(source, target, admin, password, entry, photo, erased_email)
     copied.parent.mkdir(exist_ok=True)
     shutil.copytree(snapshot, copied)
     target.compose("up", "-d", "--wait", "db")
-    command(["bash", target.release / "scripts/restore.sh", "--backup", copied, "--confirm", "RESTORE_LILLY"], env=target.environment())
+    command(["bash", target.shared / "backup-tools/restore.sh", "--backup", copied, "--confirm", "RESTORE_LILLY"], env=target.environment())
     if not (target.root / "current").is_symlink() or (target.root / "current").resolve() != target.release:
         raise RuntimeError("Fresh-host restore did not record its healthy application configuration")
     client = Client(target.port)
@@ -269,9 +285,46 @@ def verify_recovery(source, target, admin, password, entry, photo, erased_email)
     if len(stored_files) != 1:
         raise RuntimeError("Ledger replay left erased-user photo files in storage")
     client.request("/api/v1/admin/series")
+    target.backup()
+    command([sys.executable, target.shared / "backup-tools/notify-backup-failure.py",
+             "--run-id", "fresh-recovery-handler-test"], env=target.environment())
+    messages = Client(target.mail_port, app_origin=False).request("/api/v1/messages")["messages"]
+    if not any(item["Subject"] == "LILLY backup failed" for item in messages):
+        raise RuntimeError("Recovered failure-handler entrypoint did not deliver its test email")
 
 
-def verify_failed_deployment(stack):
+def verify_storage_readiness(stack):
+    health = Client(stack.port)
+    for directory in ("/media/user-photos/.tmp", "/media/user-photos"):
+        try:
+            stack.compose("exec", "-T", "--user", "root", "backend", "chmod", "0500", directory)
+            health.request("/api/v1/health", expected=503)
+            health.request("/api/v1/health/live")
+        finally:
+            stack.compose("exec", "-T", "--user", "root", "backend", "chmod", "0750", directory)
+        health.request("/api/v1/health")
+    readonly = stack.project + "-readonly-probe"
+    try:
+        stack.compose("run", "-d", "--no-deps", "--name", readonly,
+                      "--volume", stack.project + "_media_data:/media:ro", "backend")
+        deadline = time.monotonic() + 30
+        while True:
+            response = command(["docker", "exec", readonly, "curl", "--silent", "--output", "/dev/null",
+                                "--write-out", "%{http_code}", "http://127.0.0.1:8080/api/v1/health/live"], check=False)
+            if response.stdout == b"200":
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Read-only storage probe did not start its HTTP process")
+            time.sleep(0.2)
+        response = command(["docker", "exec", readonly, "curl", "--silent", "--output", "/dev/null",
+                            "--write-out", "%{http_code}", "http://127.0.0.1:8080/api/v1/health"])
+        if response.stdout != b"503":
+            raise RuntimeError("Readiness accepted an actual read-only photo-storage mount")
+    finally:
+        command(["docker", "rm", "--force", readonly])
+
+
+def verify_failed_deployment(stack, admin, photo):
     """Run the actual deploy script against Docker; only an unavailable init bus is simulated."""
     candidate_id = uuid.uuid4().hex + uuid.uuid4().hex[:8]
     candidate = stack.root / "releases" / candidate_id
@@ -279,6 +332,7 @@ def verify_failed_deployment(stack):
                     ignore=shutil.ignore_patterns(".env.production", ".env.operations", ".env.smtp", "backups", "__pycache__"))
     model = json.loads((stack.release / "docker-compose.production.yml").read_text())
     model["services"]["backend"].update(command=["/bin/false"], restart="no")
+    model["services"]["db"]["image"] = CURRENT_DATABASE
     model["services"]["backend"]["healthcheck"].update(interval="1s", timeout="1s", retries=1, start_period="0s")
     ops.private_write(candidate / "docker-compose.production.yml", json.dumps(model))
     environment = stack.environment()
@@ -291,7 +345,7 @@ def verify_failed_deployment(stack):
         stub.write_text('#!/bin/bash\n[[ "$2" == --property=LoadState ]] || exit 1\nprintf "not-found\\n"\n')
         stub.chmod(0o700)
         environment["PATH"] = str(binaries) + os.pathsep + environment["PATH"]
-    before = stack.sql("SELECT VERSION();")
+    before = stack.sql("SELECT id, notes, edition_label FROM collection_entries ORDER BY id;")
     result = command(["bash", candidate / "scripts/deploy.sh", candidate_id], env=environment, check=False)
     if result.returncode == 0:
         raise RuntimeError("A failed backend candidate was published as successful")
@@ -299,9 +353,25 @@ def verify_failed_deployment(stack):
             or (stack.root / "infrastructure").resolve() != candidate
             or (stack.shared / "backup-tools").resolve() != candidate / "scripts"):
         raise RuntimeError("Application rollback lost the infrastructure or backup-tool reference")
-    if stack.sql("SELECT VERSION();") != before:
-        raise RuntimeError("Application rollback changed the database server")
+    upgraded_version = stack.sql("SELECT VERSION();")
+    if not upgraded_version.startswith("13.0.2"):
+        raise RuntimeError("Application rollback did not preserve the upgraded database server")
     Client(stack.port).request("/api/v1/health")
+    snapshot = next(path for path in (stack.root / "backups").glob("*-pre-deploy") if (path / "COMPLETE").exists())
+    if ops.verify_snapshot(snapshot)["database_image"] != LEGACY_DATABASE:
+        raise RuntimeError("Pre-upgrade snapshot did not record the original database image")
+    # Remove the injected startup fault before testing data recovery on the
+    # upgraded server. Application image selection already rolled back.
+    model["services"]["backend"].pop("command")
+    original = json.loads((stack.release / "docker-compose.production.yml").read_text())
+    model["services"]["backend"]["healthcheck"] = original["services"]["backend"]["healthcheck"]
+    ops.private_write(candidate / "docker-compose.production.yml", json.dumps(model))
+    command(["bash", stack.shared / "backup-tools/restore.sh", "--backup", snapshot,
+             "--confirm", "RESTORE_LILLY"], env=stack.environment())
+    if (stack.sql("SELECT VERSION();") != upgraded_version
+            or stack.sql("SELECT id, notes, edition_label FROM collection_entries ORDER BY id;") != before
+            or hashlib.sha256(admin.request(photo["content_url"])).hexdigest() != photo["expected_hash"]):
+        raise RuntimeError("Forward logical recovery changed server version or failed to restore its independent baseline")
     command(["bash", stack.shared / "backup.sh", "manual"], env=stack.environment())
 
 
@@ -313,7 +383,7 @@ def acceptance(backend, frontend, report):
               "python_version": platform.python_version(), "system": platform.system(),
               "host_commissioning": "not_performed"}
     try:
-        source = Stack(backend, frontend)
+        source = Stack(backend, frontend, database_image=LEGACY_DATABASE)
         stacks.append(source)
         result["backend_image_id"] = command(["docker", "image", "inspect", backend, "--format", "{{.Id}}"]).stdout.decode().strip()
         result["frontend_image_id"] = command(["docker", "image", "inspect", frontend, "--format", "{{.Id}}"]).stdout.decode().strip()
@@ -346,6 +416,8 @@ def acceptance(backend, frontend, report):
         source.compose("up", "-d", "--wait", "--wait-timeout", "120")
         admin.request(photo["content_url"])
         checks.append("persistent collection and actual photo upload survive service restart")
+        verify_storage_readiness(source)
+        checks.append("unwritable photo/staging directories and a real read-only mount reject readiness while liveness stays available")
         source.backup()
         admin.request(f'/api/v1/me/collection/{entry["id"]}', "PATCH", {"notes": "after-backup"})
         erased.request("/api/v1/auth/reauth/password", "POST", {"password": erased_password})
@@ -376,8 +448,8 @@ def acceptance(backend, frontend, report):
         source.compose("up", "-d", "--wait", "--wait-timeout", "120")
         health.request("/api/v1/health")
         checks.append("readiness failure/recovery, independent liveness and SMTP alert while database is stopped")
-        verify_failed_deployment(source)
-        checks.append("actual failed candidate rollback preserves database, infrastructure and working backup tools")
+        verify_failed_deployment(source, admin, photo)
+        checks.append("real database upgrade, failed application rollback, forward logical recovery and working backup tools")
         result["status"] = "passed"
     except Exception as error:
         result["failure"] = type(error).__name__

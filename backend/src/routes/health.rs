@@ -11,6 +11,7 @@ use std::time::Duration;
 use super::AppState;
 use crate::openapi::{HealthResponse, LivenessResponse};
 use crate::services::account_erasure::ErasureLedger;
+use crate::services::media::MediaStorage;
 
 const READINESS_BUDGET: Duration = Duration::from_secs(2);
 
@@ -32,7 +33,7 @@ pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
     operation_id = "health_health_check",
     tag = "health",
     summary = "Application readiness",
-    description = "Checks the database, media directory and erasure ledger within two seconds. External integrations are not readiness dependencies. The database field reports only database connectivity.",
+    description = "Checks the database, writable photo and staging directories, media root and erasure ledger within two seconds. Temporary write probes are cleaned up even if the request times out. External integrations are not readiness dependencies. The database field reports only database connectivity.",
     security(),
     responses(
         (status = 200, description = "Successful operation", body = crate::openapi::HealthResponse),
@@ -69,8 +70,9 @@ async fn bounded_probe(future: impl Future<Output = bool>, budget: Duration) -> 
 }
 
 async fn storage_ready(media: &Path, ledger: &ErasureLedger) -> bool {
-    // Opening the directory and ledger checks access without creating probe files.
-    tokio::fs::read_dir(media).await.is_ok() && ledger.require_existing().await.is_ok()
+    tokio::fs::read_dir(media).await.is_ok()
+        && MediaStorage::new(media).check_write_access().await.is_ok()
+        && ledger.require_existing().await.is_ok()
 }
 
 async fn readiness(
@@ -121,6 +123,7 @@ mod tests {
             let root =
                 std::env::temp_dir().join(format!("lilly-health-{:016x}", rand::random::<u64>()));
             std::fs::create_dir(&root).unwrap();
+            std::fs::create_dir_all(root.join("user-photos/.tmp")).unwrap();
             std::fs::write(root.join("ledger"), "").unwrap();
             Self(root)
         }
@@ -146,14 +149,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn storage_checks_do_not_write_and_reject_missing_or_invalid_paths() {
+    async fn storage_checks_clean_up_probes_and_reject_missing_or_invalid_paths() {
         let storage = Storage::new();
         assert!(storage_ready(&storage.0, &storage.ledger()).await);
         assert_eq!(std::fs::read(storage.0.join("ledger")).unwrap(), b"");
-        assert_eq!(std::fs::read_dir(&storage.0).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(&storage.0).unwrap().count(), 2);
+        assert_eq!(
+            std::fs::read_dir(storage.0.join("user-photos/.tmp"))
+                .unwrap()
+                .count(),
+            0
+        );
+        assert_eq!(
+            std::fs::read_dir(storage.0.join("user-photos"))
+                .unwrap()
+                .count(),
+            1
+        );
         assert!(!storage_ready(&storage.0.join("missing"), &storage.ledger()).await);
         assert!(!storage_ready(&storage.0.join("ledger"), &storage.ledger()).await);
         assert!(!storage_ready(&storage.0, &ErasureLedger::new(&storage.0)).await);
+        std::fs::remove_dir(storage.0.join("user-photos/.tmp")).unwrap();
+        assert!(!storage_ready(&storage.0, &storage.ledger()).await);
+        std::fs::write(storage.0.join("user-photos/.tmp"), "not a directory").unwrap();
+        assert!(!storage_ready(&storage.0, &storage.ledger()).await);
         std::fs::remove_file(storage.0.join("ledger")).unwrap();
         assert!(!storage_ready(&storage.0, &storage.ledger()).await);
     }

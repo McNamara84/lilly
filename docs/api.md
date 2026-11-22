@@ -89,8 +89,11 @@ wie `GET /api/v1/me/collection` verwenden anschließend denselben Cookie-Jar.
 
 ## Betriebsbereitschaft und Prozessüberwachung
 
-`GET /api/v1/health` prüft Datenbank einschließlich Pool-Akquise, Medienverzeichnis
-und Live-Löschledger mit einem gemeinsamen Zeitfenster von zwei Sekunden. Bei
+`GET /api/v1/health` prüft Datenbank einschließlich Pool-Akquise, Medienverzeichnis,
+Schreibzugriff auf `user-photos` und `user-photos/.tmp` sowie Live-Löschledger mit
+einem gemeinsamen Zeitfenster von zwei Sekunden. Kleine Schreibproben werden
+auch nach Abbruch oder Timeout durch ihre weiterlaufende Dateisystemaufgabe
+bereinigt. Bei
 Bereitschaft folgt HTTP 200 mit `{"status":"ok","database":true}`, sonst HTTP
 503 mit `status: "degraded"`. `database` beschreibt ausschließlich die
 Datenbankprüfung und kann bei einem Speicherfehler weiterhin `true` sein.

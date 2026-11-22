@@ -28,29 +28,40 @@ Die lokale Linux-Steuerumgebung verwendet Python 3.14.10 auf Debian 13 innerhalb
 von Docker Desktop. Die Images sind aus dem Arbeitsstand gebaut; Image-IDs und
 UTC-Zeitpunkte stehen im erzeugten JSON-Bericht.
 
-Die sechs Stufen des Durchlaufs sind:
+Die sieben Stufen des Durchlaufs sind:
 
 1. Leere persistente Volumes, produktives Backend-Image, erzeugte private
    Konfiguration, unveränderte SMTP-Sonderzeichen im tatsächlichen Container
-   und Prüfung des systemd-Kalenders.
+   und Prüfung des systemd-Kalenders. Der Ausgangsserver läuft mit MariaDB 12.3.3.
+   Seine Infrastruktur enthält absichtlich alte Restore-Skripte ohne die neuen
+   Python-Helfer; der gepflegte Werkzeugstand wird separat bereitgestellt.
 2. Registrierung, zugestellte Verifikationsmail, Bestätigung, Anmeldung und
    Adminvergabe über den vorhandenen Backend-Befehl; erlaubter Admin-API-Zugriff.
 3. Sammlungsanlage und Foto-Upload über die API; Erhalt nach Backend-Neustart.
    Nur der kleine öffentliche Katalogfixture wird per SQL eingerichtet, ohne
    Live-Wiki-Zugriffe oder Demo-Konten als Voraussetzung des Bootstraps.
-4. Echter Datenbankdump und Medienarchiv; Wiederaufbau in einen zweiten leeren
+4. Fehlender Schreibzugriff auf Fotoablage beziehungsweise Staging-Verzeichnis:
+   Readiness liefert 503, Liveness weiterhin 200. Ein zweiter Backend-Prozess
+   prüft zusätzlich einen tatsächlich schreibgeschützt gemounteten Medienbestand.
+5. Echter Datenbankdump und Medienarchiv; Wiederaufbau in einen zweiten leeren
    Stack aus den gesicherten Dateien. Prüfung von Notiz, Auflage und unabhängig
    aufgezeichnetem Foto-Hash. Ein nach dem Snapshot gelöschtes Konto und dessen
    Foto dürfen nach Replay des neueren Live-Ledgers weder als Datensatz noch
    als gespeicherte JPEG-Datei zurückkehren. Der gesunde Neuaufbau erhält einen
    aktiven Konfigurationsverweis für Vorabbackup und Rollback beim nächsten Update.
-5. Gestoppte Datenbank: Readiness liefert 503, Liveness weiterhin 200 und der
+   Das erste Backup über den wiederhergestellten gemeinsamen Einstiegspunkt
+   besteht; der wiederhergestellte Fehlerhandler stellt seine Testmail zu.
+6. Gestoppte Datenbank: Readiness liefert 503, Liveness weiterhin 200 und der
    fehlgeschlagene Backup-Lauf liefert tatsächlich eine bereinigte E-Mail im
    Test-Mailserver ab. Nach Datenbank-Wiederanlauf folgt wieder Readiness 200.
-6. Tatsächlicher Deployment-Aufruf mit absichtlich fehlschlagendem Kandidaten.
-   Anwendungsrollback erhält die Datenbankversion und den vorherigen aktiven
+7. Tatsächlicher Deployment-Aufruf mit Upgrade von MariaDB 12.3.3 auf 13.0.2
+   und absichtlich fehlschlagendem Anwendungskandidaten.
+   Anwendungsrollback erhält den aktualisierten Datenbankserver und den vorherigen aktiven
    Release-Verweis; Infrastruktur und Backup-Werkzeuge bleiben auf dem versuchten
-   Release. Ein anschließendes echtes Backup mit diesen Werkzeugen besteht.
+   Release. Nach Entfernen des im Test injizierten Startfehlers wird der echte
+   Vorabdump von 12.3.3 logisch in den weiterlaufenden 13.0.2-Server importiert.
+   Datensätze, unabhängiger Foto-Hash und Datenbankversion werden geprüft.
+   Ein anschließendes echtes Backup mit diesen Werkzeugen besteht.
 
 Im Docker-Desktop-Controller ist kein systemd als Host-Init aktiv. Ausschließlich
 die Abfrage des dort nicht vorhandenen Backup-Dienstes wird beim letzten Schritt
@@ -62,19 +73,21 @@ werden durch diesen Containerlauf nicht als bestanden ausgegeben.
 
 ## Automatische Tests und Coverage
 
-- Der Rust-Workspace besteht mit echter isolierter MariaDB: 333 Backend-,
-  80 Adapter- und 30 Core-Tests. Linux-Coverage: **88,12 % Zeilen** insgesamt,
-  **98,03 %** im Health-Modul, gemessen mit frisch instrumentierten Linux-Builds.
+- Der Rust-Workspace besteht mit echter isolierter MariaDB: 335 Backend-,
+  80 Adapter- und 30 Core-Tests. Linux-Coverage: **88,15 % Zeilen** insgesamt,
+  **98,18 %** im Health-Modul, gemessen mit frisch instrumentierten Linux-Builds.
+  Die zusätzlichen Tests prüfen Schreibrechte mit einem unprivilegierten Prozess
+  und die Probe-Bereinigung nach Abbruch des wartenden Requests.
 - Frontend: **1.076 Tests** in 74 Dateien, **98,83 % Statements**, **99,51 % Zeilen**.
   ESLint, Prettier und Svelte-/Service-Worker-Typprüfung bestehen.
 - Die API-Vertragstests einschließlich Liveness und lokalem Swagger UI bestehen
   in Chromium, Firefox und WebKit: **sechs Tests**.
-- Die **155 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
+- Die **163 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
   atomare Erstinstallation, beschädigte/gefährliche Archive, Aufbewahrungsgrenzen,
   Eigentümerrechte, Fehler-E-Mails, Sperrkoordination, Datenbank-Imageprüfung
   sowie fehlgeschlagenes Fortsetzen des Backends. Gemeinsam mit dem echten
-  Containerlauf ergeben sich **93,26 % kombinierte Anweisungs-/Zweigabdeckung**
-  für Python-Betriebswerkzeuge und Abnahmerunner, **98,81 %** für die gemeinsame
+  Containerlauf ergeben sich **94,43 % kombinierte Anweisungs-/Zweigabdeckung**
+  für Python-Betriebswerkzeuge und Abnahmerunner, **99,12 %** für die gemeinsame
   Betriebslogik in `operations.py`. Die Messung verwendet frische Coverage-Daten.
 
 Die neue erforderliche CI-Prüfung [operations.yml](../.github/workflows/operations.yml)

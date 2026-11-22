@@ -613,6 +613,11 @@ Hilfsprogrammbündel und bleibt bei einem Anwendungsrollback erhalten. Fehler-E-
 werden unabhängig von Backend und Datenbank über den vorhandenen SMTP-Zugang an
 explizite Betriebsadressen gesendet. Wiederherstellbare Sätze enthalten Datenbank,
 Medien, Ledger, private Konfiguration und Release-Informationen mit Prüfsummen.
+Aktuelle Recovery-Werkzeuge werden getrennt von der datenbankgebundenen
+Infrastruktur archiviert. Ein Neuaufbau stellt auch die gemeinsamen Backup- und
+Fehlerbenachrichtigungs-Einstiegspunkte mit den Rechten des Deploymentkontos her.
+Logische Vorwärtsrestores unterstützen den geprüften Übergang MariaDB 12.3 → 13.0;
+der exakte Abgleich zwischen konfiguriertem und laufendem Datenbankimage bleibt bestehen.
 
 ### 8.2 Volumes
 
