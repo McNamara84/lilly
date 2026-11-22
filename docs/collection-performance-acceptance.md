@@ -65,6 +65,15 @@ Erst nach `LIMIT`/`OFFSET` werden die vollständigen Daten der Ergebnisseite gel
 Dadurch müssen lange Notizen und andere breite Felder nicht für sämtliche
 Kandidaten materialisiert werden.
 
+Die äußere Abfrage verwendet `STRAIGHT_JOIN`, damit MariaDB die bereits begrenzte
+Ergebnisseite vor den vollständigen Sammlungs-, Heft- und Seriendaten liest. Bei
+tiefen Offsets konnte der Optimierer diese Reihenfolge zuvor umkehren und trotz
+der Seitenauswahl nochmals alle 10.000 vollständigen Sammlungseinträge lesen.
+Der Performance-Runner prüft deshalb in beiden Datenphasen zusätzlich, dass die
+äußeren Sammlungszugriffe höchstens der normalisierten Seitengröße entsprechen.
+Die Kandidatensuche innerhalb der materialisierten Seite und der gesonderte
+Anti-Join für fehlende Hefte bleiben davon ausgenommen.
+
 Für die Autorensortierung wird der kleinste Autorenname unter der vereinbarten
 Kollation einmal je eigenem logischen Heft ermittelt. Nur diese Namen und der
 leere Sentinel gehen in die Rangberechnung ein. Personen ohne Bezug zur eigenen
@@ -396,3 +405,45 @@ zusätzliche Merge-Sperre über Required Checks muss in den GitHub-Branchregeln
 konfiguriert sein. Die obigen ursprünglichen Vollmesswerte dokumentieren den lokalen
 Referenzlauf; der fehlgeschlagene erste CI-Lauf und spätere Kurzprüfungen sind
 getrennt davon zu bewerten.
+
+## Korrektur der CI-Regression vom 22. November 2026
+
+Der Lauf [44996200248](https://github.com/McNamara84/lilly/actions/runs/44996200248)
+bestand die letzte Autorenseite mit fünf parallelen Anfragen bei **400,300 ms**.
+Der folgende Lauf
+[45001688401](https://github.com/McNamara84/lilly/actions/runs/45001688401/job/137144407848)
+scheiterte dort bei **692,184 ms**, obwohl der einzige neue Commit lediglich
+`.gitignore` änderte. Die Berichte nennen unterschiedliche Runner-Prozessoren:
+Intel Xeon 6975P-C beziehungsweise AMD EPYC 7763. Die Containerlimits und das
+Datenbank-Image waren identisch. Gleiche CPU-Quoten stellen somit keine gleiche
+Rechenleistung sicher.
+
+Beide CI-Pläne zeigen außerdem die ungünstige äußere Join-Reihenfolge der letzten
+Autorenseite: Zuerst wurden 7.001 Kataloghefte und rund 10.000 vollständige
+Sammlungseinträge besucht, erst anschließend die 50 ausgewählten Eintrags-IDs.
+Die schnellere Umgebung verdeckte diesen zusätzlichen Aufwand im ersten Lauf.
+Die oben beschriebene äußere `STRAIGHT_JOIN`-Korrektur hält die Seitenauswahl vorn.
+Die zusätzliche Planprüfung lehnt beide alten CI-Pläne unabhängig von der
+gemessenen Laufzeit ab. Regressionstests decken beide Datenphasen, normalisierte
+Seitengrößen und den getrennten Abfragepfad für fehlende Hefte ab. Die Stichproben,
+Parallelitäten und die strikte Grenze von 500 ms bleiben unverändert.
+
+Der lokale HTTP-Volltest `39586e060ee14fc3a7ec9d340aad4582` auf einem AMD Ryzen 7
+3800X besteht mit **252 Messreihen und 50.400 geprüften Antworten**. Er verwendet
+eine isolierte Kopie von `518dbfd2babcedfbbd96b80ebad2d93be8386071` mit der
+SQL-Korrektur; das Protokoll kennzeichnet den Quellstand als geändert. Andere
+unfertige Arbeitskopie-Änderungen sind nicht enthalten. Die bestehenden CPU-,
+Speicher- und Datenlimits gelten unverändert.
+
+| Datenbestand | Parallelität | Messreihen | Höchster p95 |
+| --- | ---: | ---: | ---: |
+| 10.000 eigene Einträge | 1 | 63 | 101,191 ms |
+| 10.000 eigene Einträge | 5 | 63 | 493,887 ms |
+| Zusätzlich 100.000 fremde Einträge | 1 | 63 | 78,510 ms |
+| Zusätzlich 100.000 fremde Einträge | 5 | 63 | 490,902 ms |
+
+Die letzte Autorenseite erreicht mit fünf Workern **484,391 ms** ohne und
+**406,467 ms** mit fremden Einträgen. Alle ausgeführten SQL-Pläne erfüllen auch
+die zusätzliche Begrenzung der äußeren Seitenzugriffe. Rohwerte und Pläne liegen
+unter `.tmp/ci-performance-20261122/fixed-full/`. Dies ist ein lokaler HTTP-Nachweis;
+der nächste CI-Lauf einschließlich Browserprüfung erfolgt nach Commit und Push.

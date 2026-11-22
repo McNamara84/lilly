@@ -437,8 +437,10 @@ fn build_collection_page_query(params: &CollectionQueryParams) -> String {
     // Sort only candidate IDs and their sort key. Materializing complete entries
     // (especially notes and cover URLs) before LIMIT makes large collections costly.
     // LIMIT prevents derived-table merging; the outer joins fetch at most one page.
+    // Keep that page first: deep offsets can otherwise make MariaDB scan every
+    // complete entry before joining back to the selected IDs.
     format!(
-        "SELECT ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
+        "SELECT STRAIGHT_JOIN ce.id, ce.user_id, ce.issue_id, ce.copy_number, ce.edition_label,
                 ce.condition_grade,
                 ce.status, ce.notes, ce.revision, ce.created_at, ce.updated_at,
                 i.issue_number, i.title, i.cover_url, i.cover_local_path,

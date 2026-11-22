@@ -173,19 +173,21 @@ def collection_reads(plan, table_name="ce"):
     return 0
 
 
-def plan_tables(value):
+def plan_tables(value, include_materialized=True):
     if isinstance(value, dict):
         if "table_name" in value:
             yield value
-        for child in value.values():
-            yield from plan_tables(child)
+        for key, child in value.items():
+            if include_materialized or key != "materialized":
+                yield from plan_tables(child, include_materialized)
     elif isinstance(value, list):
         for child in value:
-            yield from plan_tables(child)
+            yield from plan_tables(child, include_materialized)
 
 
 def check_plans(plans, scenarios=None, enforce_user_scope=True):
     scenarios = fixture.scenarios() if scenarios is None else scenarios
+    parameters = dict(scenarios)
     required = {(name, kind) for name, _ in scenarios for kind in ("count", "results")}
     if (not isinstance(plans, list) or len(plans) != len(required)
             or any(not isinstance(p, dict) or not isinstance(p.get("scenario"), str)
@@ -198,6 +200,16 @@ def check_plans(plans, scenarios=None, enforce_user_scope=True):
                 or not plan["analyze"]["query_block"]):
             raise ValueError("Missing executed query plan")
         reads = {alias: collection_reads(plan["analyze"], alias) for alias in ("ce", "ce_authors")}
+        params = parameters[plan["scenario"]]
+        if plan["kind"] == "results" and params.get("status") != "missing":
+            # Candidate scans inside the materialized page are separate from
+            # fetching full rows. The latter must stay bounded in both datasets.
+            page_reads = sum(table["r_loops"] * table["r_rows"]
+                             for table in plan_tables(plan["analyze"], include_materialized=False)
+                             if table["table_name"] == "ce" and table.get("r_loops") != 0)
+            page_limit = min(100, max(1, int(params.get("per_page", 50))))
+            if page_reads > page_limit + .01:
+                raise ValueError(f"Query fetches collection rows before pagination: {plan['scenario']}")
         if not enforce_user_scope:
             continue
         for table in plan_tables(plan["analyze"]):

@@ -137,6 +137,16 @@ def valid_measurement(**changes):
                 p50_ms=1.0, p99_ms=1.0, concurrency=1, client_cpu_ratio=.1, **changes)
 
 
+def paged_plan(candidates, params=None):
+    limit = min(100, max(1, int((params or {}).get("per_page", 50))))
+    return {"query_block": {"nested_loop": [
+        {"table": {"table_name": "<derived2>", "r_loops": 1, "r_rows": limit,
+                   "materialized": candidates}},
+        {"table": {"table_name": "ce", "access_type": "eq_ref", "key": "PRIMARY",
+                   "r_loops": limit, "r_rows": 1}},
+    ]}}
+
+
 class EvaluationTests(unittest.TestCase):
     def test_nearest_rank_and_invalid_samples(self):
         self.assertEqual(perf.percentile(list(range(1, 201)), .95), 190)
@@ -165,8 +175,9 @@ class EvaluationTests(unittest.TestCase):
                       dict(table_name="ce", r_rows=1e308, r_loops=1e308)]:
             with self.assertRaises(ValueError):
                 perf.collection_reads(table)
-        plans = [dict(scenario=name, kind=kind, analyze=plan)
-                 for name, _ in perf.fixture.scenarios() for kind in ("count", "results")]
+        plans = [dict(scenario=name, kind=kind,
+                      analyze=paged_plan(plan, params) if kind == "results" else plan)
+                 for name, params in perf.fixture.scenarios() for kind in ("count", "results")]
         perf.check_plans(plans)
         broken = copy.deepcopy(plans)
         broken[0]["analyze"]["query_block"]["nested_loop"][0]["table"]["r_rows"] = 22
@@ -251,12 +262,48 @@ def profile_report(profile):
                                    **{**valid_measurement(), "concurrency": mode})
                               for phase in config["phases"] for name, _ in config["scenarios"]
                               for mode in config["concurrency"]],
-                plans={phase: [dict(scenario=name, kind=kind, analyze=plan)
-                               for name, _ in config["scenarios"] for kind in ("count", "results")]
+                plans={phase: [dict(scenario=name, kind=kind,
+                                    analyze=paged_plan(plan, params) if kind == "results" else plan)
+                               for name, params in config["scenarios"] for kind in ("count", "results")]
                        for phase in config["phases"]})
 
 
 class ProfileTests(unittest.TestCase):
+    def test_full_rows_are_fetched_only_for_the_selected_page_in_both_datasets(self):
+        perf.report_is_complete(profile_report("full"))
+        for phase in ("own-only", "with-foreign"):
+            report = profile_report("full")
+            plan = next(p for p in report["plans"][phase]
+                        if p["scenario"] == "author-last-page" and p["kind"] == "results")
+            # Reproduce the CI plan: 7,001 issue probes read all 10,000 copies
+            # before joining to the 50 IDs selected by LIMIT/OFFSET.
+            table = plan["analyze"]["query_block"]["nested_loop"][1]["table"]
+            table.update(access_type="ref", key="issue_id", r_loops=7001, r_rows=10000 / 7001,
+                         used_key_parts=["issue_id"])
+            with self.subTest(phase=phase), self.assertRaisesRegex(ValueError, "before pagination"):
+                perf.report_is_complete(report)
+
+    def test_page_fetch_limit_uses_the_normalized_requested_size(self):
+        candidates = {"query_block": {"table": {"table_name": "ce", "r_rows": 10000,
+                                                "r_loops": 1, "used_key_parts": ["user_id"]}}}
+        for requested, limit in (("0", 1), ("1", 1), ("50", 50), ("500", 100)):
+            scenarios = [("page", {"per_page": requested})]
+            plans = [dict(scenario="page", kind=kind,
+                          analyze=paged_plan(candidates, scenarios[0][1]) if kind == "results" else candidates)
+                     for kind in ("count", "results")]
+            perf.check_plans(plans, scenarios=scenarios, enforce_user_scope=False)
+            table = plans[1]["analyze"]["query_block"]["nested_loop"][1]["table"]
+            self.assertEqual(table["r_loops"], limit)
+            table["r_loops"] = limit + 1
+            with self.subTest(requested=requested), self.assertRaisesRegex(ValueError, "before pagination"):
+                perf.check_plans(plans, scenarios=scenarios, enforce_user_scope=False)
+
+    def test_missing_issue_queries_keep_their_catalogue_anti_join(self):
+        plan = {"query_block": {"table": {"table_name": "ce", "r_rows": 1, "r_loops": 7000,
+                                          "used_key_parts": ["user_id", "issue_id"]}}}
+        plans = [dict(scenario="missing", kind=kind, analyze=plan) for kind in ("count", "results")]
+        perf.check_plans(plans, scenarios=[("missing", {"status": "missing"})])
+
     def test_full_report_requires_complete_structured_plans_in_every_phase(self):
         valid = profile_report("full")
         for phase in ("own-only", "with-foreign"):
@@ -591,7 +638,9 @@ class StackTests(unittest.TestCase):
     def test_complete_orchestration_checks_both_datasets_and_both_modes(self):
         plan = {"query_block": {"table": {"table_name": "ce", "r_rows": 10000, "r_loops": 1,
                                            "used_key_parts": ["user_id", "issue_id"]}}}
-        plans = [dict(scenario="all", kind=kind, analyze=plan) for kind in ("count", "results")]
+        plans = [dict(scenario="all", kind=kind,
+                      analyze=paged_plan(plan) if kind == "results" else plan)
+                 for kind in ("count", "results")]
         for browser_check in (False, True):
             with self.subTest(browser_check=browser_check), tempfile.TemporaryDirectory() as directory, \
                     patch.object(perf, "Stack") as create, \
