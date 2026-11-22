@@ -87,6 +87,21 @@ Für einen Refresh wird sie mit `--cookie` gelesen und mit `--cookie-jar` aktual
 `POST /api/v1/auth/refresh` verwendet denselben Origin-Header. Fachliche Operationen
 wie `GET /api/v1/me/collection` verwenden anschließend denselben Cookie-Jar.
 
+## Betriebsbereitschaft und Prozessüberwachung
+
+`GET /api/v1/health` prüft Datenbank einschließlich Pool-Akquise, Medienverzeichnis
+und Live-Löschledger mit einem gemeinsamen Zeitfenster von zwei Sekunden. Bei
+Bereitschaft folgt HTTP 200 mit `{"status":"ok","database":true}`, sonst HTTP
+503 mit `status: "degraded"`. `database` beschreibt ausschließlich die
+Datenbankprüfung und kann bei einem Speicherfehler weiterhin `true` sein.
+Interne Pfade und Fehlerdetails werden nicht veröffentlicht.
+
+`GET /api/v1/health/live` liefert ohne Abhängigkeitszugriffe HTTP 200 mit
+`{"status":"ok"}`. Beide Endpunkte sind öffentlich und vom allgemeinen
+API-Rate-Limit ausgenommen. Deployment, Restore und Compose-Startabhängigkeiten
+verwenden Readiness; eine Prozessüberwachung kann Liveness verwenden. Externe
+SMTP-, OAuth- und Wiki-Dienste sind keine Readiness-Voraussetzungen.
+
 ## Antworten und Fehler
 
 JSON ist das Standardformat. Bilder werden als `image/jpeg`, Datei-Uploads als

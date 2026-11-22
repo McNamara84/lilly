@@ -12,6 +12,8 @@ target/
 .env.*.local
 deploy/.env.production
 deploy/.deployment.env
+deploy/.env.operations
+deploy/.env.smtp
 deploy/backups/
 
 # IDE

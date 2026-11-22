@@ -51,7 +51,7 @@ Ziel ist es, eine klare technische Grundlage für die Implementierung zu schaffe
 | **Authentifizierung** | Eigenbau: JWT + argon2id   | Access/Refresh-Token-Paar, argon2id für Passwort-Hashing, OAuth2-Client für Google/GitHub |
 | **API-Spezifikation** | OpenAPI 3.1 / Swagger      | Generiert via utoipa-Crate (Rust), Swagger-UI als Dev-Tool                                |
 | **Dateispeicher**     | Lokales Dateisystem        | Strukturiertes Verzeichnis, Caddy Static Serving, automatische Bildkompression            |
-| **Reverse Proxy**     | Caddy v2                   | Automatisches HTTPS via Let's Encrypt, minimale Konfiguration, HTTP/2 + HTTP/3            |
+| **Reverse Proxy**     | Caddy v2 + Traefik         | Traefik terminiert produktives HTTPS; Caddy verteilt interne Web-/API-Anfragen und öffentliche Referenzcover |
 | **Containerisierung** | Docker + Docker Compose    | Multi-Container-Setup, isolierte Services, einfaches Deployment                           |
 | **Wiki-Importer**     | Rust (reqwest)             | CLI-Tool und Cronjob-fähig, strukturierte MediaWiki-API, modulare Adapter                 |
 | **i18n**              | Paraglide.js (SvelteKit)   | Typsichere Übersetzungen, Tree-Shaking, initiale Sprache Deutsch                          |
@@ -72,13 +72,16 @@ MariaDB ist ein ausgereiftes, performantes RDBMS mit vollständiger MySQL-Kompat
 
 **Caddy als Reverse Proxy**
 
-Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Encrypt) mit minimalem Konfigurationsaufwand. Caddy unterstützt HTTP/2 und HTTP/3 out-of-the-box und stellt ausschließlich öffentliche Referenzcover statisch bereit. Private Sammlungsfotos werden dagegen immer zugriffskontrolliert über die Backend-API ausgeliefert.
+In Produktion übernimmt der vorhandene gemeinsame Traefik-Proxy die TLS-Terminierung und Zertifikatsverwaltung. Caddy verteilt die intern weitergeleiteten HTTP-Anfragen an Frontend und API und stellt ausschließlich öffentliche Referenzcover statisch bereit. Private Sammlungsfotos werden zugriffskontrolliert über die Backend-API ausgeliefert.
 
 ---
 
 ## 3. Systemarchitektur
 
 ### 3.1 Komponentendiagramm
+
+Produktiver Eingang vor dem gezeigten Caddy ist der gemeinsame Traefik-Proxy.
+Wiki-Importe laufen im Backend als Worker oder über dessen CLI.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -92,7 +95,7 @@ Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Enc
 │       │                                     │                │
 │       │  Static Files          ┌────────────┘                │
 │       └────────────────────────┤   MariaDB    │              │
-│  ┌────────────┐                │   11.x       │              │
+│  ┌────────────┐                │   13.0       │              │
 │  │   /media   │                └──────────────┘              │
 │  │  (Volume)  │                                              │
 │  └────────────┘  ┌────────────────────────┐                  │
@@ -105,21 +108,20 @@ Caddy v2 bietet automatisches HTTPS über integriertes ACME-Protokoll (Let's Enc
 
 ### 3.2 Container-Übersicht (Docker Compose)
 
-Das System besteht aus fünf Docker-Containern, orchestriert via Docker Compose:
+Der produktive LILLY-Stack besteht aus vier Docker-Services. Traefik wird außerhalb dieses Projekts betrieben; Wiki-Importe verwenden Backend-Worker und Backend-CLI.
 
 | Container  | Image                                       | Port (intern)    | Aufgabe                                                                           |
 | ---------- | ------------------------------------------- | ---------------- | --------------------------------------------------------------------------------- |
-| `caddy`    | `caddy:2.11.9-alpine`                       | 80, 443 → extern | HTTPS-Terminierung, Reverse Proxy, statische Referenzcover unter `/media/covers/` |
+| `caddy`    | `caddy:2.11.9-alpine`                       | 80 intern; Host 127.0.0.1:8091 | Internes Routing hinter Traefik, statische Referenzcover unter `/media/covers/` |
 | `frontend` | `node:26.13.1-alpine` + Build                | 3000 (intern)    | SvelteKit SSR-Server, liefert PWA-Shell und pre-rendered Pages                    |
 | `backend`  | `rust:1.100.0-slim-trixie` + `debian:trixie-slim` | 8080 (intern)    | REST API (Axum), Authentifizierung, Business-Logik, Bildverarbeitung              |
 | `db`       | `mariadb:13.0.2`                            | 3306 (intern)    | Persistente Datenhaltung, Volltextindex; automatische Aktualisierung der Systemtabellen |
-| `importer` | Rust CLI (eigener Build)                    | –                | Cronjob-basierter Wiki-Datenimport, schreibt direkt in MariaDB                    |
 
 ### 3.3 Request-Flow
 
 Der typische Ablauf einer Nutzeranfrage:
 
-1. **Client → Caddy:** Alle eingehenden Requests landen bei Caddy (Port 443). Caddy terminiert TLS und routet basierend auf dem Pfad.
+1. **Client → Traefik → Caddy:** Traefik nimmt HTTPS auf Port 443 an, terminiert TLS und leitet über das gemeinsame Proxy-Netz an den internen Caddy-Port 80 weiter. Caddy routet anhand des Pfades.
 2. **Caddy → Frontend:** Seiten-Requests (HTML, JS, CSS) werden an den SvelteKit-Server (Port 3000) weitergeleitet. SvelteKit liefert SSR-gerenderte Seiten oder die PWA-Shell.
 3. **Caddy → Backend:** API-Requests unter `/api/*` werden direkt an den Axum-Server (Port 8080) geroutet.
 4. **Caddy → Dateisystem:** Nur Referenzcover unter `/media/covers/*` werden statisch aus dem gemounteten Volume ausgeliefert. Nutzerfotos laufen immer über den autorisierenden API-Endpunkt; andere `/media/*`-Pfade liefern `404`.
@@ -583,7 +585,10 @@ Der separate Befehl `npm run test:pwa:update` prüft zwei Produktionsbuilds unte
 
 ### 8.1 Docker Compose-Struktur
 
-Das gesamte System wird über eine einzige `docker-compose.yml`-Datei definiert. Empfohlene Mindestanforderungen an den VPS: 2 vCPU, 4 GB RAM, 40 GB SSD.
+Die Entwicklungsumgebung verwendet `docker-compose.yml`, die Produktion den
+gesonderten Stack unter `deploy/`. Planungsrichtwert für den VPS: 2 vCPU,
+4 GB RAM und 40 GB SSD; tatsächlicher Speicherbedarf schließt die gewählte
+lokale Aufbewahrung ein und wird bei der Inbetriebnahme überprüft.
 
 Produktive Releases verwenden `deploy/docker-compose.production.yml`. Der Verweis
 `/opt/lilly/current` kennzeichnet die aktive Anwendung. Vor dem Containerstart hält
@@ -601,11 +606,20 @@ Deployment gestartete Backup verwendet den geerbten Sperrdeskriptor weiter.
 Ein noch auf alte Skripte zeigender systemd-Dienst verhindert das Upgrade bis zur
 Aktualisierung seiner geladenen Konfiguration.
 
+Host-Betriebseinstellungen liegen in `shared/.env.operations`: tägliche lokale
+Backups gegen 03:30 Uhr (`Europe/Berlin`), bis zu 15 Minuten Streuung und 14 Tage
+Aufbewahrung. `shared/backup-tools` verweist atomar auf das vollständige aktuelle
+Hilfsprogrammbündel und bleibt bei einem Anwendungsrollback erhalten. Fehler-E-Mails
+werden unabhängig von Backend und Datenbank über den vorhandenen SMTP-Zugang an
+explizite Betriebsadressen gesendet. Wiederherstellbare Sätze enthalten Datenbank,
+Medien, Ledger, private Konfiguration und Release-Informationen mit Prüfsummen.
+
 ### 8.2 Volumes
 
 - **`db_data`:** Persistenter MariaDB-Speicher.
-- **`media`:** Cover-Bilder und Nutzer-Uploads. Wird von Caddy als Static Files serviert und vom Backend beschrieben.
-- **`caddy_data`:** TLS-Zertifikate und Caddy-Konfiguration.
+- **`media_data`:** Referenzcover und Nutzer-Uploads. Caddy liefert ausschließlich öffentliche Referenzcover aus; private Fotos laufen über die Backend-Autorisierung.
+- **`caddy_data`:** Persistenter Caddy-Zustand; produktives TLS wird von Traefik terminiert.
+- **Live-Ledger:** Separater Host-Bind-Mount außerhalb der Backup-Rotation. Der neueste erhaltene Stand wird vor Freigabe wiederhergestellter Daten abgespielt.
 
 ### 8.3 Environment-Konfiguration
 
@@ -619,9 +633,10 @@ Sensible Konfigurationswerte werden über eine `.env`-Datei injiziert:
 - `ADMIN_EMAIL` – normalisierte E-Mail-Adresse eines bestehenden Kontos; beim Serverstart wird eine echte Beförderung transaktional auditiert
 - `MEDIA_PATH` – Pfad zum Media-Volume für Cover-Bilder und Nutzer-Uploads (Standard: `/media`)
 - `ACCOUNT_ERASURE_LEDGER_PATH` – append-only Restore-Sperrdatei außerhalb der Datenbank (Standard: `/erasure-ledger/account-erasure.log`)
-- `OAUTH_GOOGLE_CLIENT_ID` / `SECRET`
-- `OAUTH_GITHUB_CLIENT_ID` / `SECRET`
-- `DOMAIN` – Öffentliche Domain für Caddy (Let's Encrypt)
+- `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`
+- `LILLY_PUBLIC_HOST` – Öffentliche Domain für den Traefik-Router
+- `APP_BASE_URL` / `COOKIE_SECURE` – Öffentliche HTTPS-URL und sichere Sitzungscookies
 - `RUST_LOG` – Log-Level für das Backend
 
 Weitere Admins werden ohne Passwortübergabe über denselben transaktionalen Rollenservice
@@ -631,10 +646,11 @@ und Datenbankfehler 1.
 
 ### 8.4 Backup-Strategie
 
-- **Datenbank:** Täglicher `mysqldump` per Cronjob, komprimiert, Rotation der letzten 14 Tage.
-- **Media-Dateien:** Inkrementelles Backup via `rsync` auf externen Speicher.
+- **Datenbank und Medien:** Gemeinsamer lokaler Sicherungssatz mit `mariadb-dump` und Medienarchiv, täglich über den systemd-Timer, Aufbewahrung maximal 14 Tage. Schreibende Backend-Prozesse werden während des Sicherungsfensters pausiert.
+- **Speicherort:** Dediziertes lokales Verzeichnis, standardmäßig `/opt/lilly/backups`; ein externer Speicher ist für dieses Betriebsmodell nicht eingerichtet.
 - **Lösch-Ledger:** Wird bei jedem Backup separat gesichert, bei einem Restore aber niemals durch eine ältere Kopie ersetzt. Vor dem Start der öffentlichen Dienste wird es zwingend gegen die restaurierte Datenbank abgespielt.
-- **Konfiguration:** `docker-compose.yml` und `.env.example` werden im Git-Repository versioniert. Die eigentliche `.env`-Datei enthält Secrets und wird über `.gitignore` ausgeschlossen; sie wird ausschließlich lokal oder über einen Secret-Manager bereitgestellt.
+- **Konfiguration:** Veröffentlichbare Vorlagen bleiben im Repository. Private Betriebs-/Produktionsdateien und die Infrastrukturkonfiguration werden im zugriffsbeschränkten Sicherungssatz mit Prüfsummen erfasst. Sie unterliegen derselben Rotation wie personenbezogene Sicherungsdaten.
+- **Nachweise:** Automatisierte Containerabnahme vor Deployment und mindestens monatliche isolierte Restore-Probe mit Datensatz-/Fotoprüfung und neuestem Ledger. Details stehen im Betriebs- und Abnahmehandbuch.
 
 ---
 
@@ -695,7 +711,7 @@ lilly/
 
 ## 10. Sicherheitsarchitektur
 
-- **TLS:** Caddy erzwingt HTTPS für alle Verbindungen. HTTP wird automatisch auf HTTPS umgeleitet.
+- **TLS:** Der gemeinsame Traefik-Proxy terminiert produktives HTTPS und übernimmt die HTTP-Weiterleitung auf HTTPS gemäß dem Server-Runbook. Caddys Host-Port bleibt ausschließlich auf Loopback erreichbar.
 - **CORS:** Strikte CORS-Policy – nur die eigene Domain ist als Origin erlaubt.
 - **Rate Limiting:** Ein zentraler Sliding-Window-Limiter schützt die gesamte API. Öffentliche
   Aufrufe sind standardmäßig auf 120/Minute je Client begrenzt, authentifizierte Aufrufe auf

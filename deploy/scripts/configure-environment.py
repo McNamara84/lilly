@@ -4,43 +4,16 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import pwd
 import secrets
-import shlex
 import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
+from operations import read_env as parse_dotenv
+from operations import env_line
 
-def parse_dotenv(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    raw_bytes = path.read_bytes()
-    try:
-        text = raw_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        # Older server-side environment files may have been saved by a
-        # Windows editor. CP1252 covers the encoding used by those editors
-        # without exposing or silently dropping secret characters.
-        text = raw_bytes.decode("cp1252")
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, raw_value = line.split("=", 1)
-        key = key.strip()
-        raw_value = raw_value.strip()
-        if raw_value.startswith(("'", '"')):
-            try:
-                parts = shlex.split(raw_value, comments=True, posix=True)
-            except ValueError as error:
-                raise ValueError(f"Invalid quoted value for {key}") from error
-            value = parts[0] if parts else ""
-        else:
-            value = raw_value.split(" #", 1)[0].rstrip()
-        values[key] = value
-    return values
 
 
 def require(values: dict[str, str], key: str) -> str:
@@ -51,7 +24,7 @@ def require(values: dict[str, str], key: str) -> str:
 
 
 def dotenv_line(key: str, value: str) -> str:
-    return f"{key}={json.dumps(value, ensure_ascii=False)}\n"
+    return env_line(key, value, compose=True)
 
 
 def write_private_file(path: Path, content: str, owner: str) -> None:
@@ -70,23 +43,48 @@ def write_private_file(path: Path, content: str, owner: str) -> None:
             os.fsync(handle.fileno())
         os.chmod(temporary_path, 0o600)
         os.chown(temporary_path, account.pw_uid, account.pw_gid)
-        temporary_path.replace(path)
+        # An atomic no-clobber publication also protects concurrent first-time setup.
+        os.link(temporary_path, path)
     finally:
         temporary_path.unlink(missing_ok=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mail-source", type=Path, required=True)
+    mail_source = parser.add_mutually_exclusive_group(required=True)
+    mail_source.add_argument("--mail-source", type=Path)
+    mail_source.add_argument("--smtp-config", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--owner", default="lilly-deploy")
     parser.add_argument("--app-base-url", required=True)
     parser.add_argument("--admin-email", default="")
     args = parser.parse_args()
 
-    source = parse_dotenv(args.mail_source)
-    encryption = source.get("MAIL_ENCRYPTION", "").split()[0].lower()
-    tls_mode = "tls" if encryption in {"ssl", "smtps"} else "starttls"
+    source = parse_dotenv(args.smtp_config or args.mail_source)
+    if args.smtp_config:
+        smtp = {key: source.get(key, "") for key in
+                ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM")}
+        smtp["SMTP_PORT"] = source.get("SMTP_PORT", "587")
+        smtp["SMTP_TLS_MODE"] = source.get("SMTP_TLS_MODE", "starttls")
+        require(smtp, "SMTP_HOST")
+        require(smtp, "SMTP_FROM")
+        if bool(smtp["SMTP_USER"]) != bool(smtp["SMTP_PASSWORD"]):
+            raise ValueError("SMTP_USER and SMTP_PASSWORD must be configured together")
+    else:
+        encryption = source.get("MAIL_ENCRYPTION", "").lower()
+        smtp = {
+            "SMTP_HOST": require(source, "MAIL_HOST"),
+            "SMTP_PORT": require(source, "MAIL_PORT"),
+            "SMTP_TLS_MODE": "tls" if encryption in {"ssl", "smtps"} else "starttls",
+            "SMTP_USER": require(source, "MAIL_USERNAME"),
+            "SMTP_PASSWORD": require(source, "MAIL_PASSWORD"),
+            "SMTP_FROM": require(source, "MAIL_FROM_ADDRESS"),
+        }
+    allowed_tls = {"starttls", "tls"}
+    if os.environ.get("LILLY_ISOLATED_TEST") == "1":
+        allowed_tls.add("none")
+    if smtp["SMTP_TLS_MODE"] not in allowed_tls or not 1 <= int(smtp["SMTP_PORT"]) <= 65535:
+        raise ValueError("A valid SMTP port and TLS mode are required")
     cookie_secure = "true" if args.app_base_url.lower().startswith("https://") else "false"
 
     database_password = secrets.token_hex(32)
@@ -128,12 +126,7 @@ def main() -> None:
         "RATE_LIMIT_REFRESH": "60/60",
         "RATE_LIMIT_PUBLIC_API": "120/60",
         "RATE_LIMIT_AUTHENTICATED_API": "600/60",
-        "SMTP_HOST": require(source, "MAIL_HOST"),
-        "SMTP_PORT": require(source, "MAIL_PORT"),
-        "SMTP_TLS_MODE": tls_mode,
-        "SMTP_USER": require(source, "MAIL_USERNAME"),
-        "SMTP_PASSWORD": require(source, "MAIL_PASSWORD"),
-        "SMTP_FROM": require(source, "MAIL_FROM_ADDRESS"),
+        **smtp,
         "RUST_LOG": "info",
         "PHOTO_MAX_UPLOAD_BYTES": "5242880",
         "PHOTO_MAX_EDGE": "2048",

@@ -50,6 +50,18 @@
         ],
         "type": "object"
       },
+      "LivenessResponse": {
+        "properties": {
+          "status": {
+            "pattern": "^ok$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
       "PhotoUpload": {
         "properties": {
           "photo": {
@@ -7135,7 +7147,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Health check.",
+        "description": "Checks the database, media directory and erasure ledger within two seconds. External integrations are not readiness dependencies. The database field reports only database connectivity.",
         "operationId": "health_health_check",
         "responses": {
           "200": {
@@ -7156,11 +7168,34 @@
                 }
               }
             },
-            "description": "Database unavailable"
+            "description": "A required dependency is unavailable or timed out"
           }
         },
         "security": [],
-        "summary": "Health check",
+        "summary": "Application readiness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/health/live": {
+      "get": {
+        "description": "Responds without accessing the database, storage or external integrations. Use readiness for deployment and service dependencies.",
+        "operationId": "health_liveness",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            },
+            "description": "The HTTP process is responding"
+          }
+        },
+        "security": [],
+        "summary": "HTTP process liveness",
         "tags": [
           "health"
         ]

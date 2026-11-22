@@ -25,6 +25,10 @@ class DeploymentRollbackTests(unittest.TestCase):
                 (release / "Caddyfile").touch()
             (deployment_root / "current").symlink_to(previous, target_is_directory=True)
             (shared / ".env.production").write_text("JWT_SECRET=test-only\n")
+            (shared / ".env.operations").write_text("BACKUP_ALERT_EMAILS=ops@example.test\n")
+            (shared / ".env.operations").chmod(0o600)
+            for source in (Path(__file__).resolve().parents[2] / "deploy/scripts").glob("*.py"):
+                shutil.copyfile(source, candidate / "scripts" / source.name)
             previous_environment = "LILLY_IMAGE_TAG=" + "a" * 40 + "\n"
             (shared / ".deployment.env").write_text(previous_environment)
 

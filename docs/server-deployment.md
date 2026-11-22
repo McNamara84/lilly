@@ -11,7 +11,76 @@ This runbook covers the production Compose stack in `deploy/`. The stack is deli
 - Never publish the LILLY host port on a public address; it is reserved for local health checks (`127.0.0.1:8091`).
 - Keep `/opt/lilly/shared/.env.production` on the server only, with mode `0600`.
 - Use `/opt/lilly/infrastructure/scripts/restore.sh` for recovery. Keep both release
-  directories referenced by `current` and `infrastructure` available.
+  directories referenced by `current`, `infrastructure` and `shared/backup-tools` available.
+
+## Supported host and first installation
+
+The production path requires Linux with systemd, Docker Engine and Docker Compose
+v2 (including `config --format json` and `pull --policy missing`), Python 3.12 or
+later, Bash, `flock`, `gzip`, `tar`, `sha256sum`, `curl`, and `systemd-analyze`.
+The automated container acceptance uses Debian 13; the operator's actual Linux
+release and systemd version must be recorded in the host commissioning checklist.
+The shared Traefik instance and DNS must meet the prerequisites below.
+
+Start from a checkout of the intended full commit, outside `/opt/lilly`. Run
+provisioning **before** creating any other file below `/opt/lilly`; it establishes
+the live erasure ledger and refuses an unsafe empty replacement on existing hosts.
+The following sequence makes release scripts available before configuration or
+the first deployment needs them:
+
+```bash
+LILLY_RELEASE=$(git rev-parse HEAD)
+sudo deploy/scripts/provision-server.sh /path/to/lilly-deploy.pub
+sudo install -d -m 0750 -o lilly-deploy -g lilly-deploy "/opt/lilly/releases/$LILLY_RELEASE"
+git archive "$LILLY_RELEASE" deploy |
+  sudo -u lilly-deploy tar --extract --strip-components=1 --directory "/opt/lilly/releases/$LILLY_RELEASE"
+
+sudo install -m 0600 -o lilly-deploy -g lilly-deploy \
+  deploy/.env.smtp.example /opt/lilly/shared/.smtp-input
+sudoedit /opt/lilly/shared/.smtp-input
+sudo python3 "/opt/lilly/releases/$LILLY_RELEASE/scripts/configure-environment.py" \
+  --smtp-config /opt/lilly/shared/.smtp-input \
+  --output /opt/lilly/shared/.env.production \
+  --app-base-url https://lilly.maddrax-fanclub.de
+sudo rm /opt/lilly/shared/.smtp-input
+
+sudo install -m 0600 -o lilly-deploy -g lilly-deploy \
+  deploy/.env.operations.example /opt/lilly/shared/.env.operations
+sudoedit /opt/lilly/shared/.env.operations
+sudo python3 "/opt/lilly/releases/$LILLY_RELEASE/scripts/configure-operations.py" \
+  --root /opt/lilly --apply
+
+printf 'LILLY_IMAGE_TAG=%s\nLILLY_BIND_ADDRESS=127.0.0.1\nLILLY_HOST_PORT=8091\nLILLY_RESOURCE_PREFIX=lilly\n' "$LILLY_RELEASE" |
+  sudo -u lilly-deploy sh -c 'umask 077; cat > /opt/lilly/shared/.deployment.env'
+sudo -u lilly-deploy "/opt/lilly/releases/$LILLY_RELEASE/scripts/deploy.sh" "$LILLY_RELEASE"
+```
+
+Before the final command, the matching backend/frontend commit-tagged images
+must have been published by GitHub Actions and be readable from the host. The
+first workflow may stop at deployment until this bootstrap and the production
+environment secrets are ready. Existing local immutable images are reused;
+missing images are pulled. Do not substitute the mutable `main` tag.
+
+Enter actual SMTP credentials and actual operations email recipients in the
+private input files. The generator supports TLS on port 465 and STARTTLS on 587,
+escapes literal dollar signs for Compose, and never overwrites an existing
+production file, including concurrent setup attempts. `--mail-source` remains
+available for the existing club installation as described below.
+
+After HTTPS works, register and verify the operator account through the UI, then
+promote that existing account without supplying its password:
+
+```bash
+docker compose --project-name lilly \
+  --env-file /opt/lilly/shared/.env.production \
+  --env-file /opt/lilly/shared/.deployment.env \
+  --file /opt/lilly/infrastructure/docker-compose.production.yml \
+  exec -T backend ./lilly-backend admin promote --email operator@example.org
+```
+
+Sign in again to receive the updated role. Verify an ordinary collection entry
+and photo, a clean stop/start and a host reboot with the same data volumes.
+Complete the backup/restore checks below before enabling the daily timer.
 
 ## Prerequisites: Traefik ingress
 
@@ -52,7 +121,7 @@ sudo deploy/scripts/provision-server.sh /path/to/lilly-deploy.pub
 This one-time provisioning creates the empty account-erasure ledger with owner/group `999:999`
 and mode `0600`. Re-running it for an existing installation whose ledger is missing fails closed;
 do not create an empty replacement, because it would lose the restore protection for completed
-deletions. Recover the live ledger from the separately retained offsite copy instead.
+deletions. Recover the latest surviving live ledger instead.
 
 Generate the private environment with the supplied helper. It creates unique URL-safe MariaDB passwords and a high-entropy JWT secret, writes the file atomically, and sets mode `0600` and ownership to `lilly-deploy`:
 
@@ -132,8 +201,8 @@ Before starting containers, it atomically points `/opt/lilly/infrastructure` at 
 attempted release. This independent reference retains its Compose configuration
 and recovery scripts even if the application rolls back to an older release.
 `current` identifies the healthy application release; the infrastructure reference
-is retained after partial failures and must be recorded with offsite recovery
-information. Do not delete either referenced release directory.
+is retained after partial failures and is recorded in the recovery information.
+Do not delete any release referenced by these links or `shared/backup-tools`.
 
 ### One-time migration of an existing backup service
 
@@ -150,8 +219,10 @@ sudo systemctl stop lilly-backup.timer
 systemctl show --property=ActiveState lilly-backup.service
 # Continue when the service is inactive or failed and no old manual backup is running.
 sudo install -m 0644 /opt/lilly/releases/<NEW_RELEASE_SHA>/systemd/lilly-backup.service /etc/systemd/system/
+sudo install -m 0644 /opt/lilly/releases/<NEW_RELEASE_SHA>/systemd/lilly-backup-failure.service /etc/systemd/system/
 sudo systemctl daemon-reload
 systemctl show --property=ExecStart lilly-backup.service
+systemctl show --property=OnFailure lilly-backup.service
 ```
 
 The loaded `ExecStart` must point to `/opt/lilly/shared/backup.sh`. Deployment
@@ -160,6 +231,13 @@ before starting a backup or changing the database. It also refuses to continue
 while a service invocation from before the helper update is still running.
 The uploaded candidate release directory remains available when this preflight
 check aborts a workflow; update its unit and retry that deployment.
+
+Before this upgrade also create the private `.env.operations` from the example,
+set actual alert recipients, and run the new release's `configure-operations.py
+--root /opt/lilly --apply`. The loaded `OnFailure` must be
+`lilly-backup-failure.service`. Deployment refuses missing operations configuration
+and incomplete unit migration before changing application data. Its helper-bundle
+link is published under the deployment lock and remains current after rollback.
 
 After deployment has installed the shared helper, enable the timer again. The
 helper remains updated even if application startup subsequently fails:
@@ -201,6 +279,7 @@ After the first successful deployment, install/refresh the unit files from the r
 ```bash
 sudo install -m 0644 /opt/lilly/infrastructure/systemd/lilly-backup.service /etc/systemd/system/
 sudo install -m 0644 /opt/lilly/infrastructure/systemd/lilly-backup.timer /etc/systemd/system/
+sudo install -m 0644 /opt/lilly/infrastructure/systemd/lilly-backup-failure.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now lilly-backup.timer
 sudo systemctl start lilly-backup.service
@@ -224,7 +303,59 @@ Each backup records both the application release and the infrastructure
 configuration release in `metadata.env`. Use the shared helper after a rollback;
 an older release's `scripts/backup.sh` may not implement the current lock protocol.
 
-Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log`; it must be included in offsite copies and must never be replaced by an older backup copy. Its file mode is `0600`; the containing directory is owned by the deployment user and the backend container group (GID 999) with mode `0770`.
+Every complete backup contains `account-erasure.log` and its checksum. The live append-only ledger remains at `/opt/lilly/shared/erasure-ledger/account-erasure.log` and must never be replaced by an older backup copy. Its file mode is `0600`; the containing directory is owned by the deployment user and the backend container group (GID 999) with mode `0770`.
+
+### Local retention and alerts
+
+The selected operating policy is **local backups only**, daily at 03:30
+`Europe/Berlin` with up to 15 minutes of random delay, retained for 14 days.
+There is no configured offsite destination. Losing the VPS and its local storage
+also loses these backups; recovery below assumes the files survived.
+
+`shared/.env.operations` configures `BACKUP_DIR`, `BACKUP_RETENTION_DAYS` (1–14),
+`BACKUP_ON_CALENDAR`, `BACKUP_RANDOMIZED_DELAY`, `BACKUP_ALERT_EMAILS` and
+`BACKUP_ALERT_TIMEOUT_SECONDS` (1–60, default 10). It is host-only, mode `0600`.
+Run `configure-operations.py --root /opt/lilly --apply` after calendar changes and
+inspect `systemctl list-timers lilly-backup.timer`. A custom backup directory must
+be dedicated to LILLY and writable by `lilly-deploy`; existing backups are not
+silently moved when changing its location.
+
+Rotation uses UTC timestamps recorded in snapshot names, including incomplete
+sets, rather than directory modification times. Failed snapshots are removed;
+expired sets are also pruned on a failed run once the locks were acquired. No
+unlimited oldest-backup exception extends the personal-data retention period.
+The current live ledger is outside that rotation.
+
+The backend and its background writers are paused while database, media and
+ledger are captured. This briefly interrupts API requests. A failed resume,
+dump, archive or rotation fails the job and is reported. Both ordinary runs and
+pre-deployment backups use the same implementation and lock order.
+
+Alerts use the existing SMTP settings directly on the host, independently of
+the database, HTTP process and Docker containers. Recipients are explicit and
+deduplicated. Each unsent recipient gets two bounded attempts; accepted deliveries
+are recorded to suppress repeat service notifications. SMTP failures remain in
+the journal; they do not turn a backup failure into success. Alert delivery state
+expires after 14 days. TLS is required outside the isolated acceptance fixture.
+
+Test the actual recipient and TLS configuration before enabling the timer:
+
+```bash
+sudo -u lilly-deploy python3 /opt/lilly/shared/backup-tools/operations.py \
+  --root /opt/lilly notify --run-id commissioning-mail-test --kind manual --phase service
+sudo -u lilly-deploy /opt/lilly/shared/backup.sh manual
+```
+
+Use a new run ID when intentionally sending another test; a confirmed recipient
+is deduplicated for the same ID. Inspect `journalctl -u lilly-backup.service
+-u lilly-backup-failure.service` for failures before the script could start.
+
+Version 2 snapshots include a manifest, checked configuration copies and a release
+configuration archive in addition to database, media and ledger. These contain
+credentials and require the same restricted access as the database dump. Before
+destructive restore, the tool checks required hashes, gzip integrity and archive
+paths/types; it rejects traversal, symlinks and device files. Existing snapshots
+with the required ledger and hashes remain readable for an in-place restore.
 
 Backups created before account-erasure support do not contain this marker and are intentionally rejected by `restore.sh`. After rolling out this version, create and verify a fresh backup before accepting deletion requests; retire all older restore sets according to the applicable retention policy.
 
@@ -237,6 +368,12 @@ A restore is intentionally manual and destructive:
 ```
 
 The restore script refuses to proceed without the live erasure ledger. After restoring database and media, it runs `lilly-backend privacy replay-erasure-ledger` before starting any public service. The replay permanently removes every account recorded after the restored snapshot. A replay failure keeps the stack offline; investigate the ledger and database instead of bypassing this guard.
+
+On a fresh host, successful readiness also establishes the missing `current`
+reference using the recovered infrastructure configuration. The restored image
+tag remains unchanged. This gives the next deployment a rollback configuration
+and ensures it takes its mandatory pre-deployment backup. In-place recovery keeps
+the existing application reference.
 
 Deployment, backups and restore all use `shared/.deploy.lock`. Backups and restore
 then acquire `backups/.backup.lock`, always in that order. A standalone backup
@@ -280,9 +417,44 @@ Verify a backup in a disposable environment before relying on it for production 
 
 1. Install Docker and the Traefik stack (see prerequisites) and create the `proxy` network.
 2. Run `deploy/scripts/provision-server.sh` **on the empty host, before restoring any file below `/opt/lilly`**. It creates the deployment user and the empty account-erasure ledger; on a host where `/opt/lilly` already exists it deliberately refuses to create a replacement ledger.
-3. Restore `/opt/lilly/shared/.env.production` and `/opt/lilly/shared/.deployment.env` from the offsite copy, the backup directories below `/opt/lilly/backups/` and, if one exists, the live ledger `/opt/lilly/shared/erasure-ledger/account-erasure.log`. Never restore the ledger from an older snapshot than the newest available copy.
-4. Deploy the release matching the recorded infrastructure reference (`workflow_dispatch` of the `Main Branch` workflow, or `deploy.sh <FULL_COMMIT_SHA>`) and then run `/opt/lilly/infrastructure/scripts/restore.sh` with the newest complete backup. An application's rollback image tag alone does not identify the database server version.
+3. Supply a surviving complete version 2 backup and the latest separately retained live ledger. From the recovery checkout run `sudo python3 deploy/scripts/operations.py --root /opt/lilly recover-files /path/to/backup --live-ledger /path/to/latest-live-ledger --owner lilly-deploy`. The helper refuses to overwrite private configuration or a nonempty ledger, restores the infrastructure release and keeps the supplied current ledger. Copy the selected backup into the configured local backup directory. Review the restored hostname, SMTP settings and deployment bindings for the new host.
+4. Using `/opt/lilly/infrastructure/docker-compose.production.yml` and both restored environment files, start **only the database** with `docker compose ... up -d --wait db`; then run `/opt/lilly/infrastructure/scripts/restore.sh --backup <local-backup> --confirm RESTORE_LILLY`. The manifest records the exact database image; the restore checks it against the running server. The backend executable is invoked explicitly for ledger replay before public services start. Do not publish restored user data before that replay succeeds.
 5. Update `LILLY_SERVER_KNOWN_HOSTS` if the host keys changed, re-enable `lilly-backup.timer` and verify one full backup.
+
+The database-only start and subsequent restore in step 4 use these complete commands:
+
+```bash
+docker compose --project-name lilly \
+  --env-file /opt/lilly/shared/.env.production \
+  --env-file /opt/lilly/shared/.deployment.env \
+  --file /opt/lilly/infrastructure/docker-compose.production.yml \
+  up -d --wait db
+sudo -u lilly-deploy bash /opt/lilly/infrastructure/scripts/restore.sh \
+  --backup /opt/lilly/backups/<BACKUP_DIRECTORY> --confirm RESTORE_LILLY
+```
+
+Run a restore rehearsal at least monthly in an isolated environment, coordinated
+by the configured operations recipients. Verify representative account/collection
+records, a downloaded photo hash, and a post-snapshot account erasure against the
+newest ledger. Record date, revision, backup ID and results without personal data.
+The automated equivalent and the host commissioning boundaries are documented in
+[operations acceptance](operations-acceptance.md).
+
+## Health monitoring
+
+`GET /api/v1/health` is readiness: HTTP 200 with
+`{"status":"ok","database":true}` only when the database, media directory and
+live ledger are usable. Probes run concurrently within a two-second budget,
+including pool acquisition. Failure returns HTTP 503 with `status: "degraded"`;
+`database` still describes only the database. No internal paths or diagnostic
+secrets are returned. SMTP, OAuth and wiki availability do not gate readiness.
+
+`GET /api/v1/health/live` returns HTTP 200 with `{"status":"ok"}` without
+dependency checks. Use readiness for startup/deployment/restore and liveness for
+a process check. Both endpoints are public and excluded from API rate limits.
+Docker's `unhealthy` flag alone does not restart containers; the existing restart
+policy handles exited processes. Restore reads the configured host port instead
+of assuming 8091.
 
 ## Rollback
 

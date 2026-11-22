@@ -124,6 +124,10 @@ jobs:
     with:
       profile: smoke
 
+  operations:
+    name: Operations acceptance
+    uses: ./.github/workflows/operations.yml
+
   e2e:
     name: E2E Tests (${{ matrix.browser }})
     strategy:

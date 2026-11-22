@@ -146,7 +146,7 @@ The following scale is the established standard in the German _Heftroman_ collec
 | **DB Access**        | SQLx (compile-time verified queries)              |
 | **Auth**             | JWT + argon2id, OAuth2 (Google, GitHub)           |
 | **API**              | REST, documented via OpenAPI 3.1 / Swagger        |
-| **Reverse Proxy**    | Caddy v2 (automatic HTTPS)                        |
+| **Reverse Proxy**    | Caddy v2 + Traefik (production HTTPS)              |
 | **Wiki Importer**    | Rust CLI (reqwest + scraper)                      |
 | **Containerization** | Docker + Docker Compose                           |
 | **i18n**             | Paraglide.js                                      |
@@ -177,7 +177,7 @@ The following scale is the established standard in the German _Heftroman_ collec
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The application is designed for **self-hosting** on your own server or VPS. All components run in Docker containers, orchestrated via Docker Compose. Caddy provides automatic HTTPS via Let's Encrypt.
+The application is designed for **self-hosting** on your own server or VPS. All components run in Docker containers, orchestrated via Docker Compose. Production HTTPS is terminated by the shared Traefik proxy; Caddy routes internal web/API traffic and public reference covers.
 
 For production deployment and recovery, see the [server runbook](docs/server-deployment.md).
 The deployment keeps an independent `/opt/lilly/infrastructure` reference for the
@@ -188,6 +188,19 @@ database version.
 Manual and scheduled backups use `/opt/lilly/shared/backup.sh`, which deployment
 updates independently of application rollback. Existing backup services need the
 one-time unit migration described in the server runbook before upgrading.
+
+Host-only backup settings live in `/opt/lilly/shared/.env.operations`: daily at
+03:30 Europe/Berlin (up to 15 minutes of jitter), 14-day local retention and
+failure emails to explicit operations recipients using the existing SMTP server.
+Versioned snapshots include database, media, recovery configuration and the erasure
+ledger. Readiness at `/api/v1/health` checks mandatory dependencies within two
+seconds; `/api/v1/health/live` checks the HTTP process independently.
+
+Run `python scripts/operations_acceptance.py --build` for an isolated production-
+container installation, registration, photo, backup and fresh-target restore check.
+On Windows the command uses a disposable Linux controller and state volume.
+See [operations acceptance](docs/operations-acceptance.md) for coverage commands,
+commissioning checks and the monthly restore rehearsal.
 
 The installable PWA is **offline-capable**: its service worker caches only the app shell and shared reference covers, while user-scoped IndexedDB stores the catalogue, personal collection, durable mutation queue, and explicit conflicts. Offline creates and edits are committed atomically, sent in batches of at most 100, and synchronized idempotently after reconnect. An attempted mutation keeps its original payload; later edits are queued as dependent changes. Tabs coordinate synchronization through an expiring IndexedDB lease. Logout warns about unsent changes, removes that user's private local data across tabs, and blocks stale session responses. Photos, messaging, and live trade matching remain online-only. The UI follows a **mobile-first** approach and is fully usable on all screen sizes.
 
