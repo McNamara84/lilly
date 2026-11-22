@@ -24,9 +24,11 @@ nicht ausgeführt. Für Compose erzeugte Werte schützen auch literale Dollarzei
 
 Der Runner [operations_acceptance.py](../scripts/operations_acceptance.py) wurde
 mit echten MariaDB-, Backend-, Frontend-, Caddy- und Mailpit-Containern ausgeführt.
-Die lokale Linux-Steuerumgebung verwendet Python 3.14.10 auf Debian 13 innerhalb
-von Docker Desktop. Die Images sind aus dem Arbeitsstand gebaut; Image-IDs und
-UTC-Zeitpunkte stehen im erzeugten JSON-Bericht.
+Die lokale Linux-Steuerumgebung verwendet Python 3.14.10 und Compose 5.1.3 auf
+Debian 13 innerhalb von Docker Desktop. Compose ist im Werkzeugimage mit Digest
+festgelegt und entspricht der beim CI-Fehler geprüften Runner-Version.
+Die Images sind aus dem Arbeitsstand gebaut; Image-IDs, tatsächlich verwendete
+Compose-Version und UTC-Zeitpunkte stehen im erzeugten JSON-Bericht.
 
 Die sieben Stufen des Durchlaufs sind:
 
@@ -43,6 +45,11 @@ Die sieben Stufen des Durchlaufs sind:
 4. Fehlender Schreibzugriff auf Fotoablage beziehungsweise Staging-Verzeichnis:
    Readiness liefert 503, Liveness weiterhin 200. Ein zweiter Backend-Prozess
    prüft zusätzlich einen tatsächlich schreibgeschützt gemounteten Medienbestand.
+   Der Mount wird über eine Compose-Override-Datei gesetzt und anschließend mit
+   `docker inspect` auf genau einen `/media`-Mount mit `RW=false` geprüft. Damit
+   erkennt die Abnahme auch eine verlorene Fehler-Injektion: Compose 5.1.3 behielt
+   beim bisherigen `run --volume …:ro` den schreibbaren Service-Mount bei, während
+   Compose 2.26.1 ihn ersetzte. Die Override-Datei wurde mit beiden Versionen geprüft.
 5. Echter Datenbankdump und Medienarchiv; Wiederaufbau in einen zweiten leeren
    Stack aus den gesicherten Dateien. Prüfung von Notiz, Auflage und unabhängig
    aufgezeichnetem Foto-Hash. Ein nach dem Snapshot gelöschtes Konto und dessen
@@ -82,11 +89,11 @@ werden durch diesen Containerlauf nicht als bestanden ausgegeben.
   ESLint, Prettier und Svelte-/Service-Worker-Typprüfung bestehen.
 - Die API-Vertragstests einschließlich Liveness und lokalem Swagger UI bestehen
   in Chromium, Firefox und WebKit: **sechs Tests**.
-- Die **163 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
+- Die **166 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
   atomare Erstinstallation, beschädigte/gefährliche Archive, Aufbewahrungsgrenzen,
   Eigentümerrechte, Fehler-E-Mails, Sperrkoordination, Datenbank-Imageprüfung
   sowie fehlgeschlagenes Fortsetzen des Backends. Gemeinsam mit dem echten
-  Containerlauf ergeben sich **94,43 % kombinierte Anweisungs-/Zweigabdeckung**
+  Containerlauf ergeben sich **93,27 % kombinierte Anweisungs-/Zweigabdeckung**
   für Python-Betriebswerkzeuge und Abnahmerunner, **99,12 %** für die gemeinsame
   Betriebslogik in `operations.py`. Die Messung verwendet frische Coverage-Daten.
 

@@ -118,6 +118,44 @@ class IsolationTests(unittest.TestCase):
             self.assertEqual(result["checks"], [])
 
 
+class StorageReadinessTests(unittest.TestCase):
+    def verify(self, directory, mounts, readiness=b"503"):
+        stack = SimpleNamespace(root=Path(directory), project="lilly-storage-test", port=18080, compose=MagicMock())
+        def execute(arguments, **kwargs):
+            if arguments[:2] == ["docker", "inspect"]:
+                return SimpleNamespace(stdout=json.dumps(mounts).encode())
+            if arguments[:2] == ["docker", "exec"]:
+                return SimpleNamespace(stdout=b"200" if arguments[-1].endswith("/live") else readiness)
+            return SimpleNamespace(stdout=b"")
+        with patch.object(acceptance, "Client"), patch.object(acceptance, "command", side_effect=execute) as run:
+            try:
+                acceptance.verify_storage_readiness(stack)
+            finally:
+                run.assert_any_call(["docker", "rm", "--force", "lilly-storage-test-readonly-probe"])
+        return stack, run
+
+    def test_probe_declares_readonly_override_and_verifies_the_actual_mount(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stack, run = self.verify(directory, [{"Destination": "/media", "RW": False}])
+            override = Path(directory) / "readonly-probe.compose.json"
+            media = json.loads(override.read_text())["services"]["backend"]["volumes"]
+            self.assertEqual(media, [{"type": "volume", "source": "media_data", "target": "/media", "read_only": True}])
+            stack.compose.assert_any_call("--file", override, "run", "-d", "--no-deps", "--name",
+                                          "lilly-storage-test-readonly-probe", "backend")
+            run.assert_any_call(["docker", "inspect", "lilly-storage-test-readonly-probe", "--format", "{{json .Mounts}}"])
+
+    def test_probe_rejects_missing_writable_or_ambiguous_media_mounts(self):
+        for mounts in ([], [{"Destination": "/media", "RW": True}], [{"Destination": "/media"}],
+                       [{"Destination": "/media", "RW": False}] * 2):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(mounts=mounts):
+                with self.assertRaisesRegex(RuntimeError, "read-only /media mount"):
+                    self.verify(directory, mounts)
+
+    def test_verified_readonly_mount_still_requires_readiness_to_fail(self):
+        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+            self.verify(directory, [{"Destination": "/media", "RW": False}], readiness=b"200")
+
+
 class CommandTests(unittest.TestCase):
     def test_linux_cli_builds_requested_candidates_before_acceptance(self):
         fake_os = SimpleNamespace(name="posix", environ={})

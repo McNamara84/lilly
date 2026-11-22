@@ -304,9 +304,18 @@ def verify_storage_readiness(stack):
             stack.compose("exec", "-T", "--user", "root", "backend", "chmod", "0750", directory)
         health.request("/api/v1/health")
     readonly = stack.project + "-readonly-probe"
+    override = stack.root / "readonly-probe.compose.json"
+    # Use Compose's volume merge by container target. Compose 5 can retain the
+    # service's writable mount when `run --volume ...:ro` names the same volume.
+    ops.private_write(override, json.dumps({"services": {"backend": {"volumes": [
+        {"type": "volume", "source": "media_data", "target": "/media", "read_only": True}
+    ]}}}))
     try:
-        stack.compose("run", "-d", "--no-deps", "--name", readonly,
-                      "--volume", stack.project + "_media_data:/media:ro", "backend")
+        stack.compose("--file", override, "run", "-d", "--no-deps", "--name", readonly, "backend")
+        mounts = json.loads(command(["docker", "inspect", readonly, "--format", "{{json .Mounts}}"]).stdout)
+        media = [mount for mount in mounts if mount.get("Destination") == "/media"]
+        if len(media) != 1 or media[0].get("RW") is not False:
+            raise RuntimeError("Read-only probe did not receive exactly one read-only /media mount")
         deadline = time.monotonic() + 30
         while True:
             response = command(["docker", "exec", readonly, "curl", "--silent", "--output", "/dev/null",
@@ -319,7 +328,7 @@ def verify_storage_readiness(stack):
         response = command(["docker", "exec", readonly, "curl", "--silent", "--output", "/dev/null",
                             "--write-out", "%{http_code}", "http://127.0.0.1:8080/api/v1/health"])
         if response.stdout != b"503":
-            raise RuntimeError("Readiness accepted an actual read-only photo-storage mount")
+            raise RuntimeError("Read-only photo-storage readiness did not return HTTP 503")
     finally:
         command(["docker", "rm", "--force", readonly])
 
@@ -387,6 +396,7 @@ def acceptance(backend, frontend, report):
         stacks.append(source)
         result["backend_image_id"] = command(["docker", "image", "inspect", backend, "--format", "{{.Id}}"]).stdout.decode().strip()
         result["frontend_image_id"] = command(["docker", "image", "inspect", frontend, "--format", "{{.Id}}"]).stdout.decode().strip()
+        result["compose_version"] = command(["docker", "compose", "version", "--short"]).stdout.decode().strip()
         source.initialize()
         source.compose("up", "-d", "--wait", "--wait-timeout", "180")
         Client(source.port).request("/api/v1/health")
