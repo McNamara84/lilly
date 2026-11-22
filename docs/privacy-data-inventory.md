@@ -37,13 +37,28 @@ Nach Ablauf beansprucht ein Worker den Job atomar. Bevor er Daten löscht, schre
 | Service Worker / CacheStorage                        | App-Shell und öffentliche Referenzcover                           | alle `lilly-*`-Caches vorsorglich löschen                               | private API-Antworten werden grundsätzlich nicht gecacht                                         |
 | Anwendungslogs                                       | technische IDs und Fehlerkategorien                               | keine neuen Inhalte protokollieren                                      | bestehende Betriebsrotation; keine E-Mail, Tokens, Storage-Keys oder Nachrichtentexte hinzufügen |
 | Datenbank-/Medienbackups                             | historischer Snapshot                                             | reguläre Aufbewahrung maximal 14 Tage                                   | nicht nachträglich verändern; Restore-Ledger vor Freigabe zwingend abspielen                     |
-| Restore-Ledger                                       | zufälliger 256-Bit-`erasure_subject`                              | append-only Eintrag unmittelbar vor finaler Löschung                    | getrennt persistent und offsite sichern; niemals durch älteren Stand ersetzen                    |
+| Restore-Ledger                                       | zufälliger 256-Bit-`erasure_subject`                              | append-only Eintrag unmittelbar vor finaler Löschung                    | getrennt persistent erhalten; niemals durch älteren Snapshot ersetzen; aktuelles Betriebsmodell ausschließlich lokal |
 
 ## Gemeinsame Historie
 
 Abgeschlossene und abgebrochene Tausche gehören beiden Teilnehmern. Deshalb bleibt der sachliche Vorgang für das verbleibende Konto bestehen, verliert aber alle Referenzen und Texte des gelöschten Kontos. Die UI und API verwenden ausschließlich den neutralen Namen „Gelöschtes Konto“. Aus dem verbleibenden Datensatz darf weder E-Mail noch Anzeigename, Profil-ID, Avatar, Ort oder Sammlung des gelöschten Kontos rekonstruierbar sein.
 
 ## Backup und Wiederherstellung
+
+Das bestätigte Betriebsmodell sichert ausschließlich lokal, täglich gegen 03:30
+Uhr in `Europe/Berlin`, mit maximal 14 Tagen Aufbewahrung. Die Host-Konfiguration
+liegt in `.env.operations`. Sicherungen ab Version 2 enthalten zusätzlich
+private Konfigurationskopien und die für den Wiederaufbau benötigten
+Release-Dateien. Ab Version 3 werden aktuelle Wiederherstellungswerkzeuge getrennt
+von der datenbankgebundenen Infrastruktur archiviert. Diese Kopien unterliegen denselben Zugriffsrechten und
+Aufbewahrungsfristen wie der Datenbankdump. Ohne erhaltene lokale Dateien besteht
+kein Wiederherstellungsnachweis für einen vollständigen Verlust des VPS.
+
+Fehler-E-Mails enthalten nur technische Laufkennung, Zeitpunkt, Sicherungsart
+und Fehlerkategorie. Empfänger werden ausdrücklich konfiguriert, ohne eine
+Datenbankabfrage zu benötigen. Der lokale Zustellstatus enthält bestätigte
+Empfängeradressen und wird nach 14 Tagen gelöscht; Sicherungsinhalte und
+Geheimnisse werden weder in diese Meldungen noch in öffentliche Reports übernommen.
 
 Das Live-Ledger liegt in Produktion standardmäßig unter `/opt/lilly/shared/erasure-ledger/account-erasure.log` und im Container unter `/erasure-ledger/account-erasure.log`. Die Backup-Prüfsumme umfasst eine Kopie des Ledgers; die Live-Datei bleibt davon unabhängig. `restore.sh` verweigert einen Restore ohne Live-Ledger und führt vor dem Start der öffentlichen Dienste folgenden fail-closed Replay aus:
 

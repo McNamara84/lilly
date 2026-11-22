@@ -1,0 +1,58 @@
+name: Operations acceptance
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  operations:
+    name: Installation, backup and restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build candidate production backend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: production
+          load: true
+          tags: lilly-backend:operations
+          cache-from: type=gha,scope=lilly-operations-backend
+          cache-to: type=gha,scope=lilly-operations-backend,mode=max
+      - name: Build candidate production frontend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          load: true
+          tags: lilly-frontend:operations
+          cache-from: type=gha,scope=lilly-operations-frontend
+          cache-to: type=gha,scope=lilly-operations-frontend,mode=max
+      - name: Install coverage tool
+        run: python3 -m pip install coverage==7.14.1
+      - name: Script tests and real recovery acceptance
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.tmp/.coverage-operations
+        run: |
+          mkdir -p .tmp
+          for script in deploy/scripts/*.sh; do bash -n "$script"; done
+          python3 -m coverage run --rcfile=deploy/tests/coverage.ini -m unittest discover -s scripts/tests -p 'test_*.py'
+          python3 -m coverage run --rcfile=deploy/tests/coverage.ini scripts/operations_acceptance.py
+          python3 -m coverage combine --rcfile=deploy/tests/coverage.ini
+          python3 -m coverage report --rcfile=deploy/tests/coverage.ini --fail-under=90
+          python3 -m coverage json --rcfile=deploy/tests/coverage.ini -o .tmp/operations-coverage.json
+      - name: Preserve sanitized acceptance reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: operations-acceptance
+          path: |
+            .tmp/operations-acceptance.json
+            .tmp/operations-coverage.json
+          if-no-files-found: ignore

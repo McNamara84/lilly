@@ -69,7 +69,10 @@ install -m 0644 "${DEPLOY_DIR}/systemd/lilly-backup.service" \
   /etc/systemd/system/lilly-backup.service
 install -m 0644 "${DEPLOY_DIR}/systemd/lilly-backup.timer" \
   /etc/systemd/system/lilly-backup.timer
+install -m 0644 "${DEPLOY_DIR}/systemd/lilly-backup-failure.service" \
+  /etc/systemd/system/lilly-backup-failure.service
 systemctl daemon-reload
 
 echo "Provisioned ${DEPLOY_USER} and ${LILLY_ROOT}."
 echo "Enable lilly-backup.timer only after the first successful release is active."
+echo "Configure shared/.env.operations and install its timer override before enabling backups."

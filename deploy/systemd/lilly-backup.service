@@ -2,11 +2,13 @@
 Description=Create a consistent local LILLY backup
 Requires=docker.service
 After=docker.service
+OnFailure=lilly-backup-failure.service
 
 [Service]
 Type=oneshot
 User=lilly-deploy
 Group=lilly-deploy
+UMask=0077
 ExecStart=/opt/lilly/shared/backup.sh daily
 Nice=10
 IOSchedulingClass=best-effort

@@ -156,7 +156,7 @@ _Legende Kategorien: SV = Sammlungsverwaltung; DI = Datenimport; TA = Tausch; CO
 
 - Self-Hosting auf einem einzelnen VPS mit Docker-Containerisierung.
 - Deployment via Docker Compose oder vergleichbar. Einfache Installation mit dokumentiertem Setup-Prozess.
-- Automatisierte Backups der Datenbank und der Nutzer-Uploads.
+- **NFR-OPS-003:** Automatisierte Backups der Datenbank und der Nutzer-Uploads einschließlich Wiederherstellung nach Hostverlust ([#61](https://github.com/McNamara84/lilly/issues/61)). Die bestätigten lokalen Sicherungen erfüllen den Schutz vor vollständigem VPS-/Speicherverlust noch nicht; dieser Teil bleibt außerhalb des aktuellen Umfangs offen und wird in der [Betriebsabnahme](operations-acceptance.md#offene-abnahme-wiederherstellung-nach-vollständigem-hostverlust) ausdrücklich verfolgt.
 - Monitoring-Endpunkt (Health Check) für den Betrieb.
 
 ### 4.3 Sicherheit

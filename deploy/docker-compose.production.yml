@@ -84,7 +84,7 @@ services:
       IMPORT_SCHEDULED_ADAPTERS: ${IMPORT_SCHEDULED_ADAPTERS:-maddrax,john-sinclair}
     volumes:
       - media_data:/media
-      - ${LILLY_ROOT:-/opt/lilly}/shared/erasure-ledger:/erasure-ledger
+      - ${LILLY_LEDGER_PATH:-${LILLY_ROOT:-/opt/lilly}/shared/erasure-ledger}:/erasure-ledger
     networks:
       - app
       - data
@@ -154,7 +154,7 @@ services:
       # Public ingress is Traefik (TLS, HTTP->HTTPS redirect, certificates).
       # The host port above stays on loopback and only serves deploy health checks.
       - traefik.enable=true
-      - traefik.docker.network=proxy
+      - traefik.docker.network=${LILLY_PROXY_NETWORK:-proxy}
       - traefik.http.routers.lilly.rule=Host(`${LILLY_PUBLIC_HOST:-lilly.maddrax-fanclub.de}`)
       - traefik.http.routers.lilly.entrypoints=websecure
       - traefik.http.routers.lilly.tls.certresolver=le
@@ -191,7 +191,7 @@ networks:
   # Shared ingress network owned by the Traefik stack (created once on the host:
   # docker network create --subnet 172.30.0.0/24 proxy).
   proxy:
-    name: proxy
+    name: ${LILLY_PROXY_NETWORK:-proxy}
     external: true
 
 volumes:

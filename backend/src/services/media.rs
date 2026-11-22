@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::io::Cursor;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use image::codecs::jpeg::{JpegDecoder, JpegEncoder};
@@ -15,6 +16,33 @@ use crate::models::media::ProcessedPhoto;
 
 const USER_PHOTO_DIRECTORY: &str = "user-photos";
 const TEMP_DIRECTORY: &str = ".tmp";
+
+struct WriteProbe(PathBuf);
+
+impl WriteProbe {
+    fn create(directory: &Path) -> std::io::Result<Self> {
+        let path = directory.join(format!(".readiness-{:032x}", rand::random::<u128>()));
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        let probe = Self(path);
+        let result = file.write_all(b"\0");
+        drop(file);
+        result?;
+        Ok(probe)
+    }
+
+    fn remove(self) -> std::io::Result<()> {
+        std::fs::remove_file(&self.0)
+    }
+}
+
+impl Drop for WriteProbe {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
@@ -52,6 +80,20 @@ impl MediaStorage {
         tokio::fs::create_dir_all(self.root.join(TEMP_DIRECTORY))
             .await
             .map_err(MediaError::Storage)
+    }
+
+    pub(crate) async fn check_write_access(&self) -> Result<(), MediaError> {
+        let root = self.root.clone();
+        // Cancellation can drop the awaiting request, but the blocking task
+        // retains each probe guard until its filesystem operation and cleanup
+        // finish. No async file creation can outlive its cleanup guard.
+        tokio::task::spawn_blocking(move || {
+            WriteProbe::create(&root)?.remove()?;
+            WriteProbe::create(&root.join(TEMP_DIRECTORY))?.remove()
+        })
+        .await
+        .map_err(|error| MediaError::Storage(std::io::Error::other(error)))?
+        .map_err(MediaError::Storage)
     }
 
     pub async fn stage(&self, bytes: &[u8]) -> Result<StagedPhoto, MediaError> {
@@ -609,5 +651,88 @@ mod tests {
         assert!(!staged.temporary_path.exists());
         assert!(!staged.final_path.exists());
         let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn write_probe_is_cleaned_up_after_the_awaiting_request_is_cancelled() {
+        let root = std::env::temp_dir().join(format!("lilly-probe-{}", generate_storage_key()));
+        std::fs::create_dir(&root).unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let (finished, done) = tokio::sync::oneshot::channel();
+        let directory = root.clone();
+        let request = tokio::spawn(async move {
+            tokio::task::spawn_blocking(move || {
+                let probe = WriteProbe::create(&directory).unwrap();
+                started.send(()).unwrap();
+                wait.recv().unwrap();
+                drop(probe);
+                finished.send(()).unwrap();
+            })
+            .await
+        });
+        ready.await.unwrap();
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        release.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), done)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+        std::fs::remove_dir(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_probe_rejects_inaccessible_photo_and_staging_directories() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use std::os::unix::process::CommandExt;
+
+        if let Ok(directory) = std::env::var("LILLY_WRITE_PROBE_TEST_ROOT") {
+            let actual = MediaStorage::new(Path::new(&directory))
+                .check_write_access()
+                .await
+                .is_ok();
+            assert_eq!(
+                actual,
+                std::env::var("LILLY_WRITE_PROBE_EXPECT_READY").unwrap() == "true"
+            );
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "lilly-probe-permissions-{}",
+            generate_storage_key()
+        ));
+        let storage = MediaStorage::new(&root);
+        storage.prepare().await.unwrap();
+        let photos = root.join(USER_PHOTO_DIRECTORY);
+        let staging = photos.join(TEMP_DIRECTORY);
+        for (photo_mode, staging_mode, ready) in [
+            (0o777, 0o777, true),
+            (0o777, 0o500, false),
+            (0o500, 0o777, false),
+        ] {
+            std::fs::set_permissions(&photos, std::fs::Permissions::from_mode(photo_mode)).unwrap();
+            std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(staging_mode))
+                .unwrap();
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.args(["--exact", "services::media::tests::write_probe_rejects_inaccessible_photo_and_staging_directories"])
+                .env("LILLY_WRITE_PROBE_TEST_ROOT", &root)
+                .env("LILLY_WRITE_PROBE_EXPECT_READY", ready.to_string());
+            if std::fs::metadata(&root).unwrap().uid() == 0 {
+                child.uid(65534).gid(65534);
+            }
+            let output = child.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::fs::set_permissions(&photos, std::fs::Permissions::from_mode(0o777)).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

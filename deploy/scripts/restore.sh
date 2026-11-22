@@ -2,12 +2,13 @@
 set -Eeuo pipefail
 
 readonly LILLY_ROOT="${LILLY_ROOT:-/opt/lilly}"
-readonly BACKUP_ROOT="${LILLY_ROOT}/backups"
 readonly SHARED_DIR="${LILLY_ROOT}/shared"
 readonly APP_ENV_FILE="${SHARED_DIR}/.env.production"
 readonly DEPLOYMENT_ENV_FILE="${SHARED_DIR}/.deployment.env"
 readonly INFRASTRUCTURE_COMPOSE_FILE="${LILLY_ROOT}/infrastructure/docker-compose.production.yml"
 readonly ERASURE_LEDGER="${SHARED_DIR}/erasure-ledger/account-erasure.log"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly OPS_HELPER="${SCRIPT_DIR}/operations.py"
 
 backup_dir=""
 confirmation=""
@@ -38,9 +39,22 @@ if [[ "${confirmation}" != "RESTORE_LILLY" || -z "${backup_dir}" ]]; then
   exit 2
 fi
 
+umask 077
+exec 8>"${SHARED_DIR}/.deploy.lock"
+if ! flock -w 900 8; then
+  echo "Another LILLY deployment or restore did not finish within 15 minutes." >&2
+  exit 1
+fi
+operation_values="$(python3 "${OPS_HELPER}" --root "${LILLY_ROOT}" settings)"
+mapfile -t settings <<<"${operation_values}"
+readonly BACKUP_ROOT="${settings[0]}"
+if [[ -L "${backup_dir}" ]]; then
+  echo "Restore cannot use a symlinked backup directory." >&2
+  exit 2
+fi
 backup_dir="$(realpath -- "${backup_dir}")"
 backup_root_real="$(realpath -- "${BACKUP_ROOT}")"
-if [[ "${backup_dir}" != "${backup_root_real}/"* ]]; then
+if [[ "$(dirname -- "${backup_dir}")" != "${backup_root_real}" ]]; then
   echo "Backup must be located directly below ${BACKUP_ROOT}" >&2
   exit 2
 fi
@@ -60,14 +74,6 @@ for required_file in \
   fi
 done
 
-# Keep the selected image and running database stable throughout recovery.
-umask 077
-exec 8>"${SHARED_DIR}/.deploy.lock"
-if ! flock -w 900 8; then
-  echo "Another LILLY deployment or restore did not finish within 15 minutes." >&2
-  exit 1
-fi
-
 # Deployments take the deployment lock before invoking the pre-deployment backup.
 # Use the same order and hold the backup lock through validation and recovery.
 exec 9>"${BACKUP_ROOT}/.backup.lock"
@@ -76,14 +82,11 @@ if ! flock -w 900 9; then
   exit 1
 fi
 
-(
-  cd "${backup_dir}"
-  sha256sum --check SHA256SUMS
-)
+snapshot_db_image="$(python3 "${OPS_HELPER}" --root "${LILLY_ROOT}" verify "${backup_dir}" --database-image)"
 
 compose() {
   docker compose \
-    --project-name lilly \
+    --project-name "${LILLY_PROJECT_NAME:-lilly}" \
     --env-file "${APP_ENV_FILE}" \
     --env-file "${DEPLOYMENT_ENV_FILE}" \
     --file "${INFRASTRUCTURE_COMPOSE_FILE}" \
@@ -105,6 +108,8 @@ if [[ "${configured_db_image}" != "${running_db_image}" ]]; then
   echo "Select the infrastructure release matching the running database before retrying." >&2
   exit 1
 fi
+python3 "${OPS_HELPER}" --root "${LILLY_ROOT}" check-database-restore \
+  --source-image "${snapshot_db_image}" --target-image "${running_db_image}"
 
 resource_prefix="$(sed -n 's/^LILLY_RESOURCE_PREFIX=//p' "${DEPLOYMENT_ENV_FILE}" | tail -n 1)"
 resource_prefix="${resource_prefix:-lilly}"
@@ -113,6 +118,12 @@ if [[ ! "${resource_prefix}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
   exit 1
 fi
 readonly MEDIA_VOLUME="${resource_prefix}_media_data"
+host_port="$(sed -n 's/^LILLY_HOST_PORT=//p' "${DEPLOYMENT_ENV_FILE}" | tail -n 1)"
+host_port="${host_port:-8091}"
+if [[ ! "${host_port}" =~ ^[0-9]+$ ]] || (( host_port < 1024 || host_port > 65535 )); then
+  echo "LILLY_HOST_PORT must be an unprivileged TCP port" >&2
+  exit 1
+fi
 
 echo "Stopping LILLY application services..."
 compose stop caddy frontend backend
@@ -142,11 +153,20 @@ docker run --rm --interactive \
   <"${backup_dir}/media.tar.gz"
 
 echo "Replaying the live account-erasure ledger against the restored snapshot..."
-compose run --rm --no-deps backend privacy replay-erasure-ledger
+compose run --rm --no-deps backend ./lilly-backend privacy replay-erasure-ledger
+
+# A fresh-host restore has infrastructure files but no application reference yet.
+# Publish its recovered configuration before starting public services. A failed
+# publication leaves them stopped; the next deployment needs this backup and
+# rollback reference before the restored application can be made available.
+if [[ ! -e "${LILLY_ROOT}/current" && ! -L "${LILLY_ROOT}/current" ]]; then
+  ln -sfnT "$(readlink -f -- "${LILLY_ROOT}/infrastructure")" "${LILLY_ROOT}/current.next"
+  mv -Tf "${LILLY_ROOT}/current.next" "${LILLY_ROOT}/current"
+fi
 
 echo "Starting the restored LILLY stack..."
 compose up -d --wait --remove-orphans
 curl --fail --silent --show-error --max-time 5 \
-  http://127.0.0.1:8091/api/v1/health >/dev/null
+  "http://127.0.0.1:${host_port}/api/v1/health" >/dev/null
 
 echo "Restore completed successfully from ${backup_dir}."

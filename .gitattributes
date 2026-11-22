@@ -1,5 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+deploy/scripts/*.sh text eol=lf
+deploy/scripts/*.py text eol=lf
+deploy/systemd/* text eol=lf
+frontend/**/*.ts text eol=lf
+frontend/**/*.svelte text eol=lf
 
 # Keep these migrations' SQLx checksums stable across Windows/Linux checkouts.
 # Do not change historical migration line endings in existing databases.

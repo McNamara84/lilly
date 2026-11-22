@@ -29,6 +29,12 @@ pub struct HealthResponse {
     pub database: bool,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LivenessResponse {
+    #[schema(pattern = "^ok$")]
+    pub status: &'static str,
+}
+
 #[derive(ToSchema)]
 #[allow(dead_code)]
 pub struct PhotoUpload {

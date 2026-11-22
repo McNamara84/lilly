@@ -7,6 +7,7 @@ test('public, private and admin API responses match the published contract', asy
 }) => {
 	for (const path of [
 		'/api/v1/health',
+		'/api/v1/health/live',
 		'/api/v1/auth/options',
 		'/api/v1/series',
 		'/api/v1/media/photo-policy'

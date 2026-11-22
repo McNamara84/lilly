@@ -129,6 +129,10 @@ jobs:
     with:
       profile: full
 
+  operations:
+    name: Operations acceptance
+    uses: ./.github/workflows/operations.yml
+
   e2e:
     name: E2E Tests (${{ matrix.browser }})
     strategy:
@@ -149,6 +153,7 @@ jobs:
       - backend-lint
       - backend-test
       - collection-performance
+      - operations
       - e2e
     runs-on: ubuntu-latest
     permissions:

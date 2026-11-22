@@ -12,6 +12,11 @@ readonly COMPOSE_FILE="${RELEASE_DIR}/docker-compose.production.yml"
 readonly INFRASTRUCTURE_LINK="${LILLY_ROOT}/infrastructure"
 readonly BACKUP_SCRIPT="${SHARED_DIR}/backup.sh"
 
+# Deployment controls come only from the validated file values below. Compose
+# otherwise lets exported caller variables override both explicit env files,
+# including calls made by the backup helper and the application rollback.
+unset LILLY_BIND_ADDRESS LILLY_HOST_PORT LILLY_RESOURCE_PREFIX LILLY_IMAGE_TAG
+
 if [[ ! "${RELEASE_ID}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Usage: $0 <40-character commit SHA>" >&2
   exit 2
@@ -19,9 +24,11 @@ fi
 
 for required_file in \
   "${APP_ENV_FILE}" \
+  "${SHARED_DIR}/.env.operations" \
   "${COMPOSE_FILE}" \
   "${RELEASE_DIR}/Caddyfile" \
-  "${RELEASE_DIR}/scripts/backup.sh"; do
+  "${RELEASE_DIR}/scripts/backup.sh" \
+  "${RELEASE_DIR}/scripts/operations.py"; do
   if [[ ! -f "${required_file}" ]]; then
     echo "Required deployment file is missing: ${required_file}" >&2
     exit 1
@@ -71,8 +78,8 @@ if [[ -f "${DEPLOYMENT_ENV_FILE}" ]]; then
   fi
 fi
 
-if [[ "${bind_address}" != "0.0.0.0" && "${bind_address}" != "127.0.0.1" ]]; then
-  echo "LILLY_BIND_ADDRESS must be either 0.0.0.0 or 127.0.0.1" >&2
+if [[ "${bind_address}" != "127.0.0.1" ]]; then
+  echo "LILLY_BIND_ADDRESS must be 127.0.0.1; production ingress belongs to Traefik." >&2
   exit 1
 fi
 if [[ ! "${host_port}" =~ ^[0-9]+$ ]] || (( host_port < 1024 || host_port > 65535 )); then
@@ -89,9 +96,16 @@ printf 'LILLY_IMAGE_TAG=%s\nLILLY_BIND_ADDRESS=%s\nLILLY_HOST_PORT=%s\nLILLY_RES
   >"${CANDIDATE_ENV_FILE}"
 chmod 600 "${CANDIDATE_ENV_FILE}"
 
+deployment_compose() {
+  LILLY_BIND_ADDRESS="${bind_address}" \
+  LILLY_HOST_PORT="${host_port}" \
+  LILLY_RESOURCE_PREFIX="${resource_prefix}" \
+    docker compose "$@"
+}
+
 compose_new() {
-  docker compose \
-    --project-name lilly \
+  LILLY_IMAGE_TAG="${RELEASE_ID}" deployment_compose \
+    --project-name "${LILLY_PROJECT_NAME:-lilly}" \
     --env-file "${APP_ENV_FILE}" \
     --env-file "${CANDIDATE_ENV_FILE}" \
     --file "${COMPOSE_FILE}" \
@@ -101,7 +115,7 @@ compose_new() {
 rollback() {
   echo "Deployment failed; attempting application container rollback." >&2
   echo "The database image and data directory will remain at their current version." >&2
-  echo "Recovery tooling: ${INFRASTRUCTURE_LINK}/scripts/restore.sh" >&2
+  echo "Recovery tooling: ${SHARED_DIR}/backup-tools/restore.sh" >&2
 
   if (( had_previous_env == 1 )); then
     install -m 600 "${previous_env_file}" "${DEPLOYMENT_ENV_FILE}"
@@ -110,13 +124,13 @@ rollback() {
   fi
 
   if [[ -n "${previous_release}" && -f "${previous_release}/docker-compose.production.yml" && -f "${DEPLOYMENT_ENV_FILE}" ]]; then
-    if ! docker compose \
-      --project-name lilly \
+    if ! deployment_compose \
+      --project-name "${LILLY_PROJECT_NAME:-lilly}" \
       --env-file "${APP_ENV_FILE}" \
       --env-file "${DEPLOYMENT_ENV_FILE}" \
       --file "${previous_release}/docker-compose.production.yml" \
       up -d --wait --no-deps backend frontend caddy; then
-      echo "Automatic application rollback also failed. Use ${INFRASTRUCTURE_LINK}/scripts/restore.sh with the pre-deployment backup for recovery." >&2
+      echo "Automatic application rollback also failed. Use ${SHARED_DIR}/backup-tools/restore.sh with the pre-deployment backup for recovery." >&2
     fi
   else
     compose_new stop || true
@@ -124,9 +138,11 @@ rollback() {
 }
 
 echo "Validating release ${RELEASE_ID}..."
-compose_new config --quiet
+compose_new config --format json \
+  | python3 "${RELEASE_DIR}/scripts/operations.py" --root "${LILLY_ROOT}" \
+      validate-deployment --host-port "${host_port}"
 
-if ! docker network inspect proxy >/dev/null 2>&1; then
+if ! docker network inspect "${LILLY_PROXY_NETWORK:-proxy}" >/dev/null 2>&1; then
   echo "The external Docker network 'proxy' does not exist. Start the Traefik stack first." >&2
   exit 1
 fi
@@ -145,14 +161,21 @@ if [[ "${backup_service_state}" == "loaded" ]]; then
     echo "Update lilly-backup.service from ${RELEASE_DIR}/systemd/ and run systemctl daemon-reload before deploying." >&2
     exit 1
   fi
+  backup_failure_unit="$(systemctl show --property=OnFailure --value lilly-backup.service)"
+  if [[ "${backup_failure_unit}" != "lilly-backup-failure.service" ]]; then
+    echo "Update lilly-backup.service and lilly-backup-failure.service before deploying." >&2
+    exit 1
+  fi
+  if ! backup_failure_state="$(systemctl show --property=LoadState --value lilly-backup-failure.service)" \
+    || [[ "${backup_failure_state}" != "loaded" ]]; then
+    echo "Install lilly-backup-failure.service and run systemctl daemon-reload before deploying." >&2
+    exit 1
+  fi
 elif [[ "${backup_service_state}" != "not-found" ]]; then
   echo "Unexpected lilly-backup.service load state: ${backup_service_state}" >&2
   exit 1
 fi
 
-# Keep the backup implementation current even when the application rolls back.
-install -m 700 "${RELEASE_DIR}/scripts/backup.sh" "${BACKUP_SCRIPT}.next"
-mv -Tf "${BACKUP_SCRIPT}.next" "${BACKUP_SCRIPT}"
 if [[ "${backup_service_state}" == "loaded" ]]; then
   backup_service_active="$(systemctl show --property=ActiveState --value lilly-backup.service)"
   if [[ "${backup_service_active}" != "inactive" && "${backup_service_active}" != "failed" ]]; then
@@ -161,6 +184,14 @@ if [[ "${backup_service_state}" == "loaded" ]]; then
   fi
 fi
 
+# Validate before changing recovery tools or application data. Publish the complete
+# helper bundle under the deployment lock; application rollback never rewinds it.
+python3 "${RELEASE_DIR}/scripts/operations.py" --root "${LILLY_ROOT}" settings >/dev/null
+ln -sfn "${RELEASE_DIR}/scripts" "${SHARED_DIR}/backup-tools.next"
+mv -Tf "${SHARED_DIR}/backup-tools.next" "${SHARED_DIR}/backup-tools"
+install -m 700 "${RELEASE_DIR}/scripts/backup.sh" "${BACKUP_SCRIPT}.next"
+mv -Tf "${BACKUP_SCRIPT}.next" "${BACKUP_SCRIPT}"
+
 if [[ -n "${previous_release}" ]]; then
   "${BACKUP_SCRIPT}" pre-deploy
 else
@@ -168,7 +199,7 @@ else
 fi
 
 echo "Pulling immutable release images..."
-compose_new pull
+compose_new pull --policy missing
 
 # Record recovery tooling and infrastructure before the database can be upgraded.
 # Application rollback deliberately leaves this reference on the attempted release.
