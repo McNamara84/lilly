@@ -44,3 +44,4 @@ docker-compose.override.yml
 
 docs/server.env
 .deployment-secrets/
+server.env
