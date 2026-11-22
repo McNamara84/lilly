@@ -190,6 +190,13 @@ The `Main Branch` GitHub Actions workflow performs all tests, publishes both com
 
 The script validates the Compose model, creates a mandatory backup when a previous release exists, pulls exact image tags, waits for all healthchecks and switches `/opt/lilly/current` only after the release is healthy.
 
+Exported caller values for `LILLY_BIND_ADDRESS`, `LILLY_HOST_PORT`,
+`LILLY_RESOURCE_PREFIX` and `LILLY_IMAGE_TAG` cannot override this deployment.
+Compose receives the validated deployment controls explicitly; before any backup
+or container start, the fully resolved model must publish Caddy only on
+`127.0.0.1` at the validated port. Application rollback uses the same validated
+binding and resource prefix, with the previous release's recorded image tag.
+
 While holding the deployment lock, it atomically installs the candidate release's
 backup implementation as `/opt/lilly/shared/backup.sh`. Both the backup service
 and manual backups use this stable entry point. The pre-deployment backup invokes
@@ -313,6 +320,13 @@ The selected operating policy is **local backups only**, daily at 03:30
 `Europe/Berlin` with up to 15 minutes of random delay, retained for 14 days.
 There is no configured offsite destination. Losing the VPS and its local storage
 also loses these backups; recovery below assumes the files survived.
+
+**NFR-OPS-003 is not fully accepted.** Recovery after complete VPS/storage loss
+is explicitly outside the confirmed local-only scope (decision 1C) and remains
+open under [issue #61](https://github.com/McNamara84/lilly/issues/61).
+The [acceptance record](operations-acceptance.md#offene-abnahme-wiederherstellung-nach-vollständigem-hostverlust)
+tracks this gap and the evidence needed to close it. A fresh-target restore from
+surviving local files does not establish host-loss recovery.
 
 `shared/.env.operations` configures `BACKUP_DIR`, `BACKUP_RETENTION_DAYS` (1–14),
 `BACKUP_ON_CALENDAR`, `BACKUP_RANDOMIZED_DELAY`, `BACKUP_ALERT_EMAILS` and
@@ -449,6 +463,12 @@ Verify a backup in a disposable environment before relying on it for production 
 3. Supply a surviving complete version 3 (or legacy version 2) backup and the latest separately retained live ledger. From the current recovery checkout run `sudo python3 deploy/scripts/operations.py --root /opt/lilly recover-files /path/to/backup --live-ledger /path/to/latest-live-ledger --owner lilly-deploy`. The helper refuses to overwrite private configuration, shared entrypoints, existing release references or a nonempty ledger. It restores the infrastructure release, publishes the current tools under `shared/recovery-tools/`, creates `shared/backup-tools` and executable `shared/backup.sh`, assigns deployment-user ownership and keeps the supplied current ledger. Copy the selected backup into the configured local backup directory. Review the restored hostname, SMTP settings and deployment bindings for the new host.
 4. Using `/opt/lilly/infrastructure/docker-compose.production.yml` and both restored environment files, start **only the database** with `docker compose ... up -d --wait db`; then run `/opt/lilly/shared/backup-tools/restore.sh --backup <local-backup> --confirm RESTORE_LILLY`. By default the fresh server uses the snapshot's recorded database image. The current backend replay command runs before public services start. Do not publish restored user data before that replay succeeds.
 5. Run `sudo python3 /opt/lilly/shared/backup-tools/configure-operations.py --root /opt/lilly --apply`, then execute `/opt/lilly/shared/backup.sh manual` and the explicit notification test above as `lilly-deploy`. Verify a new complete snapshot and a delivered email before re-enabling `lilly-backup.timer`. Update `LILLY_SERVER_KNOWN_HOSTS` if the host keys changed.
+
+Recovery stages configuration, tools, entrypoints and ownership before publishing
+them. A publication error removes the paths created by that attempt and restores
+the provisioned empty ledger and existing directory permissions, allowing a retry
+after the cause is fixed. If rollback itself reports a cleanup failure, keep the
+installation offline and resolve that failure before retrying.
 
 The database-only start and subsequent restore in step 4 use these complete commands:
 

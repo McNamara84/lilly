@@ -163,6 +163,9 @@ elif args[0] == "compose":
     if command[0] == "config":
         if command[1:] == ["--images", "db"]:
             print(image)
+        elif command[1:] == ["--format", "json"]:
+            print(json.dumps({"services": {"caddy": {"ports": [{"host_ip": os.environ.get("LILLY_BIND_ADDRESS", "127.0.0.1"),
+                  "published": os.environ.get("LILLY_HOST_PORT", "8091"), "target": 80, "protocol": "tcp"}]}}}))
         else:
             assert command[1:] == ["--quiet"], command
     elif command[0] == "ps":

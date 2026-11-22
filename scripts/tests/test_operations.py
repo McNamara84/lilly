@@ -51,6 +51,24 @@ class OperationsFixture(unittest.TestCase):
 
 
 class ConfigurationTests(OperationsFixture):
+    def test_effective_deployment_model_requires_one_valid_loopback_port(self):
+        valid = {"services": {"caddy": {"ports": [{"host_ip": "127.0.0.1", "published": "8091",
+                                                    "target": 80, "protocol": "tcp"}]}}}
+        ops.validate_deployment(valid, 8091)
+        port = valid["services"]["caddy"]["ports"][0]
+        for changed in ({"host_ip": "0.0.0.0"}, {"host_ip": "::"}, {"host_ip": None},
+                        {"published": "8092"}, {"target": 443}, {"protocol": "udp"}):
+            with self.subTest(changed=changed), self.assertRaises(ops.OperationsError):
+                ops.validate_deployment({"services": {"caddy": {"ports": [{**port, **changed}]}}}, 8091)
+        for caddy in ({}, {"ports": []}, {"ports": [port, port]}, {"ports": ["127.0.0.1:8091:80"]},
+                      {"ports": [port], "network_mode": "host"}):
+            with self.subTest(caddy=caddy), self.assertRaises(ops.OperationsError):
+                ops.validate_deployment({"services": {"caddy": caddy}}, 8091)
+        with self.assertRaises(ops.OperationsError):
+            ops.validate_deployment(valid, 1)
+        with patch.object(sys, "stdin", io.StringIO(json.dumps(valid))):
+            self.assertEqual(self.cli("validate-deployment", "--host-port", "8091")[0], 0)
+
     def test_public_entrypoints_offer_help_without_reading_production_configuration(self):
         scripts = Path(__file__).resolve().parents[2] / "deploy/scripts"
         for name in ("operations.py", "configure-operations.py", "notify-backup-failure.py"):
@@ -451,7 +469,115 @@ class SnapshotTests(OperationsFixture):
         with patch.object(ops.tarfile.TarFile, "extractall", side_effect=OSError), self.assertRaises(OSError):
             ops.recover_configuration(directory, target, latest)
         self.assertFalse((target / "shared/.env.production").exists())
-        self.assertEqual(list((target / "releases").iterdir()), [])
+        self.assertFalse(target.exists())
+
+    def test_recovery_removes_every_published_output_and_preserves_provisioned_ledger_on_failure(self):
+        import pwd
+        directory = self.snapshot()
+        latest = self.root / "latest-ledger"
+        latest.write_text("f" * 64 + "\n")
+        account = pwd.getpwnam("nobody") if os.getuid() == 0 else pwd.getpwuid(os.getuid())
+        phases = [("rename", "releases/" + "b" * 40), ("rename", "shared/recovery-tools"),
+                  *(('link', 'shared/' + name) for name in (".env.production", ".deployment.env", ".env.operations", "backup.sh", "backup-tools")),
+                  ("link", "infrastructure"), ("replace", "shared/erasure-ledger/account-erasure.log")]
+        faults = ((phase, after) for phase in phases for after in (False, True))
+        for index, ((operation, relative), after) in enumerate(faults):
+            target = self.root.parent / f"recover-publication-{index}"
+            for name in ("incoming", "releases", "backups", "shared/erasure-ledger"):
+                (target / name).mkdir(mode=0o750, parents=True, exist_ok=True)
+            old = target / "shared/erasure-ledger/account-erasure.log"
+            old.write_bytes(b"")
+            old.chmod(0o600)
+            original = old.stat()
+            parents = {path: (path.stat().st_uid, path.stat().st_gid, path.stat().st_mode & 0o777)
+                       for path in (target, target / "shared", target / "releases", old.parent)}
+            entries = {str(path.relative_to(target)) for path in target.rglob("*")}
+            syscall = getattr(os, operation)
+            injected = False
+            def fail_publication(source, destination, *arguments, **kwargs):
+                nonlocal injected
+                if not injected and Path(destination) == target / relative:
+                    injected = True
+                    if after:
+                        syscall(source, destination, *arguments, **kwargs)
+                    raise OSError("Injected publication failure")
+                return syscall(source, destination, *arguments, **kwargs)
+            with self.subTest(operation=operation, path=relative, after=after):
+                with patch.object(ops.os, operation, side_effect=fail_publication), self.assertRaises(OSError):
+                    ops.recover_configuration(directory, target, latest, account.pw_name)
+                self.assertTrue(injected)
+                self.assertEqual({str(path.relative_to(target)) for path in target.rglob("*")}, entries)
+                self.assertEqual(old.read_bytes(), b"")
+                self.assertEqual((old.stat().st_ino, old.stat().st_uid, old.stat().st_gid, old.stat().st_mode),
+                                 (original.st_ino, original.st_uid, original.st_gid, original.st_mode))
+                for path, attributes in parents.items():
+                    self.assertEqual((path.stat().st_uid, path.stat().st_gid, path.stat().st_mode & 0o777), attributes)
+                ops.recover_configuration(directory, target, latest, account.pw_name)
+                self.assertEqual(old.read_bytes(), latest.read_bytes())
+                self.assertTrue((target / "infrastructure").is_symlink())
+                self.assertTrue((target / "shared/backup-tools/operations.py").is_file())
+
+    def test_recovery_stages_private_writes_before_publishing_and_can_retry(self):
+        directory = self.snapshot()
+        latest = self.root / "latest-ledger"
+        latest.write_text("f" * 64 + "\n")
+        for index, name in enumerate((".env.production", ".deployment.env", ".env.operations", "account-erasure.log", "backup.sh")):
+            target = self.root.parent / f"recover-write-{index}"
+            target.mkdir()
+            sentinel = target / "keep"
+            sentinel.write_text("unrelated file")
+            write = ops.private_write
+            def fail_after_write(path, content):
+                write(path, content)
+                if path.name == name:
+                    raise OSError("Injected private write failure")
+            with self.subTest(path=name):
+                with patch.object(ops, "private_write", side_effect=fail_after_write), self.assertRaises(OSError):
+                    ops.recover_configuration(directory, target, latest)
+                self.assertEqual(list(target.iterdir()), [sentinel])
+                self.assertEqual(sentinel.read_text(), "unrelated file")
+                ops.recover_configuration(directory, target, latest)
+                self.assertEqual((target / "shared/erasure-ledger/account-erasure.log").read_bytes(), latest.read_bytes())
+
+    def test_recovery_owner_error_rolls_back_new_parent_directories(self):
+        import pwd
+        directory = self.snapshot()
+        latest = self.root / "latest-ledger"
+        latest.write_text("f" * 64 + "\n")
+        target = self.root.parent / "recover-owner-failure"
+        target.mkdir(mode=0o750)
+        before = target.stat()
+        chown = os.chown
+        injected = False
+        account = pwd.getpwnam("nobody") if os.getuid() == 0 else pwd.getpwuid(os.getuid())
+        def fail_parent(path, *args, **kwargs):
+            nonlocal injected
+            chown(path, *args, **kwargs)
+            if not injected and Path(path) == target / "shared":
+                injected = True
+                raise PermissionError("Injected parent ownership failure")
+        with patch.object(ops.os, "chown", side_effect=fail_parent), self.assertRaises(PermissionError):
+            ops.recover_configuration(directory, target, latest, account.pw_name)
+        self.assertTrue(injected)
+        self.assertEqual(list(target.iterdir()), [])
+        self.assertEqual((target.stat().st_uid, target.stat().st_gid, target.stat().st_mode),
+                         (before.st_uid, before.st_gid, before.st_mode))
+        ops.recover_configuration(directory, target, latest, account.pw_name)
+
+    def test_recovery_failed_publication_removes_a_new_installation_root(self):
+        directory = self.snapshot()
+        latest = self.root / "latest-ledger"
+        latest.write_text("f" * 64 + "\n")
+        target = self.root.parent / "recover-new-root"
+        link = os.link
+        def fail_link(source, destination, **kwargs):
+            link(source, destination, **kwargs)
+            if Path(destination) == target / "shared/.deployment.env":
+                raise OSError("Injected publication failure")
+        with patch.object(ops.os, "link", side_effect=fail_link), self.assertRaises(OSError):
+            ops.recover_configuration(directory, target, latest)
+        self.assertFalse(target.exists())
+        ops.recover_configuration(directory, target, latest)
 
 
     def test_recovery_does_not_overwrite_existing_shared_entrypoints(self):

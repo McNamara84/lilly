@@ -193,6 +193,9 @@ one-time unit migration described in the server runbook before upgrading.
 Host-only backup settings live in `/opt/lilly/shared/.env.operations`: daily at
 03:30 Europe/Berlin (up to 15 minutes of jitter), 14-day local retention and
 failure emails to explicit operations recipients using the existing SMTP server.
+**NFR-OPS-003 remains partially open:** recovery after loss of the VPS and its
+storage is outside the confirmed local-only scope. There is no off-host copy;
+see the [tracked acceptance gap](docs/operations-acceptance.md#offene-abnahme-wiederherstellung-nach-vollständigem-hostverlust).
 Versioned snapshots include database, media, recovery configuration, a separate
 current recovery-tool bundle and the erasure ledger. Fresh-host recovery also
 reinstalls the shared backup/notification entrypoints. The documented logical

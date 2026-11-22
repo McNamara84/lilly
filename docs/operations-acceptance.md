@@ -20,6 +20,30 @@ E-Mail-Fehlerpfade und die getrennte Readiness-/Liveness-Prüfung. Private
 Konfigurationsdateien werden als Daten eingelesen; Shell-Substitutionen werden
 nicht ausgeführt. Für Compose erzeugte Werte schützen auch literale Dollarzeichen.
 
+## Offene Abnahme: Wiederherstellung nach vollständigem Hostverlust
+
+**NFR-OPS-003 aus [#61](https://github.com/McNamara84/lilly/issues/61) ist nur
+teilweise umgesetzt und nicht vollständig abgenommen.** Die bestätigte
+Entscheidung 1C (ausschließlich lokale Sicherungen) nimmt die Wiederherstellung
+nach Verlust des VPS einschließlich seines Speichers aus diesem Vorhaben aus.
+Die Anforderung selbst bleibt bestehen; ihr offener Anteil wird hier und in
+den [Betriebsanforderungen](requirements.md#42-verfügbarkeit-und-betrieb) verfolgt.
+
+| Teil der Backup-Abnahme | Status und Grenze |
+| --- | --- |
+| Geplante, konsistente Sicherungen, Aufbewahrung und Fehlermeldung | Implementiert und automatisiert geprüft; produktive Inbetriebnahme gemäß Runbook steht separat an. |
+| Wiederherstellung in eine leere Installation | Geprüft, wenn vollständiger Snapshot und aktuelles Live-Ledger noch verfügbar sind. |
+| Wiederherstellung nach vollständigem VPS-/Speicherverlust | **Offen, außerhalb des bestätigten lokalen Umfangs.** Kein externes Sicherungsziel und keine Replikation vorhanden. |
+
+Ein leerer zweiter Teststack weist den letzten Punkt nicht nach: Er erhält
+überlebende Sicherungsdateien vom Ausgangshost. Geht dessen Speicher verloren,
+fehlen Snapshot und aktuelles Live-Ledger. Für eine spätere vollständige Abnahme
+von NFR-OPS-003 sind ein unabhängiges Sicherungsziel für beide, eine überwachte
+Übertragung und eine erfolgreiche Wiederherstellungsprobe ohne Zugriff auf den
+ursprünglichen Host erforderlich. Bis dahin darf die lokale Teilabnahme nicht
+als Schutz vor vollständigem Hostverlust oder als vollständiger Abschluss von
+NFR-OPS-003 ausgewiesen werden.
+
 ## Tatsächlich geprüfter Containerablauf
 
 Der Runner [operations_acceptance.py](../scripts/operations_acceptance.py) wurde
@@ -95,12 +119,16 @@ werden durch diesen Containerlauf nicht als bestanden ausgegeben.
   ESLint, Prettier und Svelte-/Service-Worker-Typprüfung bestehen.
 - Die API-Vertragstests einschließlich Liveness und lokalem Swagger UI bestehen
   in Chromium, Firefox und WebKit: **sechs Tests**.
-- Die **169 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
+- Die **176 Linux-Skripttests** prüfen zusätzlich Konfiguration, unveränderte SMTP-Werte,
   atomare Erstinstallation, beschädigte/gefährliche Archive, Aufbewahrungsgrenzen,
   Eigentümerrechte, Fehler-E-Mails, Sperrkoordination, Datenbank-Imageprüfung
-  sowie fehlgeschlagenes Fortsetzen des Backends. Gemeinsam mit dem echten
-  Containerlauf ergeben sich **93,23 % kombinierte Anweisungs-/Zweigabdeckung**
-  für Python-Betriebswerkzeuge und Abnahmerunner, **99,12 %** für die gemeinsame
+  sowie fehlgeschlagenes Fortsetzen des Backends. Der echte Compose-Parser prüft
+  zusätzlich exportierte fremde Deployment-Werte und eine öffentlich bindende
+  Vorlage. Injizierte Schreib-, Eigentümer- und Veröffentlichungsfehler prüfen
+  die vollständige Recovery-Bereinigung, den Erhalt des provisionierten Ledgers
+  samt Rechten und einen anschließenden erfolgreichen Neuversuch. Gemeinsam mit
+  dem echten Containerlauf ergeben sich **92,66 % kombinierte Anweisungs-/Zweigabdeckung**
+  für Python-Betriebswerkzeuge und Abnahmerunner, **97,09 %** für die gemeinsame
   Betriebslogik in `operations.py`. Die Messung verwendet frische Coverage-Daten.
 
 Die neue erforderliche CI-Prüfung [operations.yml](../.github/workflows/operations.yml)

@@ -335,6 +335,102 @@ def check_database_restore(source: str, target: str) -> None:
     raise OperationsError("Unsupported logical database restore; use an isolated rebuild with the recorded image")
 
 
+def validate_deployment(model: dict, host_port: int) -> None:
+    """Check effective ingress after Compose has resolved all interpolation."""
+    caddy = model.get("services", {}).get("caddy", {})
+    ports = caddy.get("ports", [])
+    if not isinstance(ports, list) or len(ports) != 1 or not isinstance(ports[0], dict):
+        raise OperationsError("Deployment requires exactly one loopback Caddy port")
+    port = ports[0]
+    if (not 1024 <= host_port <= 65535 or port.get("host_ip") != "127.0.0.1"
+            or str(port.get("published")) != str(host_port) or port.get("target") != 80
+            or port.get("protocol", "tcp") != "tcp" or caddy.get("network_mode") == "host"):
+        raise OperationsError("Effective Caddy binding differs from the validated loopback configuration")
+
+
+class RecoveryPublication:
+    """Undo only paths published by this recovery attempt if publication fails."""
+
+    def __init__(self):
+        self.outputs = []
+        self.new_directories = []
+        self.previous_directories = []
+        self.ledger_undo = None
+
+    @staticmethod
+    def matches(path: Path, identity) -> bool:
+        try:
+            current = path.lstat()
+        except FileNotFoundError:
+            return False
+        return (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino)
+
+    def directory(self, path: Path, mode: int, owner=None, *, set_mode=False) -> None:
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise OperationsError("Recovery parent must be a regular directory")
+        if path.exists():
+            self.previous_directories.append((path, path.stat()))
+        else:
+            path.mkdir(mode=mode)
+            self.new_directories.append((path, path.stat()))
+        if owner is not None:
+            os.chown(path, *owner)
+        if set_mode:
+            os.chmod(path, mode)
+
+    def publish(self, source: Path, destination: Path) -> None:
+        if destination.exists() or destination.is_symlink():
+            raise OperationsError("Recovery refuses to overwrite a published path")
+        # Register the staged inode before the syscall so rollback also handles
+        # an interruption immediately after a successful move/link.
+        self.outputs.append((destination, source.lstat()))
+        if source.is_dir() and not source.is_symlink():
+            os.rename(source, destination)
+        else:
+            os.link(source, destination, follow_symlinks=False)
+
+    def replace_empty_ledger(self, source: Path, destination: Path, backup: Path, original) -> None:
+        if not self.matches(destination, original) or destination.stat().st_size:
+            raise OperationsError("Live ledger changed while recovery was being prepared")
+        self.ledger_undo = destination, backup, source.stat()
+        os.replace(source, destination)
+
+    def rollback(self) -> None:
+        failures = []
+        if self.ledger_undo:
+            destination, backup, identity = self.ledger_undo
+            if self.matches(destination, identity):
+                try:
+                    os.replace(backup, destination)
+                except OSError as error:
+                    failures.append(error)
+        for path, identity in reversed(self.outputs):
+            try:
+                if self.matches(path, identity):
+                    if path.is_dir() and not path.is_symlink():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+            except OSError as error:
+                failures.append(error)
+        for path, previous in reversed(self.previous_directories):
+            try:
+                current = path.stat()
+                if (current.st_uid, current.st_gid) != (previous.st_uid, previous.st_gid):
+                    os.chown(path, previous.st_uid, previous.st_gid)
+                if current.st_mode & 0o7777 != previous.st_mode & 0o7777:
+                    os.chmod(path, previous.st_mode & 0o7777)
+            except OSError as error:
+                failures.append(error)
+        if failures:
+            raise OperationsError("Recovery failed and rollback needs operator cleanup; keep the installation offline") from failures[0]
+
+    def remove_new_directories(self) -> None:
+        for path, identity in reversed(self.new_directories):
+            if self.matches(path, identity):
+                path.rmdir()
+
+
 def recover_configuration(directory: Path, root: Path, live_ledger: Path, owner: str | None = None) -> None:
     """Prepare an empty installation; never replace a live configuration or ledger."""
     manifest = verify_snapshot(directory)
@@ -366,10 +462,16 @@ def recover_configuration(directory: Path, root: Path, live_ledger: Path, owner:
         import pwd
         account = pwd.getpwnam(owner)
         uid_gid = account.pw_uid, account.pw_gid
-    release.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=".recover-", dir=release.parent))
-    temporary_tools = Path(tempfile.mkdtemp(prefix=".recover-tools-", dir=release.parent))
+    root.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".recover-", dir=root if root.exists() else root.parent))
+    payload = staging / "payload"
+    temporary = payload / "release"
+    temporary_tools = payload / "recovery-tools"
+    publication = RecoveryPublication()
+    committed = False
     try:
+        temporary.mkdir(mode=0o750, parents=True)
+        temporary_tools.mkdir(mode=0o750)
         with tarfile.open(directory / "deployment.tar.gz", "r:gz") as archive:
             archive.extractall(temporary, filter="data")
         if manifest["format"] == 3:
@@ -385,47 +487,67 @@ def recover_configuration(directory: Path, root: Path, live_ledger: Path, owner:
                                               for name in RECOVERY_SCRIPTS)).hexdigest()
         for path in temporary_tools.iterdir():
             os.chmod(path, 0o700 if path.suffix == ".sh" else 0o600)
+        staged_tools_parent = payload / "tools"
+        staged_tools_parent.mkdir(mode=0o750)
+        staged_tools = staged_tools_parent / tools_id
+        os.rename(temporary_tools, staged_tools)
+        os.chmod(temporary, 0o750)
+        os.chmod(staged_tools, 0o750)
         tools_parent = shared / "recovery-tools"
-        tools_parent.mkdir(mode=0o750, parents=True)
         tools = tools_parent / tools_id
-        os.replace(temporary_tools, tools)
-        os.chmod(tools, 0o750)
-        os.replace(temporary, release)
-        os.chmod(release, 0o750)
-        if uid_gid:
-            for path in (root, shared, release.parent, release, tools_parent, tools):
-                path.mkdir(mode=0o750, parents=True, exist_ok=True)
-                os.chown(path, *uid_gid)
-            for path in release.rglob("*"):
-                os.chown(path, *uid_gid)
-            for path in tools.iterdir():
-                os.chown(path, *uid_gid)
+        configuration = payload / "configuration"
         for source, target in zip(("production.env", "deployment.env", "operations.env"), targets, strict=True):
             content = (directory / "configuration" / source).read_bytes()
             if source == "operations.env":
                 values = read_env(directory / "configuration" / source)
                 values["BACKUP_DIR"] = str(root / "backups")
                 content = "".join(f"{key}={json.dumps(value)}\n" for key, value in values.items()).encode()
-            private_write(target, content)
-            if uid_gid:
-                os.chown(target, *uid_gid)
-        private_write(target_ledger, ledger)
-        if os.name == "posix" and os.geteuid() == 0:
-            os.chmod(target_ledger.parent, 0o770)
-            os.chown(target_ledger.parent, uid_gid[0] if uid_gid else os.geteuid(), 999)
-            os.chown(target_ledger, 999, 999)
-        (root / "infrastructure").symlink_to(release, target_is_directory=True)
-        private_write(shared / "backup.sh", (tools / "backup.sh").read_bytes())
-        os.chmod(shared / "backup.sh", 0o700)
-        (shared / "backup-tools").symlink_to(tools, target_is_directory=True)
+            private_write(configuration / target.name, content)
+        staged_ledger = payload / "account-erasure.log"
+        private_write(staged_ledger, ledger)
+        private_write(payload / "backup.sh", (staged_tools / "backup.sh").read_bytes())
+        os.chmod(payload / "backup.sh", 0o700)
+        (payload / "infrastructure").symlink_to(release, target_is_directory=True)
+        (payload / "backup-tools").symlink_to(tools, target_is_directory=True)
         if uid_gid:
-            os.chown(shared / "backup.sh", *uid_gid)
-            os.chown(shared / "backup-tools", *uid_gid, follow_symlinks=False)
+            for path in payload.rglob("*"):
+                os.chown(path, *uid_gid, follow_symlinks=False)
+        if os.name == "posix" and os.geteuid() == 0:
+            os.chown(staged_ledger, 999, 999)
+        original_ledger = target_ledger.stat() if target_ledger.exists() else None
+        old_ledger = staging / "original-ledger"
+        if original_ledger:
+            if original_ledger.st_size:
+                raise OperationsError("Recovery refuses to replace a nonempty live ledger")
+            os.link(target_ledger, old_ledger, follow_symlinks=False)
+
+        # All extraction, private writes and tool ownership changes succeeded.
+        # Publish under a rollback registry; do not overwrite a provisioned ledger
+        # until every other output is in place, and retain its original inode.
+        publication.directory(root, 0o750, uid_gid)
+        publication.directory(release.parent, 0o750, uid_gid)
+        publication.directory(shared, 0o750, uid_gid)
+        ledger_owner = (uid_gid[0] if uid_gid else os.geteuid(), 999) if os.name == "posix" and os.geteuid() == 0 else uid_gid
+        publication.directory(target_ledger.parent, 0o770, ledger_owner, set_mode=True)
+        publication.publish(temporary, release)
+        publication.publish(staged_tools_parent, tools_parent)
+        for target in targets:
+            publication.publish(configuration / target.name, target)
+        publication.publish(payload / "backup.sh", shared / "backup.sh")
+        publication.publish(payload / "backup-tools", shared / "backup-tools")
+        publication.publish(payload / "infrastructure", root / "infrastructure")
+        if original_ledger:
+            publication.replace_empty_ledger(staged_ledger, target_ledger, old_ledger, original_ledger)
+        else:
+            publication.publish(staged_ledger, target_ledger)
+        committed = True
+    except BaseException:
+        publication.rollback()
+        raise
     finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
-        if temporary_tools.exists():
-            shutil.rmtree(temporary_tools)
+        shutil.rmtree(staging)
+        if not committed:
+            publication.remove_new_directories()
 
 
 @contextmanager
@@ -540,6 +662,8 @@ def main(command: str | None = None) -> int:
     database = sub.add_parser("check-database-restore")
     database.add_argument("--source-image", required=True)
     database.add_argument("--target-image", required=True)
+    deployment = sub.add_parser("validate-deployment")
+    deployment.add_argument("--host-port", type=int, required=True)
     notice = sub.add_parser("notify")
     notice.add_argument("--run-id", default=os.environ.get("MONITOR_INVOCATION_ID") or os.environ.get("INVOCATION_ID") or uuid.uuid4().hex)
     notice.add_argument("--kind", default="service")
@@ -568,6 +692,8 @@ def main(command: str | None = None) -> int:
                 print(manifest.get("database_image", ""))
         elif args.command == "check-database-restore":
             check_database_restore(args.source_image, args.target_image)
+        elif args.command == "validate-deployment":
+            validate_deployment(json.load(sys.stdin), args.host_port)
         elif args.command == "recover-files":
             recover_configuration(args.directory, args.root, args.live_ledger, args.owner)
         elif args.command == "notify":

@@ -12,6 +12,11 @@ readonly COMPOSE_FILE="${RELEASE_DIR}/docker-compose.production.yml"
 readonly INFRASTRUCTURE_LINK="${LILLY_ROOT}/infrastructure"
 readonly BACKUP_SCRIPT="${SHARED_DIR}/backup.sh"
 
+# Deployment controls come only from the validated file values below. Compose
+# otherwise lets exported caller variables override both explicit env files,
+# including calls made by the backup helper and the application rollback.
+unset LILLY_BIND_ADDRESS LILLY_HOST_PORT LILLY_RESOURCE_PREFIX LILLY_IMAGE_TAG
+
 if [[ ! "${RELEASE_ID}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Usage: $0 <40-character commit SHA>" >&2
   exit 2
@@ -91,8 +96,15 @@ printf 'LILLY_IMAGE_TAG=%s\nLILLY_BIND_ADDRESS=%s\nLILLY_HOST_PORT=%s\nLILLY_RES
   >"${CANDIDATE_ENV_FILE}"
 chmod 600 "${CANDIDATE_ENV_FILE}"
 
+deployment_compose() {
+  LILLY_BIND_ADDRESS="${bind_address}" \
+  LILLY_HOST_PORT="${host_port}" \
+  LILLY_RESOURCE_PREFIX="${resource_prefix}" \
+    docker compose "$@"
+}
+
 compose_new() {
-  docker compose \
+  LILLY_IMAGE_TAG="${RELEASE_ID}" deployment_compose \
     --project-name "${LILLY_PROJECT_NAME:-lilly}" \
     --env-file "${APP_ENV_FILE}" \
     --env-file "${CANDIDATE_ENV_FILE}" \
@@ -112,7 +124,7 @@ rollback() {
   fi
 
   if [[ -n "${previous_release}" && -f "${previous_release}/docker-compose.production.yml" && -f "${DEPLOYMENT_ENV_FILE}" ]]; then
-    if ! docker compose \
+    if ! deployment_compose \
       --project-name "${LILLY_PROJECT_NAME:-lilly}" \
       --env-file "${APP_ENV_FILE}" \
       --env-file "${DEPLOYMENT_ENV_FILE}" \
@@ -126,7 +138,9 @@ rollback() {
 }
 
 echo "Validating release ${RELEASE_ID}..."
-compose_new config --quiet
+compose_new config --format json \
+  | python3 "${RELEASE_DIR}/scripts/operations.py" --root "${LILLY_ROOT}" \
+      validate-deployment --host-port "${host_port}"
 
 if ! docker network inspect "${LILLY_PROXY_NETWORK:-proxy}" >/dev/null 2>&1; then
   echo "The external Docker network 'proxy' does not exist. Start the Traefik stack first." >&2
