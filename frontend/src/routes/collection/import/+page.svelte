@@ -19,6 +19,7 @@
 
 	const auth = getAuthState();
 	const offline = getOfflineStatus();
+	let fileInput: HTMLInputElement;
 	let file = $state<File | null>(null);
 	let format = $state<TransferFormat>('csv');
 	let job = $state<TransferJob | null>(null);
@@ -241,7 +242,11 @@
 				<label for="import-format" class="mb-1 block">Dateiformat</label><select
 					id="import-format"
 					bind:value={format}
-					onchange={clearPreview}
+					onchange={() => {
+						fileInput.value = '';
+						file = null;
+						clearPreview();
+					}}
 					class="select"
 					disabled={busy || unavailable}
 				>
@@ -252,6 +257,7 @@
 				<label for="import-file" class="mb-1 block">Bestandsdatei</label><input
 					id="import-file"
 					type="file"
+					bind:this={fileInput}
 					accept={format === 'csv' ? '.csv,text/csv' : '.json,application/json'}
 					disabled={busy || unavailable}
 					onchange={(event) => {

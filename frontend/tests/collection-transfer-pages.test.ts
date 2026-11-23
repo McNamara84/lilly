@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import CollectionImport from '../src/routes/collection/import/+page.svelte';
 import PersonalExport from '../src/routes/account/data-export/+page.svelte';
 import type { TransferJob } from '#lib/api/collection-transfer.js';
@@ -207,6 +208,33 @@ describe('collection import and export page', () => {
 		expect(screen.queryByTestId('collection-import-confirm')).not.toBeInTheDocument();
 	});
 	it.each([
+		['json', 'csv'],
+		['csv', 'json']
+	] as const)('requires a new file when changing the format from %s to %s', async (from, to) => {
+		render(CollectionImport);
+		const user = userEvent.setup();
+		const format = screen.getByLabelText('Dateiformat');
+		const input = screen.getByLabelText<HTMLInputElement>('Bestandsdatei');
+		const preview = screen.getByTestId('collection-import-preview');
+
+		await user.selectOptions(format, from);
+		await user.upload(input, new File(['previous'], `vorher.${from}`));
+		expect(input.files).toHaveLength(1);
+		expect(preview).toBeEnabled();
+
+		await user.selectOptions(format, to);
+		expect(input.files).toHaveLength(0);
+		expect(preview).toBeDisabled();
+		await fireEvent.submit(input.form!);
+		expect(mocks.preview).not.toHaveBeenCalled();
+
+		const replacement = new File(['replacement'], `bestand.${to}`);
+		mocks.preview.mockResolvedValueOnce(job({ format: to }));
+		await user.upload(input, replacement);
+		await user.click(preview);
+		expect(mocks.preview).toHaveBeenCalledExactlyOnceWith(replacement, to);
+	});
+	it.each([
 		['file', 'success'],
 		['format', 'success'],
 		['file', 'failure']
@@ -232,8 +260,16 @@ describe('collection import and export page', () => {
 			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 			expect(mocks.commit).not.toHaveBeenCalled();
 
-			mocks.preview.mockResolvedValueOnce(job({ id: 'new-preview' }));
-			mocks.commit.mockResolvedValueOnce(job({ id: 'new-preview', status: 'queued' }));
+			const newFormat = selection === 'format' ? 'csv' : 'json';
+			if (selection === 'format') {
+				await fireEvent.change(screen.getByLabelText('Bestandsdatei'), {
+					target: { files: [new File(['data'], 'anderer-bestand.csv')] }
+				});
+			}
+			mocks.preview.mockResolvedValueOnce(job({ id: 'new-preview', format: newFormat }));
+			mocks.commit.mockResolvedValueOnce(
+				job({ id: 'new-preview', format: newFormat, status: 'queued' })
+			);
 			await fireEvent.click(screen.getByTestId('collection-import-preview'));
 			await fireEvent.click(await screen.findByTestId('collection-import-confirm'));
 			expect(mocks.commit).toHaveBeenCalledExactlyOnceWith('new-preview');
