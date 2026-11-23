@@ -118,8 +118,17 @@
 				Kontos werden alle personenbezogenen Daten entfernt, sofern keine gesetzlichen
 				Aufbewahrungspflichten bestehen. Beim Abschluss eines Tauschs werden persönliche Notizen und
 				Fotos eines abgegebenen Exemplars nicht an den Empfänger übertragen; dessen Fotos werden
-				gelöscht. Nachrichten bleiben unabhängig vom Tauschstatus bis zur Löschung eines beteiligten
-				Kontos erhalten; dann wird der gemeinsame Tausch- und Nachrichtenkontext gelöscht.
+				gelöscht. Nachrichten bleiben unabhängig vom Tauschstatus erhalten. Bei endgültiger
+				Kontolöschung werden die vom gelöschten Konto verfassten Texte entfernt und dessen
+				Teilnehmerbezüge anonymisiert. Die berechtigte gemeinsame Historie bleibt für den anderen
+				Teilnehmer erhalten.
+			</p>
+			<p class="mt-2">
+				Private Importdateien werden nach Verarbeitung, Abbruch oder Ablauf der 30-minütigen
+				Vorschau zur Löschung vorgemerkt. Persönliche Exportarchive sind 24 Stunden ab
+				Fertigstellung abrufbar und werden danach automatisch bereinigt. Operative Auftragsmetadaten
+				werden nach sieben Tagen bereinigt. Fehlgeschlagene Dateilöschungen werden wiederholt; die
+				Zugriffssperre gilt bereits ab Ablauf oder Kontolöschanforderung.
 			</p>
 		</section>
 
@@ -134,6 +143,14 @@
 				<li>Datenübertragbarkeit</li>
 				<li>Widerruf Ihrer Einwilligung</li>
 			</ul>
+			<p class="mt-2">
+				Unter <a href={resolve('account/data-export')} class="underline">
+					Persönliche Daten exportieren
+				</a>
+				können Sie nach erneuter Anmeldebestätigung eine geschützte ZIP-Auskunft einschließlich Ihrer
+				gespeicherten Dateien und sichtbaren Unterhaltungen anfordern. Empfangene Nachrichten sind enthalten;
+				fremde private Stammdaten und Zugangsschlüssel werden ausgeschlossen.
+			</p>
 		</section>
 
 		<section>

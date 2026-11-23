@@ -14,6 +14,7 @@ pub fn business_routes() -> OpenApiRouter<AppState> {
         .merge(routes::oauth::openapi_router())
         .merge(routes::series::openapi_router())
         .merge(routes::collection::openapi_router())
+        .merge(routes::collection_transfer::openapi_router())
         .merge(routes::profiles::openapi_router())
         .merge(routes::trades::openapi_router())
         .merge(routes::messages::openapi_router())

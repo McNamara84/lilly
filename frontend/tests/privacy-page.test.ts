@@ -90,9 +90,21 @@ describe('Privacy Page', () => {
 	it('lists user rights', () => {
 		render(PrivacyPage);
 
-		expect(screen.getByText(/Auskunft/)).toBeInTheDocument();
+		expect(screen.getByText('Auskunft über Ihre gespeicherten Daten')).toBeInTheDocument();
 		expect(screen.getByText(/Berichtigung/)).toBeInTheDocument();
 		expect(screen.getByText(/Löschung Ihrer Daten/)).toBeInTheDocument();
 		expect(screen.getByText(/Datenübertragbarkeit/)).toBeInTheDocument();
+	});
+
+	it('explains the private export, shared history and automatic expiry', () => {
+		render(PrivacyPage);
+
+		expect(screen.getByRole('link', { name: 'Persönliche Daten exportieren' })).toHaveAttribute(
+			'href',
+			'/account/data-export'
+		);
+		expect(screen.getByText(/Empfangene Nachrichten sind enthalten/)).toBeInTheDocument();
+		expect(screen.getByText(/24 Stunden/)).toBeInTheDocument();
+		expect(screen.getByText(/anonymisiert/)).toBeInTheDocument();
 	});
 });

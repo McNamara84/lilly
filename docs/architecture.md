@@ -764,6 +764,31 @@ lilly/
   irreversibel anonymisiert. Das append-only Lösch-Ledger verhindert die Wiederbelebung nach einem
   Backup-Restore. Das vollständige Inventar steht in `docs/privacy-data-inventory.md`.
 
+## Sammlungsübertragung und persönliche Datenauskunft
+
+Die Backend-Module `collection_transfer`, `data_transfer` und `data_export`
+trennen Dateiformat/Validierung, kontogebundene Aufträge und Auskunftsprojektionen.
+Der ergänzende Import verwendet dieselbe transaktionale Sammlungsanlage wie die
+interaktive API. Eine Datenbank-Zuordnung mit Insert-Trigger vergibt stabile
+Exemplar-Kennungen auf allen Schreibwegen; Löschmarkierungen verhindern eine
+Wiederanlage aus alten Dateien, auch nach einem Tausch.
+
+Ein pro Backendprozess laufender Worker beansprucht Aufträge atomar in MariaDB.
+Importbestätigungen sind idempotent, jede neue Zeile wird zusammen mit ihrem
+Ergebnisbeleg committed. Auskünfte lesen einen konsistenten Snapshot und kopieren
+eigene Medien privat, bevor das ZIP vollständig geprüft und veröffentlicht wird.
+Beteiligte Kontozustände werden vor Veröffentlichung und Download erneut geprüft.
+
+Das zusätzliche Volume `transfer_data` ist ausschließlich im Backend gemountet.
+Es enthält befristete Quellen, Staging-Dateien und ZIP-Archive, nicht die dauerhaften
+Originalmedien. Prozesslokale Schreib-Leases verhindern ein Rennen zwischen
+Dateierstellung und Bereinigung. Datenbankaufträge erhalten nötige Dateiverweise
+über die Kontolöschung hinaus, bis die Bereinigung tatsächlich abgeschlossen ist.
+Nach Restore werden fehlende Dateien und verwaiste Verzeichnisse abgeglichen.
+
+Verträge und Grenzen stehen in [Sammlungsübertragung](collection-transfer-format.md),
+[Datenauskunft](personal-data-export.md) und [Dateninventar](privacy-data-inventory.md).
+
 ---
 
 _Ende des Architektur- und Designdokuments_

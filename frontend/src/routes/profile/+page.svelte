@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import {
@@ -28,6 +29,13 @@
 	import { deactivateAccountLocally, getAuthState, setUser } from '#lib/stores/auth.svelte.js';
 
 	const auth = getAuthState();
+	onMount(() => {
+		const reauth = new URLSearchParams(window.location.search).get('reauth');
+		if (sessionStorage.getItem('lilly-data-export-reauth') === 'pending') {
+			sessionStorage.removeItem('lilly-data-export-reauth');
+			if (reauth === 'success') void goto(resolve('account/data-export'));
+		}
+	});
 	const offlineStatus = getOfflineStatus();
 
 	let profile = $state<OwnProfile | null>(null);
@@ -315,6 +323,13 @@
 <div class="min-h-[calc(100vh-3.5rem)] px-4 py-8 sm:px-6 lg:px-8">
 	<div class="mx-auto max-w-3xl">
 		<h1 class="mb-6 text-2xl font-bold" style="color: var(--text-primary);">Mein Profil</h1>
+		<a
+			href={resolve('account/data-export')}
+			class="mb-6 inline-block underline"
+			data-testid="personal-data-export-link"
+		>
+			Persönliche Daten exportieren
+		</a>
 
 		{#if loading}
 			<p data-testid="profile-loading">Profil wird geladen …</p>

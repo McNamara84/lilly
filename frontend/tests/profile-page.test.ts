@@ -224,6 +224,22 @@ describe('Profile Page', () => {
 		expect(mockGoto).toHaveBeenCalledWith('/account/deletion');
 	});
 
+	it('returns to the data export after OAuth confirmation using a fixed internal destination', async () => {
+		window.history.replaceState(null, '', '/profile?reauth=success');
+		sessionStorage.setItem('lilly-data-export-reauth', 'pending');
+		render(ProfilePage);
+		await waitFor(() => expect(mockGoto).toHaveBeenCalledWith('/account/data-export'));
+		expect(sessionStorage.getItem('lilly-data-export-reauth')).toBeNull();
+	});
+
+	it('does not reuse an export return flag after a cancelled OAuth flow', async () => {
+		sessionStorage.setItem('lilly-data-export-reauth', 'pending');
+		render(ProfilePage);
+		await tick();
+		expect(mockGoto).not.toHaveBeenCalledWith('/account/data-export');
+		expect(sessionStorage.getItem('lilly-data-export-reauth')).toBeNull();
+	});
+
 	it('refreshes reauthentication choices when recent authentication expires in the dialog', async () => {
 		const recentAuthError = Object.assign(new Error('Recent authentication required'), {
 			code: 'RECENT_AUTH_REQUIRED'

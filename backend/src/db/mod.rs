@@ -1,4 +1,5 @@
 pub mod collection;
+pub mod collection_transfer;
 pub mod demo;
 pub mod import_jobs;
 pub mod import_review;

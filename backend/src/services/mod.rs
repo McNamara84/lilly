@@ -1,6 +1,9 @@
 pub mod account_erasure;
 pub mod admin_roles;
 pub mod browser_security;
+pub mod collection_transfer;
+pub mod data_export;
+pub mod data_transfer;
 pub mod e2e_import;
 pub mod email;
 pub mod import;
@@ -13,3 +16,5 @@ pub mod rate_limit;
 pub mod trade_matching;
 pub mod trades;
 pub(crate) mod transaction_retry;
+#[cfg(test)]
+mod transfer_tests;

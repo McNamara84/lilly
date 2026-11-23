@@ -76,6 +76,7 @@ While generic book managers and general-purpose collector software exist, there 
 - Grid view of all issues in a series with color-coded ownership status
 - Filter and sort by series, issue number, condition, title, and author
 - Import/export collection data (CSV, JSON)
+- Preview additive imports, preserve existing entries on conflicts, and recognise repeated files and removed copies through stable copy keys
 
 ### Trading System
 
@@ -118,6 +119,7 @@ Publication dates may be unknown and are backfilled by later imports. Invalid su
 - Editable profile with display name, validated avatar upload, and optional coarse location
 - Profile visibility (public/private) configurable
 - GDPR-compliant: full account and data deletion supported
+- Request a complete private ZIP disclosure, including visible conversations and original stored uploads, with recent authentication and a 24-hour download window
 
 ---
 
@@ -312,7 +314,7 @@ GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
 GITHUB_OAUTH_CLIENT_ID=
 GITHUB_OAUTH_CLIENT_SECRET=
-PRIVACY_POLICY_VERSION=2026-08-14
+PRIVACY_POLICY_VERSION=2026-11-22
 ```
 
 Google uses `openid email profile`; GitHub uses `read:user user:email`. LILLY accepts only a
@@ -537,6 +539,14 @@ GitHub Actions workflows run automatically:
 ---
 
 ## Documentation
+
+Collection migration uses the [versioned CSV/JSON format](docs/collection-transfer-format.md).
+The [personal-data export guide](docs/personal-data-export.md) describes archive contents,
+authentication, expiry and privacy boundaries. Both features need an online connection;
+personal archives are served only by authenticated backend routes from the private
+`transfer_data` volume, which is excluded from long-lived media backups.
+The [acceptance report](docs/collection-transfer-acceptance.md) maps the three issues
+to implementation and automated verification.
 
 Detailed planning documents are located in the [`docs/`](docs/) folder:
 

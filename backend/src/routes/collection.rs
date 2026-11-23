@@ -633,7 +633,7 @@ async fn add_to_collection_once(
     Ok((StatusCode::CREATED, Json(entry)))
 }
 
-async fn add_to_collection_in_transaction(
+pub(crate) async fn add_to_collection_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::MySql>,
     auth: &AuthUser,
     body: &AddCollectionEntryRequest,
@@ -1975,6 +1975,7 @@ mod tests {
                     timezone: "Europe/Berlin".to_string(),
                     adapters: Vec::new(),
                 },
+                transfer_config: crate::services::data_transfer::TransferConfig::for_tests(),
                 request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
             }),
         }

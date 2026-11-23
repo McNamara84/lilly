@@ -902,6 +902,7 @@ pub(crate) mod tests {
                     timezone: "Europe/Berlin".to_string(),
                     adapters: Vec::new(),
                 },
+                transfer_config: crate::services::data_transfer::TransferConfig::for_tests(),
                 request_security: crate::services::rate_limit::RequestSecurity::for_tests(),
             }),
         }

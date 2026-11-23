@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, Utc};
 use serde_json::json;
 use sqlx::{MySql, MySqlPool, Transaction};
 
@@ -153,6 +153,8 @@ pub async fn deactivate_account(
     transaction: &mut Transaction<'_, MySql>,
     user_id: u32,
 ) -> Result<(), sqlx::Error> {
+    crate::db::collection_transfer::invalidate_user(transaction, user_id, Utc::now().naive_utc())
+        .await?;
     sqlx::query(
         "UPDATE users SET account_state = 'pending_deletion', session_version = session_version + 1, \
                 profile_public = FALSE, collection_public = FALSE \
@@ -468,6 +470,36 @@ pub async fn erase_primary_data(
         return Err(sqlx::Error::RowNotFound);
     }
 
+    crate::db::collection_transfer::invalidate_user(
+        &mut transaction,
+        user_id,
+        Utc::now().naive_utc(),
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE transfer_jobs SET erasure_job_id = ?, source_sha256 = NULL WHERE user_id = ?",
+    )
+    .bind(job_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await?;
+    // An archive can delay multiple erasures. Keep the links after the subject
+    // references are cleared by account deletion.
+    sqlx::query(
+        "INSERT INTO account_erasure_transfer_jobs (erasure_job_id, transfer_job_id) \
+         SELECT ?, j.id FROM data_export_subjects s \
+         JOIN transfer_jobs j ON j.id = s.job_id \
+         WHERE s.subject_user_id = ? AND (j.user_id IS NULL OR j.user_id <> ?) \
+           AND j.files_deleted = FALSE",
+    )
+    .bind(job_id)
+    .bind(user_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("DELETE r FROM collection_import_results r JOIN transfer_jobs j ON j.id = r.job_id WHERE j.user_id = ?")
+        .bind(user_id).execute(&mut *transaction).await?;
+
     sqlx::query(
         "INSERT INTO media_deletion_jobs (storage_key, erasure_job_id) \
          SELECT avatar_path, ? FROM users WHERE id = ? AND avatar_path IS NOT NULL \
@@ -552,6 +584,20 @@ pub async fn finish_storage_phase(
     if pending != 0 {
         return Ok(false);
     }
+    let pending_transfers: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM transfer_jobs \
+                       WHERE erasure_job_id = ? AND files_deleted = FALSE) \
+             OR EXISTS(SELECT 1 FROM account_erasure_transfer_jobs linked \
+                       JOIN transfer_jobs j ON j.id = linked.transfer_job_id \
+                       WHERE linked.erasure_job_id = ? AND j.files_deleted = FALSE)",
+    )
+    .bind(job_id)
+    .bind(job_id)
+    .fetch_one(pool)
+    .await?;
+    if pending_transfers {
+        return Ok(false);
+    }
     sqlx::query(
         "UPDATE account_erasure_jobs SET status = 'completed', completed_at = ?, \
                 last_error_category = NULL, next_retry_at = NULL \
@@ -615,6 +661,7 @@ pub async fn schedule_restored_subject(
     .execute(&mut *transaction)
     .await?;
     revoke_credentials(&mut transaction, user.id, &user.email).await?;
+    crate::db::collection_transfer::invalidate_user(&mut transaction, user.id, now).await?;
     cancel_open_trades(&mut transaction, user.id).await?;
     transaction.commit().await?;
     Ok(true)

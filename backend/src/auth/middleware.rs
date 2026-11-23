@@ -122,7 +122,7 @@ impl FromRequestParts<AppState> for RecentAuthUser {
             || !(-60..=crate::models::account_erasure::RECENT_AUTH_SECONDS).contains(&age)
         {
             return Err(AppError::Forbidden {
-                message: "Please authenticate again before deleting your account".to_string(),
+                message: "Please authenticate again before this sensitive operation".to_string(),
                 code: Some("RECENT_AUTH_REQUIRED".to_string()),
             });
         }
