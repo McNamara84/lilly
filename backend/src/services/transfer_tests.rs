@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::body::{Body, to_bytes};
-use axum::http::{Request, StatusCode};
+use axum::body::{Body, HttpBody, to_bytes};
+use axum::http::{Request, StatusCode, header};
 use chrono::{Duration, Utc};
 use serde_json::Value;
 use tower::ServiceExt;
@@ -126,7 +126,7 @@ impl Fixture {
         }
     }
 
-    async fn import(
+    async fn queue_import(
         &self,
         entries: &[TransferEntry],
         kind: &str,
@@ -149,7 +149,22 @@ impl Fixture {
         )
         .await
         .unwrap();
-        assert!(transfer::process_next(&self.state.inner).await.unwrap());
+        job
+    }
+
+    async fn process_next(&self) -> Result<bool, crate::error::AppError> {
+        transfer::TransferWorker::default()
+            .process_next(&self.state.inner)
+            .await
+    }
+
+    async fn import(
+        &self,
+        entries: &[TransferEntry],
+        kind: &str,
+    ) -> crate::models::collection_transfer::TransferJob {
+        let job = self.queue_import(entries, kind).await;
+        assert!(self.process_next().await.unwrap());
         db::find_job(&self.state.inner.pool, &job.id)
             .await
             .unwrap()
@@ -199,6 +214,9 @@ impl Fixture {
         if let Some(content_type) = content_type {
             request = request.header("content-type", content_type);
         }
+        if let Some(length) = body.size_hint().exact() {
+            request = request.header(header::CONTENT_LENGTH, length);
+        }
         crate::api::application(self.state.clone(), false)
             .oneshot(request.body(body).unwrap())
             .await
@@ -217,9 +235,10 @@ impl Fixture {
             )
             .await;
         assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         let body = value(response).await;
         let id = body["id"].as_str().unwrap();
-        assert!(transfer::process_next(&self.state.inner).await.unwrap());
+        assert!(self.process_next().await.unwrap());
         let job = db::find_job(&self.state.inner.pool, id)
             .await
             .unwrap()
@@ -684,7 +703,7 @@ async fn quotas_inactive_catalogues_source_mismatches_and_pending_rows_are_repor
     transfer::commit_import(&fixture.state.inner.pool, &preview.id, fixture.owner, now)
         .await
         .unwrap();
-    transfer::process_next(&fixture.state.inner).await.unwrap();
+    fixture.process_next().await.unwrap();
     let result = db::response(
         &fixture.state.inner.pool,
         db::find_job(&fixture.state.inner.pool, &preview.id)
@@ -702,7 +721,45 @@ async fn quotas_inactive_catalogues_source_mismatches_and_pending_rows_are_repor
 }
 
 #[tokio::test]
-async fn failed_import_reports_partial_results_and_retry_never_duplicates_committed_rows() {
+async fn creating_a_transfer_retries_a_deadlock_without_duplicating_jobs() {
+    let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+    let fixture = Fixture::new().await;
+    let pool = sqlx::mysql::MySqlPoolOptions::new()
+        .max_connections(1)
+        .connect(&std::env::var("DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    sqlx::query("SET @transfer_test_deadlock = 1")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE TRIGGER transfer_test_job_deadlock BEFORE INSERT ON transfer_jobs FOR EACH ROW BEGIN IF @transfer_test_deadlock = 1 THEN SET @transfer_test_deadlock = 0; SIGNAL SQLSTATE '40001' SET MYSQL_ERRNO = 1213, MESSAGE_TEXT = 'Injected transfer deadlock'; END IF; END")
+        .execute(&pool).await.unwrap();
+
+    let job = transfer::new_job(fixture.owner, "export", "zip", Utc::now().naive_utc());
+    let result = db::create_job(&pool, &job, 100).await;
+    let fault_consumed: Option<i64> = sqlx::query_scalar("SELECT @transfer_test_deadlock")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DROP TRIGGER transfer_test_job_deadlock")
+        .execute(&pool)
+        .await
+        .unwrap();
+    result.unwrap();
+    assert_eq!(fault_consumed, Some(0));
+    let jobs: Vec<String> = sqlx::query_scalar("SELECT id FROM transfer_jobs WHERE user_id = ?")
+        .bind(fixture.owner)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(jobs, [job.id]);
+    pool.close().await;
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn failure_finalization_retries_without_replaying_committed_import_rows() {
     let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
     let fixture = Fixture::new().await;
     sqlx::query("CREATE TRIGGER transfer_test_fail BEFORE INSERT ON collection_entries FOR EACH ROW BEGIN IF NEW.notes = 'inject-transfer-failure' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Injected transfer test failure'; END IF; END")
@@ -711,22 +768,118 @@ async fn failed_import_reports_partial_results_and_retry_never_duplicates_commit
     let mut second = fixture.entry("second-row", 2);
     second.notes = Some("inject-transfer-failure".to_string());
     let job = fixture
-        .import(&[first.clone(), second.clone()], "json")
+        .queue_import(&[first.clone(), second.clone()], "json")
         .await;
+    sqlx::query("CREATE TRIGGER transfer_test_finalization_fail BEFORE UPDATE ON collection_import_results FOR EACH ROW BEGIN IF NEW.copy_key = 'second-row' AND NEW.status = 'failed' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Injected finalization failure'; END IF; END")
+        .execute(&fixture.state.inner.pool).await.unwrap();
+
+    let mut worker = transfer::TransferWorker::default();
+    let first_attempt = worker.process_next(&fixture.state.inner).await;
+    let unfinished = db::find_job(&fixture.state.inner.pool, &job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let before_retry = db::response(
+        &fixture.state.inner.pool,
+        unfinished,
+        1,
+        Utc::now().naive_utc(),
+    )
+    .await
+    .unwrap();
+    let second_attempt = worker.process_next(&fixture.state.inner).await;
+
+    sqlx::query("DROP TRIGGER transfer_test_finalization_fail")
+        .execute(&fixture.state.inner.pool)
+        .await
+        .unwrap();
     sqlx::query("DROP TRIGGER transfer_test_fail")
         .execute(&fixture.state.inner.pool)
         .await
+        .unwrap();
+    assert!(first_attempt.is_err());
+    assert!(second_attempt.is_err());
+    assert_eq!(before_retry.status, "running");
+    assert_eq!(
+        (before_retry.counts.created, before_retry.counts.new),
+        (1, 1)
+    );
+
+    assert!(worker.process_next(&fixture.state.inner).await.unwrap());
+    assert!(!worker.process_next(&fixture.state.inner).await.unwrap());
+    let job = db::find_job(&fixture.state.inner.pool, &job.id)
+        .await
+        .unwrap()
         .unwrap();
     assert_eq!(job.status, "failed");
     let results = db::response(&fixture.state.inner.pool, job, 1, Utc::now().naive_utc())
         .await
         .unwrap();
     assert_eq!((results.counts.created, results.counts.failed), (1, 1));
+    assert_eq!(
+        results.results[0].entry_id,
+        before_retry.results[0].entry_id
+    );
+    assert_eq!(results.results[1].code.as_deref(), Some("job_interrupted"));
     let retry = fixture.import(&[first, second], "csv").await;
     let results = db::response(&fixture.state.inner.pool, retry, 1, Utc::now().naive_utc())
         .await
         .unwrap();
     assert_eq!((results.counts.created, results.counts.unchanged), (1, 1));
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn private_transfer_metadata_and_route_errors_are_not_cacheable() {
+    let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+    let fixture = Fixture::new().await;
+    let import = fixture
+        .queue_import(&[fixture.entry("cache-check", 1)], "json")
+        .await;
+    fixture.process_next().await.unwrap();
+    let export = fixture.export().await;
+    for (user, path, status) in [
+        (
+            Some(fixture.owner),
+            format!("/api/v1/me/collection/imports/{}", import.id),
+            StatusCode::OK,
+        ),
+        (
+            Some(fixture.owner),
+            format!("/api/v1/me/data-exports/{}", export.id),
+            StatusCode::OK,
+        ),
+        (
+            Some(fixture.owner),
+            "/api/v1/me/data-exports".to_string(),
+            StatusCode::OK,
+        ),
+        (
+            Some(fixture.owner),
+            "/api/v1/me/reauthentication/options".to_string(),
+            StatusCode::OK,
+        ),
+        (
+            Some(fixture.other),
+            format!("/api/v1/me/data-exports/{}", export.id),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            None,
+            "/api/v1/me/data-exports".to_string(),
+            StatusCode::UNAUTHORIZED,
+        ),
+    ] {
+        let response = fixture
+            .request(user, "GET", &path, Body::empty(), false, None)
+            .await;
+        assert_eq!(response.status(), status, "{path}");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-store",
+            "{path}"
+        );
+    }
     fixture.finish().await;
 }
 
@@ -760,10 +913,7 @@ async fn parallel_import_requests_allocate_one_copy_and_confirmation_is_idempote
     );
     first.unwrap();
     second.unwrap();
-    let (first, second) = tokio::join!(
-        transfer::process_next(&fixture.state.inner),
-        transfer::process_next(&fixture.state.inner)
-    );
+    let (first, second) = tokio::join!(fixture.process_next(), fixture.process_next());
     assert_ne!(first.unwrap(), second.unwrap());
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM collection_entries WHERE user_id = ?")
@@ -789,9 +939,14 @@ async fn cleanup_retries_failed_file_removal_and_eventually_expires_metadata() {
     db::create_job(&fixture.state.inner.pool, &job, 100)
         .await
         .unwrap();
-    transfer::mark_failed(&fixture.state.inner.pool, &job.id, "injected_failure")
-        .await
-        .unwrap();
+    transfer::mark_failed(
+        &fixture.state.inner.pool,
+        &job.id,
+        "queued",
+        "injected_failure",
+    )
+    .await
+    .unwrap();
     fixture.state.inner.transfer_config.prepare().await.unwrap();
     let path = fixture
         .state
@@ -841,9 +996,14 @@ async fn cleanup_waits_until_a_detached_file_producer_finishes() {
     db::create_job(&fixture.state.inner.pool, &job, 100)
         .await
         .unwrap();
-    transfer::mark_failed(&fixture.state.inner.pool, &job.id, "cancelled_writer")
-        .await
-        .unwrap();
+    transfer::mark_failed(
+        &fixture.state.inner.pool,
+        &job.id,
+        "queued",
+        "cancelled_writer",
+    )
+    .await
+    .unwrap();
     let path = fixture
         .state
         .inner
@@ -1132,7 +1292,7 @@ async fn preview_is_non_mutating_expiring_paginated_and_rechecks_changed_collect
     transfer::commit_import(&fixture.state.inner.pool, &job.id, fixture.owner, now)
         .await
         .unwrap();
-    transfer::process_next(&fixture.state.inner).await.unwrap();
+    fixture.process_next().await.unwrap();
     let response = db::response(
         &fixture.state.inner.pool,
         db::find_job(&fixture.state.inner.pool, &job.id)
@@ -1380,7 +1540,7 @@ async fn transfer_routes_download_templates_confirm_imports_and_list_private_exp
             .await;
         assert_eq!(response.status(), StatusCode::ACCEPTED);
     }
-    transfer::process_next(&fixture.state.inner).await.unwrap();
+    fixture.process_next().await.unwrap();
     let status = value(
         fixture
             .request(
@@ -1552,6 +1712,48 @@ async fn multipart_upload_rejects_missing_duplicate_unexpected_and_oversized_fil
 }
 
 #[tokio::test]
+async fn multipart_request_limit_counts_headers_with_or_without_content_length() {
+    let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+    let mut fixture = Fixture::new().await;
+    let document = r#"{"format":"lilly.collection","format_version":1,"entries":[]}"#;
+    Arc::get_mut(&mut fixture.state.inner)
+        .unwrap()
+        .transfer_config
+        .max_import_bytes = document.len();
+    let uri = "/api/v1/me/collection/imports/preview?format=json";
+    let content_type = Some("multipart/form-data; boundary=boundary");
+    let field =
+        "--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.json\"\r\n";
+    let oversized = format!(
+        "{field}X-Test-Padding: {}\r\n\r\n{document}\r\n--boundary--\r\n",
+        "x".repeat(64 * 1024)
+    );
+    let streamed = Body::from_stream(tokio_util::io::ReaderStream::new(std::io::Cursor::new(
+        oversized.as_bytes().to_vec(),
+    )));
+    assert!(streamed.size_hint().exact().is_none());
+    for body in [Body::from(oversized), streamed] {
+        let response = fixture
+            .request(Some(fixture.owner), "POST", uri, body, false, content_type)
+            .await;
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(
+            value(response).await["error"],
+            "Multipart import request is too large"
+        );
+    }
+
+    let body = Body::from(format!("{field}\r\n{document}\r\n--boundary--\r\n"));
+    let response = fixture
+        .request(Some(fixture.owner), "POST", uri, body, false, content_type)
+        .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    fixture.finish().await;
+}
+
+#[tokio::test]
 #[allow(clippy::too_many_lines)]
 async fn personal_export_is_complete_private_includes_real_media_and_expires_without_extension() {
     let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
@@ -1678,6 +1880,57 @@ async fn personal_export_is_complete_private_includes_real_media_and_expires_wit
 }
 
 #[tokio::test]
+async fn export_never_publishes_an_unfinished_or_truncated_import_source() {
+    let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+    let fixture = Fixture::new().await;
+    let now = Utc::now().naive_utc();
+    let bytes =
+        format::encode_document(&[fixture.entry("export-source", 1)], "json", "now").unwrap();
+    let import = transfer::preview(&fixture.state.inner, fixture.owner, &bytes, "json", now)
+        .await
+        .unwrap();
+    let storage = &fixture.state.inner.transfer_config;
+    let import_path = storage.job_path(&import.id).unwrap();
+    let source = import_path.join("source");
+    let partial = import_path.join("source.partial");
+    tokio::fs::remove_file(&source).await.unwrap();
+    transfer::write_private(&partial, b"unfinished upload")
+        .await
+        .unwrap();
+
+    for truncated_final_file in [false, true] {
+        if truncated_final_file {
+            // Simulate a source left by the previous implementation.
+            tokio::fs::rename(&partial, &source).await.unwrap();
+        }
+        let job = transfer::new_job(fixture.owner, "export", "zip", now);
+        db::create_job(&fixture.state.inner.pool, &job, 100)
+            .await
+            .unwrap();
+        assert!(fixture.process_next().await.unwrap());
+        let stored = db::find_job(&fixture.state.inner.pool, &job.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.status, "failed");
+        assert!(
+            !storage
+                .job_path(&job.id)
+                .unwrap()
+                .join("archive.zip")
+                .exists()
+        );
+    }
+
+    let stored = db::find_job(&fixture.state.inner.pool, &import.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.status, "prepared");
+    fixture.finish().await;
+}
+
+#[tokio::test]
 async fn missing_media_and_changed_sources_fail_without_publishing_partial_archives() {
     let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
     let fixture = Fixture::new().await;
@@ -1711,7 +1964,7 @@ async fn missing_media_and_changed_sources_fail_without_publishing_partial_archi
     )
     .await
     .unwrap();
-    transfer::process_next(&fixture.state.inner).await.unwrap();
+    fixture.process_next().await.unwrap();
     assert_eq!(
         db::find_job(&fixture.state.inner.pool, &job.id)
             .await
@@ -1730,7 +1983,7 @@ async fn missing_media_and_changed_sources_fail_without_publishing_partial_archi
     db::create_job(&fixture.state.inner.pool, &export, 100)
         .await
         .unwrap();
-    transfer::process_next(&fixture.state.inner).await.unwrap();
+    fixture.process_next().await.unwrap();
     assert_eq!(
         db::find_job(&fixture.state.inner.pool, &export.id)
             .await

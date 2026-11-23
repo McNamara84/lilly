@@ -112,6 +112,8 @@ Notizen beim Roundtrip zu verlieren. Version, Heft- und Exemplarnummer sind Zahl
 Voreinstellung: maximal 10 MiB und 10.000 Datensätze je Datei. Der Betreiber kann
 `DATA_IMPORT_MAX_BYTES` und `DATA_IMPORT_MAX_ROWS` anpassen. Eine Überschreitung wird
 vollständig abgelehnt; die Datei wird nicht abgeschnitten.
+Für die gesamte Multipart-Anfrage gilt das Dateilimit plus 64 KiB für
+Feldheader und Rahmen.
 
 Die Vorschau verändert die Sammlung nicht und gilt 30 Minuten. Ein neuer Upload
 ersetzt eine noch unbestätigte vorherige Vorschau. Erst die ausdrückliche Bestätigung

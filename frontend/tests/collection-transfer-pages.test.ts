@@ -206,6 +206,93 @@ describe('collection import and export page', () => {
 		await fireEvent.change(screen.getByLabelText('Dateiformat'), { target: { value: 'csv' } });
 		expect(screen.queryByTestId('collection-import-confirm')).not.toBeInTheDocument();
 	});
+	it.each([
+		['file', 'success'],
+		['format', 'success'],
+		['file', 'failure']
+	] as const)(
+		'discards a previous preview status after a %s change (%s)',
+		async (selection, outcome) => {
+			const outdated = Promise.withResolvers<TransferJob>();
+			mocks.fetchImport.mockReturnValueOnce(outdated.promise);
+			render(CollectionImport);
+			await upload();
+			await screen.findByTestId('collection-import-confirm');
+			await fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' }));
+
+			if (selection === 'file') {
+				await fireEvent.change(screen.getByLabelText('Bestandsdatei'), {
+					target: { files: [new File(['{}'], 'anderer-bestand.json')] }
+				});
+			} else {
+				await fireEvent.change(screen.getByLabelText('Dateiformat'), { target: { value: 'csv' } });
+			}
+			await settle(outdated, job(), outcome);
+			expect(screen.queryByTestId('import-result')).not.toBeInTheDocument();
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+			expect(mocks.commit).not.toHaveBeenCalled();
+
+			mocks.preview.mockResolvedValueOnce(job({ id: 'new-preview' }));
+			mocks.commit.mockResolvedValueOnce(job({ id: 'new-preview', status: 'queued' }));
+			await fireEvent.click(screen.getByTestId('collection-import-preview'));
+			await fireEvent.click(await screen.findByTestId('collection-import-confirm'));
+			expect(mocks.commit).toHaveBeenCalledExactlyOnceWith('new-preview');
+		}
+	);
+
+	it.each(['success', 'failure'] as const)(
+		'keeps the newest page when an earlier pagination request returns %s',
+		async (outcome) => {
+			const outdated = Promise.withResolvers<TransferJob>();
+			mocks.preview.mockResolvedValueOnce(job({ total_rows: 301 }));
+			mocks.fetchImport
+				.mockResolvedValueOnce(job({ total_rows: 301, page: 2 }))
+				.mockReturnValueOnce(outdated.promise)
+				.mockResolvedValueOnce(job({ total_rows: 301, page: 3 }));
+			render(CollectionImport);
+			await upload();
+			await fireEvent.click(await screen.findByRole('button', { name: 'Weiter' }));
+			await screen.findByText('Seite 2');
+			await fireEvent.click(screen.getByRole('button', { name: 'Zurück' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Weiter' }));
+			await screen.findByText('Seite 3');
+
+			await settle(outdated, job({ total_rows: 301 }), outcome);
+			expect(screen.getByText('Seite 3')).toBeInTheDocument();
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		}
+	);
+
+	it('does not re-enable confirmation when a prepared status arrives after confirmation', async () => {
+		const outdated = Promise.withResolvers<TransferJob>();
+		mocks.fetchImport.mockReturnValueOnce(outdated.promise);
+		render(CollectionImport);
+		await upload();
+		await screen.findByTestId('collection-import-confirm');
+		await fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' }));
+		await fireEvent.click(screen.getByTestId('collection-import-confirm'));
+		await screen.findByRole('heading', { name: 'In Warteschlange' });
+
+		await settle(outdated, job(), 'success');
+		expect(screen.getByRole('heading', { name: 'In Warteschlange' })).toBeInTheDocument();
+		expect(screen.queryByTestId('collection-import-confirm')).not.toBeInTheDocument();
+	});
+
+	it('keeps the cache refresh notice with the latest completed status', async () => {
+		const cache = Promise.withResolvers<boolean>();
+		mocks.refresh.mockReturnValueOnce(cache.promise);
+		render(CollectionImport);
+		await upload();
+		await screen.findByTestId('collection-import-confirm');
+		const refresh = screen.getByRole('button', { name: 'Status aktualisieren' });
+		await fireEvent.click(refresh);
+		await screen.findByRole('heading', { name: 'Import abgeschlossen' });
+		await fireEvent.click(refresh);
+
+		await settle(cache, true, 'success');
+		await screen.findByText('Die Sammlung und der Offline-Bestand wurden aktualisiert.');
+		expect(mocks.refresh).toHaveBeenCalledOnce();
+	});
 	it('shows rows without a copy key and prevents submitting a cleared file selection', async () => {
 		mocks.preview.mockResolvedValue(
 			job({

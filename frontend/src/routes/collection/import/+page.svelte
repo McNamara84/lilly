@@ -27,7 +27,8 @@
 	let notice = $state<string | null>(null);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
-	let snapshotRefreshed = false;
+	let requestGeneration = 0;
+	let snapshotRefresh: Promise<boolean> | undefined;
 	let restored = false;
 	const offlineUnavailable = $derived(auth.isOfflineSession || !offline.online);
 	const unavailable = $derived(auth.isLoading || !auth.isAuthenticated || offlineUnavailable);
@@ -50,8 +51,15 @@
 		clearTimeout(timer);
 	});
 
-	async function acceptResult(result: TransferJob) {
-		if (disposed) return;
+	function beginJobRequest() {
+		clearTimeout(timer);
+		return ++requestGeneration;
+	}
+	function isCurrent(generation: number) {
+		return !disposed && generation === requestGeneration;
+	}
+	async function acceptResult(result: TransferJob, generation: number) {
+		if (!isCurrent(generation)) return;
 		job = result;
 		if (result.format === 'csv' || result.format === 'json') format = result.format;
 		if (new URLSearchParams(window.location.search).get('job') !== result.id)
@@ -59,23 +67,23 @@
 				replace: true,
 				reset: false
 			});
-		if (result.status === 'completed' && !snapshotRefreshed) {
-			snapshotRefreshed = true;
-			const refreshed = await refreshImportedCollection();
-			if (!disposed)
+		if (result.status === 'completed') {
+			const refreshed = await (snapshotRefresh ??= refreshImportedCollection());
+			if (isCurrent(generation))
 				notice = refreshed
 					? 'Die Sammlung und der Offline-Bestand wurden aktualisiert.'
 					: 'Der Import ist auf dem Server abgeschlossen. Der Offline-Bestand konnte noch nicht aktualisiert werden. Öffne die Sammlung erneut, sobald die Verbindung verfügbar ist.';
-		}
-		if (!disposed && ['queued', 'running'].includes(result.status))
+		} else if (['queued', 'running'].includes(result.status)) {
 			timer = setTimeout(() => void reload(result.page), 1_500);
+		}
 	}
 	async function restore(id: string) {
+		const generation = beginJobRequest();
 		busy = true;
 		try {
-			await acceptResult(await fetchCollectionImport(id));
+			await acceptResult(await fetchCollectionImport(id), generation);
 		} catch (cause) {
-			if (!disposed)
+			if (isCurrent(generation))
 				error = cause instanceof Error ? cause.message : 'Der Auftrag konnte nicht geladen werden.';
 		} finally {
 			if (!disposed) busy = false;
@@ -83,12 +91,12 @@
 	}
 	async function reload(page = 1) {
 		if (!job || disposed) return;
-		clearTimeout(timer);
+		const generation = beginJobRequest();
 		error = null;
 		try {
-			await acceptResult(await fetchCollectionImport(job.id, page));
+			await acceptResult(await fetchCollectionImport(job.id, page), generation);
 		} catch (cause) {
-			if (!disposed)
+			if (isCurrent(generation))
 				error =
 					cause instanceof Error
 						? cause.message
@@ -97,16 +105,16 @@
 	}
 	async function preview() {
 		if (!file || busy || unavailable) return;
+		const generation = beginJobRequest();
 		busy = true;
 		error = null;
 		notice = null;
 		job = null;
-		snapshotRefreshed = false;
-		clearTimeout(timer);
+		snapshotRefresh = undefined;
 		try {
-			await acceptResult(await previewCollectionImport(file, format));
+			await acceptResult(await previewCollectionImport(file, format), generation);
 		} catch (cause) {
-			if (!disposed)
+			if (isCurrent(generation))
 				error = cause instanceof Error ? cause.message : 'Die Datei konnte nicht geprüft werden.';
 		} finally {
 			if (!disposed) busy = false;
@@ -114,12 +122,13 @@
 	}
 	async function confirm() {
 		if (!job || busy || unavailable) return;
+		const generation = beginJobRequest();
 		busy = true;
 		error = null;
 		try {
-			await acceptResult(await commitCollectionImport(job.id));
+			await acceptResult(await commitCollectionImport(job.id), generation);
 		} catch (cause) {
-			if (!disposed)
+			if (isCurrent(generation))
 				error =
 					cause instanceof Error ? cause.message : 'Der Import konnte nicht gestartet werden.';
 		} finally {
@@ -139,11 +148,11 @@
 		}
 	}
 	function clearPreview() {
-		clearTimeout(timer);
+		beginJobRequest();
 		job = null;
 		notice = null;
 		error = null;
-		snapshotRefreshed = false;
+		snapshotRefresh = undefined;
 	}
 </script>
 

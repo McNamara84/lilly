@@ -267,12 +267,16 @@ async fn build_export_once(state: &AppStateInner, job: &TransferJob) -> Result<(
     } else {
         datasets.insert("avatar".to_string(), json!([]));
     }
-    let sources: Vec<(String, String)> = sqlx::query_as("SELECT id, format FROM transfer_jobs WHERE user_id = ? AND kind = 'import' AND files_deleted = FALSE AND status IN ('prepared', 'queued', 'running') ORDER BY id")
+    let sources: Vec<(String, String, Option<String>)> = sqlx::query_as("SELECT id, format, source_sha256 FROM transfer_jobs WHERE user_id = ? AND kind = 'import' AND files_deleted = FALSE AND status IN ('prepared', 'queued', 'running') ORDER BY id")
         .bind(user_id).fetch_all(&mut *tx).await?;
-    for (id, format) in sources {
+    for (id, format, checksum) in sources {
         let bytes = tokio::fs::read(state.transfer_config.job_path(&id)?.join("source"))
             .await
             .map_err(|e| AppError::InternalError(e.into()))?;
+        // A preview retained from before atomic publication may have been truncated.
+        if checksum.as_deref() != Some(&hex::encode(Sha256::digest(&bytes))) {
+            return Err(AppError::Conflict("Stored import file changed".to_string()));
+        }
         staged_bytes = staged_bytes.saturating_add(bytes.len() as u64);
         enforce_size(staged_bytes, state.transfer_config.max_archive_bytes)?;
         let path = files_root.join(format!("import-{id}.{format}"));

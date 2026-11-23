@@ -55,13 +55,28 @@ test('personal ZIP contains the actual own data and files and denies other accou
 				response.url().endsWith('/api/v1/me/data-exports') && response.request().method() === 'POST'
 		);
 		await page.getByTestId('request-personal-export').click();
-		const job = (await (await requested).json()) as { id: string; expires_at: string };
+		const creation = await requested;
+		expect(creation.status()).toBe(202);
+		const job = (await creation.json()) as { id: string };
+		const jobUrl = `/api/v1/me/data-exports/${job.id}`;
+		await expect
+			.poll(
+				async () => {
+					const status = await page.request.get(jobUrl);
+					expect(status.ok()).toBe(true);
+					expect(status.headers()['cache-control']).toBe('no-store');
+					return (await status.json()).status;
+				},
+				{ timeout: 30_000 }
+			)
+			.toBe('ready');
 		const row = page.getByTestId('personal-export-job').first();
 		await expect(row.getByTestId('download-personal-export')).toBeVisible({ timeout: 30_000 });
 		await expect(row).toContainText('Download verfügbar bis');
-		const jobBefore = (await (
-			await page.request.get(`/api/v1/me/data-exports/${job.id}`)
-		).json()) as { expires_at: string; completed_at: string };
+		const jobBefore = (await (await page.request.get(jobUrl)).json()) as {
+			expires_at: string;
+			completed_at: string;
+		};
 		expect(Date.parse(jobBefore.expires_at) - Date.parse(jobBefore.completed_at)).toBe(86_400_000);
 		expect(
 			(await anonymousRequest.get(`/api/v1/me/data-exports/${job.id}/download`)).status()
@@ -77,7 +92,9 @@ test('personal ZIP contains the actual own data and files and denies other accou
 		const downloaded = page.waitForEvent('download');
 		await row.getByTestId('download-personal-export').click();
 		const archivePath = testInfo.outputPath('personal-data.zip');
-		await (await downloaded).saveAs(archivePath);
+		const archive = await downloaded;
+		expect(archive.suggestedFilename()).toBe(`lilly-personal-data-${job.id}.zip`);
+		await archive.saveAs(archivePath);
 		const inspected = JSON.parse(
 			execFileSync(
 				process.platform === 'win32' ? 'python' : 'python3',
@@ -99,7 +116,7 @@ test('personal ZIP contains the actual own data and files and denies other accou
 		expect(inspected.files.some((name) => name.startsWith('files/photos/'))).toBe(true);
 		expect(inspected.manifest.format).toBe('lilly.personal-data');
 		expect(JSON.stringify(inspected.account)).not.toMatch(/password_hash|erasure_subject|token/);
-		const after = (await (await page.request.get(`/api/v1/me/data-exports/${job.id}`)).json()) as {
+		const after = (await (await page.request.get(jobUrl)).json()) as {
 			expires_at: string;
 		};
 		expect(after.expires_at).toBe(jobBefore.expires_at);

@@ -137,6 +137,12 @@ pub async fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all().await
 }
 
+async fn publish_import_source(directory: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let partial = directory.join("source.partial");
+    write_private(&partial, bytes).await?;
+    tokio::fs::rename(&partial, directory.join("source")).await
+}
+
 pub fn new_job(user_id: u32, kind: &str, format: &str, now: NaiveDateTime) -> TransferJob {
     TransferJob {
         id: random_id(),
@@ -215,7 +221,7 @@ pub async fn preview(
             private_directory(&directory)
                 .await
                 .map_err(|e| AppError::InternalError(e.into()))?;
-            write_private(&directory.join("source"), &bytes)
+            publish_import_source(&directory, &bytes)
                 .await
                 .map_err(|e| AppError::InternalError(e.into()))?;
             let mut connection = state.pool.acquire().await?;
@@ -234,7 +240,7 @@ pub async fn preview(
         }
         .await;
         if result.is_err() {
-            mark_failed(&state.pool, &job.id, "preview_failed").await?;
+            mark_failed(&state.pool, &job.id, "prepared", "preview_failed").await?;
         }
         result
     })
@@ -365,52 +371,96 @@ async fn run_import(state: &AppStateInner, job: &TransferJob) -> Result<(), AppE
     Ok(())
 }
 
-pub async fn mark_failed(pool: &sqlx::MySqlPool, id: &str, code: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE collection_import_results SET status = 'failed', code = 'job_interrupted' WHERE job_id = ? AND status = 'new'")
-        .bind(id).execute(pool).await?;
-    sqlx::query("UPDATE transfer_jobs SET status = 'failed', error_code = ?, completed_at = CURRENT_TIMESTAMP(6) WHERE id = ? AND status IN ('prepared', 'queued', 'running') AND invalidated_at IS NULL")
-        .bind(code).bind(id).execute(pool).await?;
-    Ok(())
+pub(super) async fn mark_failed(
+    pool: &sqlx::MySqlPool,
+    id: &str,
+    expected_status: &str,
+    code: &str,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let updated = sqlx::query("UPDATE transfer_jobs SET status = 'failed', error_code = ?, completed_at = CURRENT_TIMESTAMP(6) WHERE id = ? AND status = ? AND invalidated_at IS NULL")
+        .bind(code).bind(id).bind(expected_status).execute(&mut *tx).await?;
+    if updated.rows_affected() > 0 {
+        sqlx::query("UPDATE collection_import_results SET status = 'failed', code = 'job_interrupted' WHERE job_id = ? AND status = 'new'")
+            .bind(id).execute(&mut *tx).await?;
+    }
+    tx.commit().await
 }
 
-pub async fn process_next(state: &AppStateInner) -> Result<bool, AppError> {
-    let mut tx = state.pool.begin().await?;
-    let job: Option<TransferJob> = sqlx::query_as("SELECT * FROM transfer_jobs WHERE status = 'queued' AND invalidated_at IS NULL ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED")
-        .fetch_optional(&mut *tx).await?;
-    let Some(mut job) = job else {
-        return Ok(false);
-    };
-    sqlx::query("UPDATE transfer_jobs SET status = 'running' WHERE id = ?")
-        .bind(&job.id)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    job.status = "running".to_string();
-    let _lease = state.transfer_config.lease(&job.id);
-    if db::find_job(&state.pool, &job.id)
-        .await?
-        .is_none_or(|job| job.status != "running" || job.invalidated_at.is_some())
-    {
-        return Ok(true);
+struct PendingFailure {
+    id: String,
+    code: &'static str,
+}
+
+#[derive(Default)]
+pub(super) struct TransferWorker {
+    pending_failure: Option<PendingFailure>,
+}
+
+impl TransferWorker {
+    async fn finalize_failure(&mut self, pool: &sqlx::MySqlPool) -> Result<(), sqlx::Error> {
+        if let Some(failure) = &self.pending_failure {
+            mark_failed(pool, &failure.id, "running", failure.code).await?;
+            self.pending_failure = None;
+        }
+        Ok(())
     }
-    let result = if job.kind == "import" {
+
+    pub(super) async fn process_next(&mut self, state: &AppStateInner) -> Result<bool, AppError> {
+        if self.pending_failure.is_some() {
+            self.finalize_failure(&state.pool).await?;
+            return Ok(true);
+        }
+
+        let mut tx = state.pool.begin().await?;
+        let id: Option<String> = sqlx::query_scalar("SELECT id FROM transfer_jobs WHERE status = 'queued' AND invalidated_at IS NULL ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED")
+            .fetch_optional(&mut *tx).await?;
+        let Some(id) = id else {
+            return Ok(false);
+        };
+        sqlx::query("UPDATE transfer_jobs SET status = 'running' WHERE id = ?")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await?;
+        // A lost commit acknowledgement can leave the job running. Finalization
+        // only touches running jobs, so a rolled-back claim can still be picked up.
+        self.pending_failure = Some(PendingFailure {
+            id: id.clone(),
+            code: "transfer_failed",
+        });
+        tx.commit().await?;
+
+        match process_claimed_job(state, &id).await {
+            Ok(()) => self.pending_failure = None,
+            Err(error) => {
+                tracing::warn!(job_id = %id, "Transfer processing failed");
+                self.pending_failure = Some(PendingFailure {
+                    id,
+                    code: match error {
+                        AppError::PayloadTooLarge(_) => "storage_limit",
+                        _ => "transfer_failed",
+                    },
+                });
+                self.finalize_failure(&state.pool).await?;
+            }
+        }
+        Ok(true)
+    }
+}
+
+async fn process_claimed_job(state: &AppStateInner, id: &str) -> Result<(), AppError> {
+    let _lease = state.transfer_config.lease(id);
+    let Some(job) = db::find_job(&state.pool, id)
+        .await?
+        .filter(|job| job.status == "running" && job.invalidated_at.is_none())
+    else {
+        return Ok(());
+    };
+    if job.kind == "import" {
         run_import(state, &job).await
     } else {
         crate::services::data_export::build_export(state, &job).await
-    };
-    if let Err(error) = result {
-        tracing::warn!(job_id = %job.id, "Transfer processing failed");
-        mark_failed(
-            &state.pool,
-            &job.id,
-            match error {
-                AppError::PayloadTooLarge(_) => "storage_limit",
-                _ => "transfer_failed",
-            },
-        )
-        .await?;
     }
-    Ok(true)
 }
 
 pub async fn cleanup(state: &AppStateInner, now: NaiveDateTime) -> Result<(), AppError> {
@@ -505,17 +555,15 @@ pub async fn recover(state: &AppStateInner) -> Result<(), AppError> {
 
 pub fn spawn_worker(state: Arc<AppStateInner>) {
     tokio::spawn(async move {
-        if let Err(error) = recover(&state).await {
-            tracing::error!(error = %error, "Transfer recovery failed");
-            return;
-        }
+        let mut worker = TransferWorker::default();
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(3));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
             if cleanup(&state, Utc::now().naive_utc()).await.is_err() {
                 tracing::warn!("Transfer cleanup failed");
             }
-            if process_next(&state).await.is_err() {
+            if worker.process_next(&state).await.is_err() {
                 tracing::warn!("Transfer worker iteration failed");
             }
         }
@@ -547,6 +595,25 @@ mod tests {
                 .then(|| "0".to_string())))
             .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn import_source_is_published_only_after_a_successful_staged_write() {
+        let config = TransferConfig::for_tests();
+        config.prepare().await.unwrap();
+        let final_path = config.path.join("source");
+        let partial = config.path.join("source.partial");
+        write_private(&partial, b"interrupted write").await.unwrap();
+        let bytes = b"complete import source";
+
+        assert!(publish_import_source(&config.path, bytes).await.is_err());
+        assert!(!final_path.exists());
+        tokio::fs::remove_file(&partial).await.unwrap();
+
+        publish_import_source(&config.path, bytes).await.unwrap();
+        assert_eq!(tokio::fs::read(&final_path).await.unwrap(), bytes);
+        assert!(!partial.exists());
+        tokio::fs::remove_dir_all(config.path).await.unwrap();
     }
 
     #[tokio::test]

@@ -203,6 +203,10 @@ async fn main() {
         }
     }
 
+    services::data_transfer::recover(&app_state.inner)
+        .await
+        .expect("Failed to recover data transfers before startup");
+
     services::import_scheduler::spawn_import_scheduler(
         app_state.inner.clone(),
         import_scheduler_config,

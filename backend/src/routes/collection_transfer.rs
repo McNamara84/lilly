@@ -1,7 +1,8 @@
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
-use axum::http::{StatusCode, header};
+use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Query, Request, State};
+use axum::http::{HeaderValue, StatusCode, header};
+use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use serde::Serialize;
@@ -13,6 +14,8 @@ use crate::db::collection_transfer as db;
 use crate::error::AppError;
 use crate::models::collection_transfer::{JobResponse, TransferQuery};
 use crate::services::{collection_transfer as format, data_transfer};
+
+const MULTIPART_OVERHEAD_BYTES: usize = 64 * 1024;
 
 #[derive(utoipa::ToSchema)]
 #[allow(dead_code)]
@@ -47,7 +50,12 @@ pub fn openapi_router() -> utoipa_axum::router::OpenApiRouter<AppState> {
         .routes(utoipa_axum::routes!(export_status))
         .routes(utoipa_axum::routes!(download_export))
         .routes(utoipa_axum::routes!(reauthentication_options))
-        .layer(DefaultBodyLimit::disable())
+        .layer(middleware::map_response(|mut response: Response| async {
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }))
 }
 
 fn selected_format(query: &TransferQuery) -> Result<&str, AppError> {
@@ -70,7 +78,6 @@ fn download(bytes: Vec<u8>, name: &str, format: &str) -> Response {
                 header::CONTENT_DISPOSITION,
                 format!("attachment; filename=\"{name}.{format}\""),
             ),
-            (header::CACHE_CONTROL, "no-store".to_string()),
         ],
         bytes,
     )
@@ -122,14 +129,28 @@ async fn preview_import(
     State(state): State<AppState>,
     auth: AuthUser,
     Query(query): Query<TransferQuery>,
-    mut multipart: Multipart,
+    mut request: Request,
 ) -> Result<(StatusCode, Json<JobResponse>), AppError> {
     let selected = selected_format(&query)?;
+    let max_file_bytes = state.inner.transfer_config.max_import_bytes;
+    let max_request_bytes = max_file_bytes.saturating_add(MULTIPART_OVERHEAD_BYTES);
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|length| length.to_str().ok()?.parse::<usize>().ok())
+        .is_some_and(|length| length > max_request_bytes)
+    {
+        return Err(import_request_too_large());
+    }
+    DefaultBodyLimit::max(max_request_bytes).apply(&mut request);
+    let mut multipart = Multipart::from_request(request, &state)
+        .await
+        .map_err(|_| AppError::BadRequest("Invalid multipart upload".to_string()))?;
     let mut contents = None;
     while let Some(mut field) = multipart
         .next_field()
         .await
-        .map_err(|_| AppError::BadRequest("Invalid multipart upload".to_string()))?
+        .map_err(|error| multipart_error(error.status()))?
     {
         if field.name() != Some("file") || contents.is_some() {
             return Err(AppError::BadRequest(
@@ -140,14 +161,11 @@ async fn preview_import(
         while let Some(chunk) = field
             .chunk()
             .await
-            .map_err(|_| AppError::BadRequest("Upload interrupted".to_string()))?
+            .map_err(|error| multipart_error(error.status()))?
         {
-            if bytes.len().saturating_add(chunk.len())
-                > state.inner.transfer_config.max_import_bytes
-            {
+            if bytes.len().saturating_add(chunk.len()) > max_file_bytes {
                 return Err(AppError::PayloadTooLarge(format!(
-                    "Import exceeds {} bytes",
-                    state.inner.transfer_config.max_import_bytes
+                    "Import exceeds {max_file_bytes} bytes"
                 )));
             }
             bytes.extend_from_slice(&chunk);
@@ -161,6 +179,18 @@ async fn preview_import(
         StatusCode::CREATED,
         Json(db::response(&state.inner.pool, job, query.page.unwrap_or(1), now).await?),
     ))
+}
+
+fn import_request_too_large() -> AppError {
+    AppError::PayloadTooLarge("Multipart import request is too large".to_string())
+}
+
+fn multipart_error(status: StatusCode) -> AppError {
+    if status == StatusCode::PAYLOAD_TOO_LARGE {
+        import_request_too_large()
+    } else {
+        AppError::BadRequest("Invalid multipart upload".to_string())
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/me/collection/imports/{id}", operation_id = "collection_transfer_import_status", tag = "collection_transfer",
@@ -310,9 +340,6 @@ async fn download_export(
             .parse()
             .map_err(|e| AppError::InternalError(anyhow::anyhow!("{e}")))?,
     );
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     response
         .headers_mut()
         .insert(header::CONTENT_LENGTH, job.byte_size.into());

@@ -88,15 +88,19 @@ serverseitig nicht zurückgerufen werden.
 
 `transfer_data` ist ausschließlich im Backend unter `/data-transfer` gemountet.
 Es wird weder von Caddy statisch ausgeliefert noch in die dauerhaften Medienbackups
-aufgenommen. Downloads passieren die API-Berechtigungsprüfung und verwenden
-`Cache-Control: no-store`; Service Worker und IndexedDB speichern keine ZIP-Dateien.
+aufgenommen. Alle Antworten der Transfer-API tragen `Cache-Control: no-store`.
+Service Worker und IndexedDB speichern keine ZIP-Dateien.
 
 Der Worker verarbeitet anfangs einen aufwendigen Transfer gleichzeitig. Er prüft
 Fristen und offene Löschungen regelmäßig. Laufende Dateiproduzenten halten eine
 interne Schreibsperre gegen die Bereinigung; auch ein abgebrochener HTTP-Upload
 lässt seinen begonnenen privaten Schreibvorgang kontrolliert auslaufen.
+Eine Importquelle wird erst nach vollständigem Schreiben als `source` sichtbar.
+Scheitert das Speichern eines Fehlerstatus, wiederholt der Worker diesen Abschluss
+nach Wiederherstellung der Datenbankverbindung. Bereits gespeicherte Zeilen bleiben erhalten.
 
-Beim Neustart werden unterbrochene Aufträge als fehlgeschlagen kenntlich gemacht.
+Beim Neustart gleicht das Backend die Aufträge ab, bevor es Anfragen annimmt.
+Unterbrochene Aufträge werden als fehlgeschlagen kenntlich gemacht.
 Fehlende Dateien nach Restore oder Volume-Verlust führen nicht zu gültigen
 Downloadangeboten. Verwaiste Auftragsverzeichnisse ohne Datenbankeintrag werden beim
 Start entfernt. Physische Löschfehler bleiben retry-fähig; die Kontolöschung gilt

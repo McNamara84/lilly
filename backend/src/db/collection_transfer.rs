@@ -58,6 +58,17 @@ pub async fn create_job(
     job: &TransferJob,
     max_per_day: u32,
 ) -> Result<(), AppError> {
+    crate::services::transaction_retry::retry_transaction("create transfer job", || {
+        create_job_once(pool, job, max_per_day)
+    })
+    .await
+}
+
+async fn create_job_once(
+    pool: &MySqlPool,
+    job: &TransferJob,
+    max_per_day: u32,
+) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     let active =
         sqlx::query_scalar::<_, String>("SELECT account_state FROM users WHERE id = ? FOR UPDATE")
