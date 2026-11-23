@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import CollectionImport from '../src/routes/collection/import/+page.svelte';
 import PersonalExport from '../src/routes/account/data-export/+page.svelte';
 import type { TransferJob } from '#lib/api/collection-transfer.js';
@@ -125,22 +125,55 @@ async function upload() {
 	return file;
 }
 
+function settle<T>(request: PromiseWithResolvers<T>, result: T, outcome: 'success' | 'failure') {
+	return act(() => {
+		if (outcome === 'failure') request.reject(new Error('Request failed'));
+		else request.resolve(result);
+	});
+}
+
 describe('collection import and export page', () => {
-	it('restores an existing job after reloading its protected URL', async () => {
+	it.each(['csv', 'json'] as const)('restores a %s job from its protected URL', async (format) => {
 		window.history.replaceState(null, '', '/collection/import?job=job-1');
+		mocks.fetchImport.mockResolvedValue(job({ status: 'completed', format }));
 		render(CollectionImport);
 		await screen.findByRole('heading', { name: 'Import abgeschlossen' });
 		expect(mocks.fetchImport).toHaveBeenCalledWith('job-1');
-		expect(screen.getByLabelText('Dateiformat')).toHaveValue('json');
+		expect(screen.getByLabelText('Dateiformat')).toHaveValue(format);
 		expect(mocks.preview).not.toHaveBeenCalled();
 	});
-	it('reports an unavailable restored job and keeps a fresh upload possible', async () => {
+	it.each([
+		[new Error('Auftrag nicht verfügbar'), 'Auftrag nicht verfügbar'],
+		[null, 'Der Auftrag konnte nicht geladen werden.']
+	])('keeps a fresh upload possible when restoration fails with %s', async (cause, message) => {
 		window.history.replaceState(null, '', '/collection/import?job=missing');
-		mocks.fetchImport.mockRejectedValue(new Error('Auftrag nicht verfügbar'));
+		mocks.fetchImport.mockRejectedValue(cause);
 		render(CollectionImport);
-		await screen.findByText('Auftrag nicht verfügbar');
+		expect(await screen.findByRole('alert')).toHaveTextContent(message);
 		expect(screen.getByLabelText('Bestandsdatei')).not.toBeDisabled();
 	});
+	it('waits for session verification before restoring a private import', () => {
+		Object.assign(mocks.auth, { isLoading: true, isAuthenticated: false });
+		window.history.replaceState(null, '', '/collection/import?job=private');
+		render(CollectionImport);
+		expect(screen.getByLabelText('Bestandsdatei')).toBeDisabled();
+		expect(screen.getByTestId('collection-export-json')).toBeDisabled();
+		expect(mocks.fetchImport).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
+	});
+	it.each(['success', 'failure'] as const)(
+		'keeps a restored import from refreshing private data after leaving (%s)',
+		async (outcome) => {
+			window.history.replaceState(null, '', '/collection/import?job=job-1');
+			const response = Promise.withResolvers<TransferJob>();
+			mocks.fetchImport.mockReturnValueOnce(response.promise);
+			const { unmount } = render(CollectionImport);
+			await waitFor(() => expect(mocks.fetchImport).toHaveBeenCalledWith('job-1'));
+			unmount();
+			await settle(response, job({ status: 'completed' }), outcome);
+			expect(mocks.refresh).not.toHaveBeenCalled();
+		}
+	);
 	it('requires a selected file and shows a non-mutating preview with row feedback', async () => {
 		render(CollectionImport);
 		expect(screen.getByTestId('collection-import-preview')).toBeDisabled();
@@ -173,6 +206,30 @@ describe('collection import and export page', () => {
 		await fireEvent.change(screen.getByLabelText('Dateiformat'), { target: { value: 'csv' } });
 		expect(screen.queryByTestId('collection-import-confirm')).not.toBeInTheDocument();
 	});
+	it('shows rows without a copy key and prevents submitting a cleared file selection', async () => {
+		mocks.preview.mockResolvedValue(
+			job({
+				results: [
+					{
+						row_number: 1,
+						copy_key: null,
+						status: 'invalid',
+						code: 'invalid_fields',
+						entry_id: null
+					}
+				]
+			})
+		);
+		render(CollectionImport);
+		await upload();
+		expect(await screen.findByRole('cell', { name: '–' })).toBeInTheDocument();
+		const input = screen.getByLabelText<HTMLInputElement>('Bestandsdatei');
+		await fireEvent.change(input, { target: { files: [] } });
+		expect(screen.queryByTestId('import-result')).not.toBeInTheDocument();
+		expect(screen.getByTestId('collection-import-preview')).toBeDisabled();
+		await fireEvent.submit(input.form!);
+		expect(mocks.preview).toHaveBeenCalledOnce();
+	});
 	it('confirms only explicitly and refreshes the offline snapshot after actual completion', async () => {
 		render(CollectionImport);
 		await upload();
@@ -194,20 +251,32 @@ describe('collection import and export page', () => {
 		await screen.findByText(/Der Import ist auf dem Server abgeschlossen/);
 		expect(screen.queryByTestId('transfer-error')).not.toBeInTheDocument();
 	});
-	it('preserves the preview after confirmation or status errors and allows retry', async () => {
-		mocks.commit.mockRejectedValueOnce(new Error('Bestätigung unterbrochen'));
-		render(CollectionImport);
-		await upload();
-		await fireEvent.click(await screen.findByTestId('collection-import-confirm'));
-		await screen.findByText('Bestätigung unterbrochen');
-		expect(screen.getByTestId('collection-import-confirm')).not.toBeDisabled();
-		mocks.fetchImport.mockRejectedValueOnce(new Error('Status unterbrochen'));
-		await fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' }));
-		await screen.findByText('Status unterbrochen');
-		await fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' }));
-		await screen.findByRole('heading', { name: 'Import abgeschlossen' });
-		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-	});
+	it.each([
+		[new Error('Bestätigung unterbrochen'), 'Bestätigung unterbrochen', 'Status unterbrochen'],
+		[
+			null,
+			'Der Import konnte nicht gestartet werden.',
+			'Der Auftragsstatus konnte nicht geladen werden.'
+		]
+	])(
+		'preserves the preview and allows retry after a confirmation error of %s',
+		async (cause, confirmationMessage, statusMessage) => {
+			mocks.commit.mockRejectedValueOnce(cause);
+			render(CollectionImport);
+			await upload();
+			await fireEvent.click(await screen.findByTestId('collection-import-confirm'));
+			expect(await screen.findByRole('alert')).toHaveTextContent(confirmationMessage);
+			expect(screen.getByTestId('collection-import-confirm')).not.toBeDisabled();
+			mocks.fetchImport.mockRejectedValueOnce(
+				cause instanceof Error ? new Error(statusMessage) : cause
+			);
+			await fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' }));
+			expect(await screen.findByRole('alert')).toHaveTextContent(statusMessage);
+			await fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' }));
+			await screen.findByRole('heading', { name: 'Import abgeschlossen' });
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		}
+	);
 	it('polls a queued import automatically and stops after completion', async () => {
 		render(CollectionImport);
 		await upload();
@@ -225,19 +294,76 @@ describe('collection import and export page', () => {
 			vi.useRealTimers();
 		}
 	});
-	it('shows upload and download failures with a usable retry action', async () => {
-		mocks.preview.mockRejectedValueOnce(new Error('Ungültige CSV-Spalten'));
-		render(CollectionImport);
-		await upload();
-		await screen.findByRole('alert');
-		expect(screen.getByRole('alert')).toHaveTextContent('Ungültige CSV-Spalten');
-		expect(screen.queryByTestId('collection-import-confirm')).not.toBeInTheDocument();
-		await fireEvent.click(screen.getByTestId('collection-import-preview'));
-		await screen.findByRole('heading', { name: 'Vorschau bereit' });
-		mocks.download.mockRejectedValueOnce(new Error('Download unterbrochen'));
-		await fireEvent.click(screen.getByTestId('collection-export-csv'));
-		await screen.findByText('Download unterbrochen');
-	});
+	it.each([
+		[new Error('Ungültige CSV-Spalten'), 'Ungültige CSV-Spalten', 'Download unterbrochen'],
+		[null, 'Die Datei konnte nicht geprüft werden.', 'Der Download ist fehlgeschlagen.']
+	])(
+		'allows retry after a failed upload of %s and reports a download error',
+		async (cause, previewMessage, downloadMessage) => {
+			mocks.preview.mockRejectedValueOnce(cause);
+			render(CollectionImport);
+			await upload();
+			expect(await screen.findByRole('alert')).toHaveTextContent(previewMessage);
+			expect(screen.queryByTestId('collection-import-confirm')).not.toBeInTheDocument();
+			await fireEvent.click(screen.getByTestId('collection-import-preview'));
+			await screen.findByRole('heading', { name: 'Vorschau bereit' });
+			mocks.download.mockRejectedValueOnce(
+				cause instanceof Error ? new Error(downloadMessage) : cause
+			);
+			await fireEvent.click(screen.getByTestId('collection-export-csv'));
+			expect(await screen.findByRole('alert')).toHaveTextContent(downloadMessage);
+		}
+	);
+	it.each(['success', 'failure'] as const)(
+		'discards a preview after leaving (%s)',
+		async (outcome) => {
+			const response = Promise.withResolvers<TransferJob>();
+			mocks.preview.mockReturnValueOnce(response.promise);
+			const { unmount } = render(CollectionImport);
+			await upload();
+			expect(mocks.preview).toHaveBeenCalledOnce();
+			expect(screen.getByLabelText('Bestandsdatei')).toBeDisabled();
+			unmount();
+			await settle(response, job(), outcome);
+			expect(mocks.goto).not.toHaveBeenCalled();
+		}
+	);
+	it.each(['success', 'failure'] as const)(
+		'keeps import polling stopped if confirmation settles after leaving (%s)',
+		async (outcome) => {
+			const response = Promise.withResolvers<TransferJob>();
+			mocks.commit.mockReturnValueOnce(response.promise);
+			const { unmount } = render(CollectionImport);
+			await upload();
+			const confirm = await screen.findByTestId('collection-import-confirm');
+			vi.useFakeTimers();
+			try {
+				await fireEvent.click(confirm);
+				expect(mocks.commit).toHaveBeenCalledOnce();
+				unmount();
+				await settle(response, job({ status: 'queued' }), outcome);
+				await vi.advanceTimersByTimeAsync(3_000);
+				expect(mocks.fetchImport).not.toHaveBeenCalled();
+			} finally {
+				vi.useRealTimers();
+			}
+		}
+	);
+	it.each(['success', 'failure'] as const)(
+		'keeps an import status refresh from updating private data after leaving (%s)',
+		async (outcome) => {
+			const response = Promise.withResolvers<TransferJob>();
+			mocks.fetchImport.mockReturnValueOnce(response.promise);
+			const { unmount } = render(CollectionImport);
+			await upload();
+			await screen.findByRole('heading', { name: 'Vorschau bereit' });
+			await fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' }));
+			expect(mocks.fetchImport).toHaveBeenCalledWith('job-1', 1);
+			unmount();
+			await settle(response, job({ status: 'completed' }), outcome);
+			expect(mocks.refresh).not.toHaveBeenCalled();
+		}
+	);
 	it('downloads complete formats and templates using distinct actions', async () => {
 		render(CollectionImport);
 		for (const [name, format, template] of [
@@ -297,6 +423,54 @@ describe('collection import and export page', () => {
 });
 
 describe('personal data export page', () => {
+	it.each(['success', 'failure'] as const)(
+		'preserves a newer export list when an older request returns %s',
+		async (outcome) => {
+			const outdated = Promise.withResolvers<TransferJob[]>();
+			mocks.list
+				.mockResolvedValueOnce([])
+				.mockReturnValueOnce(outdated.promise)
+				.mockResolvedValueOnce([job({ kind: 'export', status: 'ready' })]);
+			render(PersonalExport);
+			await screen.findByText('Noch kein Export angefordert.');
+			const refresh = screen.getByRole('button', { name: 'Aktualisieren' });
+			await fireEvent.click(refresh);
+			await fireEvent.click(refresh);
+			await screen.findByTestId('download-personal-export');
+			await settle(outdated, [job({ kind: 'export', status: 'queued' })], outcome);
+			expect(screen.getByTestId('download-personal-export')).toBeEnabled();
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		}
+	);
+	it.each(['success', 'failure'] as const)(
+		'discards an export list response after leaving (%s)',
+		async (outcome) => {
+			const response = Promise.withResolvers<TransferJob[]>();
+			mocks.list.mockReturnValueOnce(response.promise);
+			vi.useFakeTimers();
+			try {
+				const { unmount } = render(PersonalExport);
+				await act(() => undefined);
+				expect(mocks.list).toHaveBeenCalledOnce();
+				unmount();
+				await settle(response, [job({ kind: 'export', status: 'queued' })], outcome);
+				await vi.advanceTimersByTimeAsync(3_000);
+				expect(mocks.list).toHaveBeenCalledOnce();
+			} finally {
+				vi.useRealTimers();
+			}
+		}
+	);
+	it('allows refreshing the export list after an unexpected load failure', async () => {
+		mocks.list.mockRejectedValueOnce(null).mockResolvedValue([]);
+		render(PersonalExport);
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Die Exportaufträge konnten nicht geladen werden.'
+		);
+		await fireEvent.click(screen.getByRole('button', { name: 'Aktualisieren' }));
+		await screen.findByText('Noch kein Export angefordert.');
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
 	it('returns to confirmation when authentication expires during a request or download', async () => {
 		mocks.request.mockRejectedValueOnce(
 			new TransferError('Anmeldung erneut bestätigen', 'RECENT_AUTH_REQUIRED')
@@ -379,31 +553,75 @@ describe('personal data export page', () => {
 		expect(screen.queryByLabelText('Aktuelles Passwort')).not.toBeInTheDocument();
 		expect(screen.getByTestId('request-personal-export')).not.toBeDisabled();
 	});
-	it('clears a failed password attempt and allows another attempt', async () => {
-		mocks.options.mockResolvedValue({ recent_authentication: false, password: true });
-		mocks.password.mockRejectedValue(new Error('Passwort ist falsch'));
-		render(PersonalExport);
-		const password = await screen.findByLabelText('Aktuelles Passwort');
-		await fireEvent.input(password, { target: { value: 'wrong-password' } });
-		await fireEvent.click(screen.getByTestId('export-confirm-password'));
-		await screen.findByText('Passwort ist falsch');
-		expect(password).toHaveValue('');
-	});
-	it('shows available OAuth methods and handles an unavailable provider', async () => {
+	it.each([
+		[new Error('Passwort ist falsch'), 'Passwort ist falsch'],
+		[null, 'Die Bestätigung ist fehlgeschlagen.']
+	])(
+		'clears the password and allows another attempt after a failure of %s',
+		async (cause, message) => {
+			mocks.options.mockResolvedValue({ recent_authentication: false, password: true });
+			mocks.password.mockRejectedValue(cause);
+			render(PersonalExport);
+			const password = await screen.findByLabelText('Aktuelles Passwort');
+			await fireEvent.input(password, { target: { value: 'wrong-password' } });
+			await fireEvent.click(screen.getByTestId('export-confirm-password'));
+			expect(await screen.findByRole('alert')).toHaveTextContent(message);
+			expect(password).toHaveValue('');
+			await fireEvent.input(password, { target: { value: 'another-password' } });
+			expect(screen.getByTestId('export-confirm-password')).toBeEnabled();
+		}
+	);
+	it.each(['success', 'failure'] as const)(
+		'does not reload private jobs after leaving during password confirmation (%s)',
+		async (outcome) => {
+			const response = Promise.withResolvers<void>();
+			mocks.options.mockResolvedValue({ recent_authentication: false, password: true });
+			mocks.password.mockReturnValueOnce(response.promise);
+			const { unmount } = render(PersonalExport);
+			const password = await screen.findByLabelText('Aktuelles Passwort');
+			await fireEvent.input(password, { target: { value: 'temporary-password' } });
+			await fireEvent.click(screen.getByTestId('export-confirm-password'));
+			expect(mocks.password).toHaveBeenCalledOnce();
+			unmount();
+			await settle(response, undefined, outcome);
+			expect(mocks.list).toHaveBeenCalledOnce();
+		}
+	);
+	it.each([
+		[new Error('Provider nicht verfügbar'), 'Provider nicht verfügbar'],
+		[null, 'Die Anmeldung konnte nicht bestätigt werden.']
+	])('offers only the linked OAuth provider and allows retry after %s', async (cause, message) => {
 		mocks.options.mockResolvedValue({
 			recent_authentication: false,
 			password: false,
-			google: true,
+			google: false,
 			github: true
 		});
-		mocks.oauth.mockRejectedValue(new Error('Provider nicht verfügbar'));
+		mocks.oauth.mockRejectedValue(cause);
 		render(PersonalExport);
-		await screen.findByRole('button', { name: 'Mit GitHub bestätigen' });
+		const confirm = await screen.findByRole('button', { name: 'Mit GitHub bestätigen' });
 		expect(screen.queryByLabelText('Aktuelles Passwort')).not.toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Mit GitHub bestätigen' }));
-		await screen.findByText('Provider nicht verfügbar');
+		expect(screen.queryByRole('button', { name: 'Mit Google bestätigen' })).not.toBeInTheDocument();
+		await fireEvent.click(confirm);
+		expect(await screen.findByRole('alert')).toHaveTextContent(message);
+		expect(confirm).toBeEnabled();
 		expect(mocks.oauth).toHaveBeenCalledWith('github', 'reauth');
 	});
+	it.each(['success', 'failure'] as const)(
+		'keeps the next page open when OAuth settles after leaving (%s)',
+		async (outcome) => {
+			const response = Promise.withResolvers<string>();
+			mocks.options.mockResolvedValue({ recent_authentication: false, github: true });
+			mocks.oauth.mockReturnValueOnce(response.promise);
+			const { unmount } = render(PersonalExport);
+			await fireEvent.click(await screen.findByRole('button', { name: 'Mit GitHub bestätigen' }));
+			expect(mocks.oauth).toHaveBeenCalledOnce();
+			unmount();
+			await settle(response, '#late-confirmation', outcome);
+			expect(window.location.hash).toBe('');
+			expect(sessionStorage.getItem('lilly-data-export-reauth')).toBeNull();
+		}
+	);
 	it('explains failed, cancelled and expired exports without offering old downloads', async () => {
 		mocks.list.mockResolvedValue([
 			job({ id: 'failed', kind: 'export', status: 'failed' }),
@@ -425,16 +643,50 @@ describe('personal data export page', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Aktualisieren' }));
 		await screen.findByText('Status nicht erreichbar');
 	});
-	it('shows request and download errors and blocks all actions offline', async () => {
-		mocks.request.mockRejectedValueOnce(new Error('Limit erreicht'));
+	it.each([
+		[new Error('Limit erreicht'), 'Limit erreicht'],
+		[null, 'Der Export konnte nicht angefordert werden.']
+	])('allows another export request after a failure of %s', async (cause, message) => {
+		mocks.request.mockRejectedValueOnce(cause);
 		render(PersonalExport);
 		await screen.findByText('Noch kein Export angefordert.');
-		await fireEvent.click(screen.getByTestId('request-personal-export'));
-		await screen.findByText('Limit erreicht');
-		cleanup();
+		const request = screen.getByTestId('request-personal-export');
+		await fireEvent.click(request);
+		expect(await screen.findByRole('alert')).toHaveTextContent(message);
+		expect(request).toBeEnabled();
+	});
+	it.each(['success', 'failure'] as const)(
+		'does not request a new list if export creation settles after leaving (%s)',
+		async (outcome) => {
+			const response = Promise.withResolvers<TransferJob>();
+			mocks.request.mockReturnValueOnce(response.promise);
+			const { unmount } = render(PersonalExport);
+			await screen.findByText('Noch kein Export angefordert.');
+			await fireEvent.click(screen.getByTestId('request-personal-export'));
+			expect(mocks.request).toHaveBeenCalledOnce();
+			unmount();
+			await settle(response, job({ kind: 'export', status: 'queued' }), outcome);
+			expect(mocks.list).toHaveBeenCalledOnce();
+		}
+	);
+	it.each([
+		[new Error('Die Exportdatei ist abgelaufen.'), 'Die Exportdatei ist abgelaufen.'],
+		[null, 'Der Download konnte nicht gestartet werden.']
+	])('keeps the list visible after a download failure of %s', async (cause, message) => {
+		mocks.list.mockResolvedValue([job({ kind: 'export', status: 'ready' })]);
+		mocks.personalDownload.mockRejectedValueOnce(cause);
+		render(PersonalExport);
+		const download = await screen.findByTestId('download-personal-export');
+		await fireEvent.click(download);
+		expect(await screen.findByRole('alert')).toHaveTextContent(message);
+		expect(download).toBeEnabled();
+	});
+	it('blocks creation and download while offline', async () => {
 		mocks.offline.online = false;
+		mocks.list.mockResolvedValue([job({ kind: 'export', status: 'ready' })]);
 		render(PersonalExport);
 		await screen.findByText('Die Datenauskunft benötigt eine Internetverbindung.');
 		expect(screen.getByTestId('request-personal-export')).toBeDisabled();
+		expect(await screen.findByTestId('download-personal-export')).toBeDisabled();
 	});
 });

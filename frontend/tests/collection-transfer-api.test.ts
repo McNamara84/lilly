@@ -149,11 +149,13 @@ describe('private requests and readable errors', () => {
 		fetchMock.mockImplementation(async () => response(job));
 		await fetchReauthenticationOptions();
 		await listPersonalExports();
+		await listPersonalExports(2);
 		await requestPersonalExport();
 		await fetchPersonalExport('a/b');
 		expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
 			'/api/v1/me/reauthentication/options',
 			'/api/v1/me/data-exports',
+			'/api/v1/me/data-exports?page=2',
 			'/api/v1/me/data-exports',
 			'/api/v1/me/data-exports/a%2Fb'
 		]);
@@ -162,7 +164,10 @@ describe('private requests and readable errors', () => {
 				(call) => call[1].cache === 'no-store' && call[1].credentials === 'same-origin'
 			)
 		).toBe(true);
-		expect(fetchMock.mock.calls[2][1].method).toBe('POST');
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/v1/me/data-exports',
+			expect.objectContaining({ method: 'POST' })
+		);
 	});
 });
 

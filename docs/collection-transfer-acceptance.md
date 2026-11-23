@@ -97,7 +97,7 @@ sind gegen gleichzeitige Bereinigung geschützt.
 | --- | --- |
 | Rust, vollständiger Workspace mit echter MariaDB unter Linux | **472 Tests bestanden:** 362 Backend, 80 Adapter, 30 Core. |
 | Zusätzliche native Transfer-Integration unter Windows | Alle 18 Transfer-Integrationstests bestanden. |
-| Frontend, vollständige Vitest-Suite | **1.131 Tests in 76 Dateien bestanden.** |
+| Frontend, vollständige Vitest-Suite (23. November 2026) | **1.162 Tests in 76 Dateien bestanden.** |
 | Neue Browserabläufe | **16 bestanden:** je vier Tests in Chromium, Firefox, WebKit und mobilem Chromium. |
 | Bestehende Sammlung-/Foto-/Tausch-/Vertragsabläufe | **105 bestanden** über die drei Desktopbrowser. |
 | Mobile Offline-Regressionsabläufe | **3 bestanden.** Damit insgesamt 124 Browserprüfungen. |
@@ -111,10 +111,16 @@ sich auf die vollständigen Suiten, nicht nur auf erfolgreiche Beispielabläufe:
 
 | Bereich | Abdeckung |
 | --- | --- |
-| Frontend gesamt | **98,80 % Statements**, 99,54 % Zeilen, 90,01 % Branches, 98,11 % Funktionen. |
+| Frontend gesamt | **98,86 % Statements**, 99,54 % Zeilen, 91,00 % Branches, 98,11 % Funktionen. |
 | Neue Transfer-API und beide neuen Seiten | Jeweils **100 % Zeilen**; die Branch-Abdeckung bleibt darunter. |
 | Rust-Workspace gesamt, Linux | **88,47 % Zeilen**, 86,31 % LLVM-Regions. |
 | Neue Transfermodule: Persistenz, Routen, Format, Archiv, Worker | Zusammen **91,81 % Zeilen**; einzeln 95,79 %, 95,69 %, 95,44 %, 87,76 % und 88,26 %. |
+
+Codecov berücksichtigt für `codecov/patch` auch teilweise abgedeckte Zeilen im
+PR-Diff. Der Vergleich mit der PR-Basis `e0cbc96` reproduziert aus dem ursprünglichen
+LCOV-Bericht den Wert von 87,218 %. Die ergänzten Tests für Fehler, Wiederholungen
+und verspätete Antworten erhöhen den lokalen Wert auf **96,24 %** (384 von 399
+Zeilen). Die Zielschwelle beträgt 94,69 %. [Codecov-Bericht zu PR #150](https://app.codecov.io/gh/McNamara84/lilly/pull/150)
 
 Es wird keine vollständige Branch- oder Fehlerpfadabdeckung behauptet. Insbesondere
 beliebige Datenbank-/Dateisystemfehler bei jedem einzelnen Systemaufruf,
