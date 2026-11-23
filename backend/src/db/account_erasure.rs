@@ -483,6 +483,20 @@ pub async fn erase_primary_data(
     .bind(user_id)
     .execute(&mut *transaction)
     .await?;
+    // An archive can delay multiple erasures. Keep the links after the subject
+    // references are cleared by account deletion.
+    sqlx::query(
+        "INSERT INTO account_erasure_transfer_jobs (erasure_job_id, transfer_job_id) \
+         SELECT ?, j.id FROM data_export_subjects s \
+         JOIN transfer_jobs j ON j.id = s.job_id \
+         WHERE s.subject_user_id = ? AND (j.user_id IS NULL OR j.user_id <> ?) \
+           AND j.files_deleted = FALSE",
+    )
+    .bind(job_id)
+    .bind(user_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await?;
     sqlx::query("DELETE r FROM collection_import_results r JOIN transfer_jobs j ON j.id = r.job_id WHERE j.user_id = ?")
         .bind(user_id).execute(&mut *transaction).await?;
 
@@ -570,13 +584,18 @@ pub async fn finish_storage_phase(
     if pending != 0 {
         return Ok(false);
     }
-    let transfers: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM transfer_jobs WHERE erasure_job_id = ? AND files_deleted = FALSE",
+    let pending_transfers: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM transfer_jobs \
+                       WHERE erasure_job_id = ? AND files_deleted = FALSE) \
+             OR EXISTS(SELECT 1 FROM account_erasure_transfer_jobs linked \
+                       JOIN transfer_jobs j ON j.id = linked.transfer_job_id \
+                       WHERE linked.erasure_job_id = ? AND j.files_deleted = FALSE)",
     )
+    .bind(job_id)
     .bind(job_id)
     .fetch_one(pool)
     .await?;
-    if transfers != 0 {
+    if pending_transfers {
         return Ok(false);
     }
     sqlx::query(

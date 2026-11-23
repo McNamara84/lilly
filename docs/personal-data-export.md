@@ -79,10 +79,11 @@ klassifiziert. Das Archiv enthält keine nachzuladenden externen Ressourcen.
 
 Bei einer eigenen Kontolöschanforderung werden Aufträge ungültig und Dateien
 retry-fähig entfernt. Eine Rücknahme der Löschung reaktiviert alte Archive nicht.
-Betroffene noch abrufbare Archive anderer Teilnehmer werden bei Partnerlöschung
-ebenfalls ungültig. Vor Veröffentlichung und Download werden die erfassten
-Kontozustände erneut geprüft. Bereits heruntergeladene lokale Kopien können
-serverseitig nicht zurückgerufen werden.
+Betroffene Archive anderer Teilnehmer werden bei Partnerlöschung ebenfalls
+ungültig. Der Löschauftrag bleibt offen, bis die Dateien aller betroffenen
+Archive physisch entfernt wurden. Vor Veröffentlichung und Download werden
+die erfassten Kontozustände erneut geprüft. Bereits heruntergeladene lokale
+Kopien können serverseitig nicht zurückgerufen werden.
 
 ## Betrieb und Wiederherstellung
 

@@ -90,9 +90,11 @@ format_version;copy_key;series_slug;issue_number;copy_number;status
 ```
 
 Die optionalen Spalten entsprechen den obigen Feldern. Der Export ergänzt außerdem
-`text_encoding`. Die Reihenfolge der Spalten ist frei; jede darf nur einmal vorkommen.
-Optionale leere CSV-Zellen entsprechen `null`. Anführungszeichen werden verdoppelt;
-Trennzeichen und Zeilenumbrüche innerhalb einer Zelle werden korrekt zitiert.
+`text_encoding`. Die Spalten können in beliebiger Reihenfolge stehen und dürfen
+jeweils nur einmal vorkommen. Jeder Datensatz muss genauso viele Felder haben wie
+die Kopfzeile. Optionale leere CSV-Zellen entsprechen `null`. Anführungszeichen
+werden verdoppelt. Trennzeichen und Zeilenumbrüche innerhalb einer Zelle werden
+korrekt zitiert.
 
 ```csv
 format_version;copy_key;series_slug;issue_number;copy_number;status;condition_grade;edition_label;notes

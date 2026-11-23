@@ -58,7 +58,12 @@ const DATASETS: &[(&str, &str)] = &[
     ),
     (
         "match_items",
-        "SELECT JSON_OBJECT('match_id', mi.match_id, 'issue_id', mi.issue_id, 'is_offering', mi.offered_by_user_id = ?, 'own_entry_id', CASE WHEN mi.offered_by_user_id = ? THEN mi.offer_entry_id ELSE mi.wanted_entry_id END, 'condition_grade', ce.condition_grade, 'edition_label', ce.edition_label) FROM trade_match_items mi JOIN trade_matches m ON m.id = mi.match_id JOIN collection_entries ce ON ce.id = mi.offer_entry_id WHERE m.user_low_id = ? OR m.user_high_id = ? ORDER BY mi.id",
+        "SELECT JSON_OBJECT('match_id', mi.match_id, 'issue_id', mi.issue_id, 'is_offering', mi.offered_by_user_id = ?, 'own_entry_id', ce.id, 'condition_grade', ce.condition_grade, 'edition_label', ce.edition_label) \
+         FROM trade_match_items mi JOIN trade_matches m ON m.id = mi.match_id \
+         JOIN collection_entries ce \
+           ON ce.id = CASE WHEN mi.offered_by_user_id = ? THEN mi.offer_entry_id ELSE mi.wanted_entry_id END \
+          AND ce.user_id = ? \
+         WHERE m.user_low_id = ? OR m.user_high_id = ? ORDER BY mi.id",
     ),
     (
         "trades",

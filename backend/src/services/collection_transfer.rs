@@ -229,7 +229,6 @@ fn parse_csv(text: &str) -> Result<Vec<serde_json::Value>, AppError> {
     validate_csv_syntax(text)?;
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b';')
-        .flexible(true)
         .from_reader(text.as_bytes());
     let headers = reader
         .headers()
@@ -245,10 +244,6 @@ fn parse_csv(text: &str) -> Result<Vec<serde_json::Value>, AppError> {
     let mut result = Vec::new();
     for row in reader.records() {
         let row = row.map_err(|_| invalid_file("invalid_csv_structure"))?;
-        if row.len() != headers.len() {
-            result.push(serde_json::Value::Null);
-            continue;
-        }
         let fields: HashMap<&str, &str> = headers.iter().zip(row.iter()).collect();
         if fields.get("format_version") != Some(&"1") {
             return Err(invalid_file("unsupported_format_version"));
@@ -396,6 +391,51 @@ mod tests {
             let encoded = encode_document(&[], format, "now").unwrap();
             assert!(parse(&encoded, format).unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn json_accepts_omitted_and_null_exported_at() {
+        let entry = template_entry();
+        let mut document = serde_json::json!({
+            "format": FORMAT_NAME,
+            "format_version": FORMAT_VERSION,
+            "entries": [&entry],
+        });
+        for exported_at in [None, Some(serde_json::Value::Null)] {
+            if let Some(exported_at) = exported_at {
+                document["exported_at"] = exported_at;
+            }
+            let rows = parse(document.to_string().as_bytes(), "json").unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].entry.as_ref(), Some(&entry));
+            assert!(rows[0].code.is_none());
+        }
+    }
+
+    #[test]
+    fn csv_rejects_records_with_missing_or_extra_columns() {
+        let header =
+            "format_version;copy_key;series_slug;issue_number;copy_number;status;condition_grade";
+        let valid = "1;first;maddrax;1;1;owned;Z2";
+        for malformed in [
+            "1;second;maddrax;2;1;owned",
+            "1;second;maddrax;2;1;owned;Z2;unexpected",
+        ] {
+            let csv = format!("{header}\n{valid}\n{malformed}\n");
+            assert!(
+                matches!(
+                    parse(csv.as_bytes(), "csv"),
+                    Err(AppError::BadRequestWithCode { code, .. }) if code == "invalid_csv_structure"
+                ),
+                "{malformed}"
+            );
+        }
+
+        let csv = format!("{header}\n{valid}\n1;second;maddrax;2;invalid;owned;Z2\n");
+        let rows = parse(csv.as_bytes(), "csv").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].entry.is_some());
+        assert_eq!(rows[1].code.as_deref(), Some("invalid_fields"));
     }
 
     #[test]

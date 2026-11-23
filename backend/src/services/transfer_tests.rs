@@ -387,14 +387,31 @@ async fn export_covers_session_offline_matching_and_catalogue_actor_metadata() {
         .import(&[fixture.entry("audit-copy", 3)], "json")
         .await;
     let pool = &fixture.state.inner.pool;
-    for (user, issue, status) in [
-        (fixture.owner, fixture.issues[0], "duplicate"),
-        (fixture.other, fixture.issues[0], "wanted"),
-        (fixture.other, fixture.issues[1], "duplicate"),
-        (fixture.owner, fixture.issues[1], "wanted"),
+    let mut own_entries = Vec::new();
+    for (user, issue, status, grade, edition) in [
+        (
+            fixture.owner,
+            fixture.issues[0],
+            "duplicate",
+            "Z2",
+            Some("Own offered edition"),
+        ),
+        (fixture.other, fixture.issues[0], "wanted", "Z3", None),
+        (
+            fixture.other,
+            fixture.issues[1],
+            "duplicate",
+            "Z1",
+            Some("Partner's private edition"),
+        ),
+        (fixture.owner, fixture.issues[1], "wanted", "Z4", None),
     ] {
-        sqlx::query("INSERT INTO collection_entries (user_id, issue_id, copy_number, status, condition_grade, edition_label) VALUES (?, ?, 1, ?, 'Z2', 'Audit edition')")
-            .bind(user).bind(issue).bind(status).execute(pool).await.unwrap();
+        let entry_id = sqlx::query("INSERT INTO collection_entries (user_id, issue_id, copy_number, status, condition_grade, edition_label) VALUES (?, ?, 1, ?, ?, ?)")
+            .bind(user).bind(issue).bind(status).bind(grade).bind(edition)
+            .execute(pool).await.unwrap().last_insert_id();
+        if user == fixture.owner {
+            own_entries.push((issue, entry_id, status == "duplicate", grade, edition));
+        }
     }
     crate::services::trade_matching::reconcile_user(pool, fixture.owner)
         .await
@@ -412,7 +429,6 @@ async fn export_covers_session_offline_matching_and_catalogue_actor_metadata() {
         ("sessions", 1),
         ("offline_receipts", 1),
         ("matches", 1),
-        ("match_items", 2),
         ("wiki_import_activity", 1),
         ("collection_metadata", 3),
         ("copy_keys", 3),
@@ -423,6 +439,19 @@ async fn export_covers_session_offline_matching_and_catalogue_actor_metadata() {
         assert!(!data.to_string().contains("SECRET-SESSION-HASH"));
         assert!(!data.to_string().contains("request_fingerprint"));
         assert!(!data.to_string().contains("PRIVATE-other-location"));
+    }
+    let match_items = archive_json(&fixture, &job.id, "data/match_items.json");
+    let match_items = match_items.as_array().unwrap();
+    assert_eq!(match_items.len(), own_entries.len());
+    for (issue, entry_id, is_offering, grade, edition) in own_entries {
+        let item = match_items
+            .iter()
+            .find(|item| item["issue_id"] == issue)
+            .unwrap();
+        assert_eq!(item["own_entry_id"], entry_id);
+        assert_eq!(item["is_offering"], is_offering);
+        assert_eq!(item["condition_grade"], grade);
+        assert_eq!(item["edition_label"], serde_json::json!(edition));
     }
     let manifest = archive_json(&fixture, &job.id, "manifest.json");
     assert_eq!(manifest["counts"]["matches"], 1);
@@ -506,6 +535,71 @@ async fn partner_deletion_invalidates_ready_archives_and_new_exports_keep_anonym
     );
     // The erasure worker already removed the partner account.
     fixture.finish().await;
+}
+
+#[tokio::test]
+async fn both_partner_erasures_wait_for_the_same_archive_to_be_removed() {
+    let _guard = crate::db::IMPORT_SYNC_TEST_LOCK.lock().await;
+    let fixture = Fixture::new().await;
+    let pool = &fixture.state.inner.pool;
+    create_thread(&fixture, fixture.owner, fixture.other).await;
+    create_thread(&fixture, fixture.owner, fixture.admin).await;
+    let export = fixture.export().await;
+    let config = &fixture.state.inner.transfer_config;
+    let archive = config.job_path(&export.id).unwrap().join("archive.zip");
+    let lease = config.lease(&export.id);
+
+    let mut erasure_ids = Vec::new();
+    for user_id in [fixture.other, fixture.admin] {
+        let subject: String = sqlx::query_scalar("SELECT erasure_subject FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert!(
+            crate::db::account_erasure::schedule_restored_subject(
+                pool,
+                &subject,
+                Utc::now().naive_utc(),
+            )
+            .await
+            .unwrap()
+        );
+        let erasure_id: u64 =
+            sqlx::query_scalar("SELECT id FROM account_erasure_jobs WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        erasure_ids.push(erasure_id);
+    }
+    crate::services::account_erasure::process_due_jobs(&fixture.state.inner)
+        .await
+        .unwrap();
+    assert!(archive.exists());
+    let status_query = "SELECT status FROM account_erasure_jobs WHERE id IN (?, ?) ORDER BY id";
+    let pending: Vec<String> = sqlx::query_scalar(status_query)
+        .bind(erasure_ids[0])
+        .bind(erasure_ids[1])
+        .fetch_all(pool)
+        .await
+        .unwrap();
+
+    drop(lease);
+    crate::services::account_erasure::process_due_jobs(&fixture.state.inner)
+        .await
+        .unwrap();
+    assert!(!archive.exists());
+    let completed: Vec<String> = sqlx::query_scalar(status_query)
+        .bind(erasure_ids[0])
+        .bind(erasure_ids[1])
+        .fetch_all(pool)
+        .await
+        .unwrap();
+    fixture.finish().await;
+
+    assert_eq!(pending, ["storage_pending", "storage_pending"]);
+    assert_eq!(completed, ["completed", "completed"]);
 }
 
 #[tokio::test]
